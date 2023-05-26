@@ -289,7 +289,7 @@ DocumentationWidget::DocumentationWidget(QWidget *pParent)
   mpJustifyToolButton->setCheckable(true);
   connect(mpJustifyToolButton, SIGNAL(clicked()), SLOT(justify()));
   // alignment button group
-  QButtonGroup *pAlignmentButtonGroup = new QButtonGroup;
+  QButtonGroup *pAlignmentButtonGroup = new QButtonGroup(this);
   pAlignmentButtonGroup->setExclusive(true);
   pAlignmentButtonGroup->addButton(mpAlignLeftToolButton);
   pAlignmentButtonGroup->addButton(mpAlignCenterToolButton);
@@ -803,56 +803,55 @@ void DocumentationWidget::saveDocumentation(LibraryTreeItem *pNextLibraryTreeIte
     if (pLibraryTreeItem && !pLibraryTreeItem->isNonExisting()) {
       QList<QString> documentation = MainWindow::instance()->getOMCProxy()->getDocumentationAnnotationInClass(pLibraryTreeItem);
       // old documentation annotation
-      QString oldDocAnnotationString = "annotate=Documentation(";
+      QList<QString> oldDocAnnotationList;
       if (!documentation.at(0).isEmpty()) {
-        oldDocAnnotationString.append("info=\"").append(StringHandler::escapeStringQuotes(documentation.at(0))).append("\"");
+        oldDocAnnotationList.append(QString("info=\"%1\"").arg(StringHandler::escapeStringQuotes(documentation.at(0))));
       }
       if (!documentation.at(1).isEmpty()) {
-        oldDocAnnotationString.append(", revisions=\"").append(StringHandler::escapeStringQuotes(documentation.at(1))).append("\"");
+        oldDocAnnotationList.append(QString("revisions=\"%1\"").arg(StringHandler::escapeStringQuotes(documentation.at(1))));
       }
       if (!documentation.at(2).isEmpty()) {
-        oldDocAnnotationString.append(", __OpenModelica_infoHeader=\"").append(StringHandler::escapeStringQuotes(documentation.at(2))).append("\"");
+        oldDocAnnotationList.append(QString("__OpenModelica_infoHeader=\"%1\"").arg(StringHandler::escapeStringQuotes(documentation.at(2))));
       }
-      oldDocAnnotationString.append(")");
+      QString oldDocAnnotationString = QString("annotate=Documentation(%1)").arg(oldDocAnnotationList.join(","));
       // new documentation annotation
-      QString newDocAnnotationString = "annotate=Documentation(";
+      QList<QString> newDocAnnotationList;
       if (mEditType == EditType::Info) { // if editing the info section
         if (!mpHTMLSourceEditor->getPlainTextEdit()->toPlainText().isEmpty()) {
-          newDocAnnotationString.append("info=\"").append(StringHandler::escapeStringQuotes(mpHTMLSourceEditor->getPlainTextEdit()->toPlainText())).append("\"");
+          newDocAnnotationList.append(QString("info=\"%1\"").arg(StringHandler::escapeStringQuotes(mpHTMLSourceEditor->getPlainTextEdit()->toPlainText())));
         }
         if (!documentation.at(1).isEmpty()) {
-          newDocAnnotationString.append(", revisions=\"").append(StringHandler::escapeStringQuotes(documentation.at(1))).append("\"");
+          newDocAnnotationList.append(QString("revisions=\"%1\"").arg(StringHandler::escapeStringQuotes(documentation.at(1))));
         }
         if (!documentation.at(2).isEmpty()) {
-          newDocAnnotationString.append(", __OpenModelica_infoHeader=\"").append(StringHandler::escapeStringQuotes(documentation.at(2))).append("\"");
+          newDocAnnotationList.append(QString("__OpenModelica_infoHeader=\"").arg(StringHandler::escapeStringQuotes(documentation.at(2))));
         }
       } else if (mEditType == EditType::Revisions) { // if editing the revisions section
         if (!documentation.at(0).isEmpty()) {
-          newDocAnnotationString.append("info=\"").append(StringHandler::escapeStringQuotes(documentation.at(0))).append("\"");
+          newDocAnnotationList.append(QString("info=\"%1\"").arg(StringHandler::escapeStringQuotes(documentation.at(0))));
         }
         if (!mpHTMLSourceEditor->getPlainTextEdit()->toPlainText().isEmpty()) {
-          newDocAnnotationString.append(", revisions=\"").append(StringHandler::escapeStringQuotes(mpHTMLSourceEditor->getPlainTextEdit()->toPlainText())).append("\"");
+          newDocAnnotationList.append(QString("revisions=\"%1\"").arg(StringHandler::escapeStringQuotes(mpHTMLSourceEditor->getPlainTextEdit()->toPlainText())));
         }
         if (!documentation.at(2).isEmpty()) {
-          newDocAnnotationString.append(", __OpenModelica_infoHeader=\"").append(StringHandler::escapeStringQuotes(documentation.at(2))).append("\"");
+          newDocAnnotationList.append(QString("__OpenModelica_infoHeader=\"%1\"").arg(StringHandler::escapeStringQuotes(documentation.at(2))));
         }
       } else if (mEditType == EditType::InfoHeader) { // if editing the __OpenModelica_infoHeader section
         if (!documentation.at(0).isEmpty()) {
-          newDocAnnotationString.append("info=\"").append(StringHandler::escapeStringQuotes(documentation.at(0))).append("\"");
+          newDocAnnotationList.append(QString("info=\"%1\"").arg(StringHandler::escapeStringQuotes(documentation.at(0))));
         }
         if (!documentation.at(1).isEmpty()) {
-          newDocAnnotationString.append(", revisions=\"").append(StringHandler::escapeStringQuotes(documentation.at(1))).append("\"");
+          newDocAnnotationList.append(QString("revisions=\"%1\"").arg(StringHandler::escapeStringQuotes(documentation.at(1))));
         }
         if (!mpHTMLSourceEditor->getPlainTextEdit()->toPlainText().isEmpty()) {
-          newDocAnnotationString.append(", __OpenModelica_infoHeader=\"").append(StringHandler::escapeStringQuotes(mpHTMLSourceEditor->getPlainTextEdit()->toPlainText())).append("\"");
+          newDocAnnotationList.append(QString("__OpenModelica_infoHeader=\"%1\"").arg(StringHandler::escapeStringQuotes(mpHTMLSourceEditor->getPlainTextEdit()->toPlainText())));
         }
       }
-      newDocAnnotationString.append(")");
+      QString newDocAnnotationString = QString("annotate=Documentation(%1)").arg(newDocAnnotationList.join(","));
       // if we have ModelWidget for class then put the change on undo stack.
       if (pLibraryTreeItem->getModelWidget()) {
         UpdateClassAnnotationCommand *pUpdateClassExperimentAnnotationCommand;
-        pUpdateClassExperimentAnnotationCommand = new UpdateClassAnnotationCommand(pLibraryTreeItem, oldDocAnnotationString,
-                                                                                   newDocAnnotationString);
+        pUpdateClassExperimentAnnotationCommand = new UpdateClassAnnotationCommand(pLibraryTreeItem, oldDocAnnotationString, newDocAnnotationString);
         pLibraryTreeItem->getModelWidget()->getUndoStack()->push(pUpdateClassExperimentAnnotationCommand);
         pLibraryTreeItem->getModelWidget()->updateModelText();
       } else {
@@ -1204,14 +1203,11 @@ void DocumentationViewer::createActions()
 
 /*!
  * \brief DocumentationViewer::resetZoom
- * Resets the zoom. \n
- * QWebView seems to be using fixed 96 dpi so set a proper base zoomfactor for high resolution screens.
+ * Resets the zoom.
  */
 void DocumentationViewer::resetZoom()
 {
-  QWidget *pScreenWidget = QApplication::desktop()->screen();
-  qreal zoomFactor = pScreenWidget->logicalDpiX() / 96;
-  setZoomFactor(zoomFactor < 1 ? 1 : zoomFactor);
+  setZoomFactor(1.0);
 }
 
 /*!
@@ -1374,12 +1370,20 @@ void DocumentationViewer::keyPressEvent(QKeyEvent *event)
  */
 void DocumentationViewer::wheelEvent(QWheelEvent *event)
 {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+  if (event->angleDelta().y() != 0 && event->modifiers().testFlag(Qt::ControlModifier)) {
+#else // QT_VERSION_CHECK
   if (event->orientation() == Qt::Vertical && event->modifiers().testFlag(Qt::ControlModifier)) {
+#endif // QT_VERSION_CHECK
     qreal zf = zoomFactor();
     /* ticket:4349 Take smaller steps for zooming.
      * Also set the minimum zoom to readable size.
      */
-    if (event->delta() > 0) {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+  if (event->angleDelta().y() > 0) {
+#else // QT_VERSION_CHECK
+  if (event->delta() > 0) {
+#endif // QT_VERSION_CHECK
       zf += 0.1;
       zf = zf > 5 ? 5 : zf;
     } else {

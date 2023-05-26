@@ -121,6 +121,7 @@ goto rule ## func ## Ex; }}
   #define PARSER_INFO(start) ((void*) SourceInfo__SOURCEINFO(ModelicaParser_filename_OMC, mmc_mk_bcon(ModelicaParser_readonly), mmc_mk_icon(start->line), mmc_mk_icon(start->line == 1 ? start->charPosition+2 : start->charPosition+1), mmc_mk_icon(LT(1)->line), mmc_mk_icon(LT(1)->charPosition+1), ModelicaParser_timeStamp))
   #if !defined(OMC_GENERATE_RELOCATABLE_CODE) || defined(OMC_BOOTSTRAPPING)
   modelica_boolean omc_AbsynUtil_isDerCref(threadData_t* threadData, void* exp);
+  void* omc_AbsynUtil_setClassCommentsAfterEnd(threadData_t* threadData, void* cl, void *comments);
   #else
   modelica_boolean (*omc_AbsynUtil_isDerCref)(threadData_t* threadData, void* exp);
   #endif
@@ -129,7 +130,7 @@ goto rule ## func ## Ex; }}
   #define isPath(X) (MMC_GETHDR(X) == MMC_STRUCTHDR(2+1, Absyn__TPATH_3dBOX2))
   #define isComplex(X) (MMC_GETHDR(X) == MMC_STRUCTHDR(3+1, Absyn__TCOMPLEX_3dBOX3))
   #define isTuple(X) (MMC_GETHDR(X) == MMC_STRUCTHDR(1+1, Absyn__TUPLE_3dBOX1))
-  #define isCall(X) (MMC_GETHDR(X) == MMC_STRUCTHDR(2+1, Absyn__CALL_3dBOX2))
+  #define isCall(X) (MMC_GETHDR(X) == MMC_STRUCTHDR(3+1, Absyn__CALL_3dBOX3))
   #define isNotNil(X) (MMC_NILHDR != MMC_GETHDR(X))
   #define mmc_mk_cons_typed(T,head,tail) mmc_mk_cons(head,tail)
   #define OM_PUSHZ1(A) (A) = NULL;
@@ -197,15 +198,18 @@ goto rule ## func ## Ex; }}
   #define ARRAY_REDUCTION_NAME "\$array"
 
   #if !defined(OMJULIA)
-  #include "meta_modelica.h"
-  #include "OpenModelicaBootstrappingHeader.h"
-  parser_members members;
-  void* mmc_mk_box_eat_all(int ix, ...) {return NULL;}
-  #if defined(OMC_BOOTSTRAPPING)
-  #endif
+    #include "meta/meta_modelica.h"
+    #define ADD_METARECORD_DEFINITIONS static
+    #if defined(OMC_BOOTSTRAPPING)
+      #include "../Compiler/boot/tarball-include/OpenModelicaBootstrappingHeader.h"
+    #else
+      #include "../Compiler/OpenModelicaBootstrappingHeader.h"
+    #endif
+    parser_members members;
+    void* mmc_mk_box_eat_all(int ix, ...) {return NULL;}
   #else /* Julia */
-  #include "OpenModelicaJuliaHeader.h"
-  #include "MetaModelicaJuliaLayer.h"
+    #include "OpenModelicaJuliaHeader.h"
+    #include "MetaModelicaJuliaLayer.h"
   #endif
 }
 
@@ -219,6 +223,24 @@ stored_definition returns [void* ast]
   cl=class_definition_list?
   EOF
     {
+      // The EOF makes us not find the last comment after a class, so we take care of it here
+      void *commentAfter = mmc_mk_nil();
+      int last = LT(1)->getTokenIndex(LT(1));
+      pANTLR3_COMMON_TOKEN tok;
+      while (tok = INPUT->get(INPUT,omc_first_comment++)) {
+        if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+#if !defined(OMC_BOOTSTRAPPING)
+          commentAfter = mmc_mk_cons_typed(Absyn_Exp, mmc_mk_scon((char*)tok->getText(tok)->chars), commentAfter);
+#endif
+        }
+      }
+      if (!listEmpty(commentAfter) && !listEmpty(cl)) {
+        void *last = cl;
+        while (!listEmpty(MMC_CDR(last))) {
+          last = MMC_CDR(last);
+        }
+        MMC_CAR(last) = omc_AbsynUtil_setClassCommentsAfterEnd(ModelicaParser_threadData, MMC_CAR(last), listReverseInPlace(commentAfter));
+      }
       ast = Absyn__PROGRAM(or_nil(cl), within ? within : Absyn__TOP);
     }
   ;
@@ -231,8 +253,23 @@ within_clause returns [void* ast]
   finally{ OM_POP(1); }
 
 class_definition_list returns [void* ast]
-@init{ f = NULL; OM_PUSHZ2(cd.ast, cl); } :
-  ((f=FINAL)? cd=class_definition[f != NULL] SEMICOLON) cl=class_definition_list?
+@init{ void *commentAfter = 0; f = NULL; OM_PUSHZ3(cd.ast, cl, commentAfter); } :
+  ((f=FINAL)? cd=class_definition[f != NULL] SEMICOLON {
+    // Comments between top-level classes need to belong to the class in the AST
+    commentAfter = mmc_mk_nil();
+    int last = LT(1)->getTokenIndex(LT(1));
+    for (;omc_first_comment<last;omc_first_comment++) {
+      pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,omc_first_comment);
+      if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+#if !defined(OMC_BOOTSTRAPPING)
+      commentAfter = mmc_mk_cons_typed(Absyn_Exp, mmc_mk_scon((char*)tok->getText(tok)->chars), commentAfter);
+#endif
+      }
+    }
+    if (!listEmpty(commentAfter)) {
+      cd.ast = omc_AbsynUtil_setClassCommentsAfterEnd(ModelicaParser_threadData, cd.ast, commentAfter);
+    }
+  }) cl=class_definition_list?
     {
       ast = mmc_mk_cons_typed(Absyn_Class, cd.ast, or_nil(cl));
     }
@@ -240,10 +277,25 @@ class_definition_list returns [void* ast]
   finally{ OM_POP(2); }
 
 class_definition [int final] returns [void* ast]
-@init{ e = 0; p = 0; OM_PUSHZ4(ct, cs.ast, $cs.name, $ast); } :
+@init{ void *commentBefore = 0; e = 0; p = 0; OM_PUSHZ5(ct, cs.ast, $cs.name, $ast, commentBefore); } :
   ((e=ENCAPSULATED)? (p=PARTIAL)? ct=class_type cs=class_specifier)
     {
-      $ast = Absyn__CLASS($cs.name, mmc_mk_bcon(p), mmc_mk_bcon(final), mmc_mk_bcon(e), ct, $cs.ast, PARSER_INFO($start));
+      commentBefore = mmc_mk_nil();
+      int last = LT(1)->getTokenIndex(LT(1));
+      for (;omc_first_comment<last;omc_first_comment++) {
+        pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,omc_first_comment);
+        if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+#if !defined(OMC_BOOTSTRAPPING)
+        commentBefore = mmc_mk_cons_typed(Absyn_Exp, mmc_mk_scon((char*)tok->getText(tok)->chars), commentBefore);
+#endif
+        }
+      }
+      $ast = Absyn__CLASS($cs.name, mmc_mk_bcon(p), mmc_mk_bcon(final), mmc_mk_bcon(e), ct, $cs.ast,
+#if !defined(OMC_BOOTSTRAPPING)
+      listReverseInPlace(commentBefore),
+      mmc_mk_nil(),
+#endif
+      PARSER_INFO($start));
     }
   ;
   finally{ OM_POP(4); }
@@ -293,7 +345,7 @@ class_specifier returns [void* ast, void* name]
       {
         modelicaParserAssert(!strcmp(s1,(char*)$s2.text->chars), "The identifier at start and end are different", class_specifier, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition);
         $name = mmc_mk_scon(s1);
-        $ast = Absyn__CLASS_5fEXTENDS($name, or_nil(mod), mmc_mk_some_or_none(cmt), $comp.ast, $comp.ann);
+        $ast = Absyn__CLASS_5fEXTENDS($name, or_nil(mod), mmc_mk_some_or_none(cmt), $comp.ast, listReverse($comp.ann));
       }
     )
     ;
@@ -309,15 +361,15 @@ class_specifier2 returns [void* ast, const char *s2]
       $s2 = (char*)$id.text->chars;
       if (lt != NULL) {
         modelicaParserAssert(metamodelica_enabled(),"Polymorphic classes are only available in MetaModelica", class_specifier2, $start->line, $start->charPosition+1, $gt->line, $gt->charPosition+2);
-        $ast = Absyn__PARTS(ids, mmc_mk_nil(), $c.ast, $c.ann, mmc_mk_some_or_none(cmtStr));
+        $ast = Absyn__PARTS(ids, mmc_mk_nil(), $c.ast, listReverse($c.ann), mmc_mk_some_or_none(cmtStr));
       } else {
-        $ast = Absyn__PARTS(mmc_mk_nil(), mmc_mk_nil(), $c.ast, $c.ann, mmc_mk_some_or_none(cmtStr));
+        $ast = Absyn__PARTS(mmc_mk_nil(), mmc_mk_nil(), $c.ast, listReverse($c.ann), mmc_mk_some_or_none(cmtStr));
       }
     }
 | (lp = LPAR na=named_arguments rp=RPAR) cmtStr=string_comment c=composition id=END_IDENT
     {
       modelicaParserAssert(optimica_enabled(),"Class attributes are currently allowed only for Optimica. Use -g=Optimica.", class_specifier2, $start->line, $start->charPosition+1, $lp->line, $lp->charPosition+2);
-      $ast = Absyn__PARTS(mmc_mk_nil(), na, $c.ast, $c.ann, mmc_mk_some_or_none(cmtStr));
+      $ast = Absyn__PARTS(mmc_mk_nil(), na, $c.ast, listReverse($c.ann), mmc_mk_some_or_none(cmtStr));
     }
 | EQUALS attr=base_prefix path=type_specifier ( cm=class_modification )? cmt=comment
     {
@@ -787,14 +839,41 @@ class_modification returns [void* ast]
   finally{ OM_POP(2); }
 
 argument_list returns [void* ast]
-@init { OM_PUSHZ3(a, as, ast); } :
+@init {
+  int first, last;
+  void *commentAst;
+  OM_PUSHZ4(a, as, ast, commentAst);
+  ast = mmc_mk_nil();
+  commentAst = mmc_mk_nil();
+
+  first = omc_first_comment;
+  last = LT(1)->getTokenIndex(LT(1));
+  omc_first_comment = last;
+  for (;first<last;last--) {
+    pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,last-1);
+    if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+#if !defined(OMC_BOOTSTRAPPING)
+      commentAst = mmc_mk_cons_typed(Absyn_ElementArg, Absyn__ELEMENTARGCOMMENT(mmc_mk_scon((char*)tok->getText(tok)->chars)),commentAst);
+#endif
+    }
+  }
+} :
   a=argument ( COMMA as=argument_list )?
   {
-    if (!a)
-    {
-       fprintf(stderr, "crap!\n");
+    first = omc_first_comment;
+    last = LT(1)->getTokenIndex(LT(1));
+    omc_first_comment = last;
+    for (;first<last;last--) {
+      pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,last-1);
+      if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+#if !defined(OMC_BOOTSTRAPPING)
+        ast = mmc_mk_cons_typed(Absyn_ElementArg, Absyn__ELEMENTARGCOMMENT(mmc_mk_scon((char*)tok->getText(tok)->chars)),ast);
+#endif
+      }
     }
-    ast = mmc_mk_cons_typed(Absyn_ElementArg, a, or_nil(as));
+    ast = listAppend(or_nil(as), ast);
+    ast = mmc_mk_cons_typed(Absyn_ElementArg, a, ast);
+    ast = listAppend(commentAst, ast);
   }
   ;
   finally{ OM_POP(3); }
@@ -977,6 +1056,7 @@ algorithm_annotation_list [ void **ann, int matchCase] returns [void* ast]
       $ast = mmc_mk_cons_typed(Absyn_AlgorithmItem, Absyn__ALGORITHMITEMCOMMENT(mmc_mk_scon((char*)tok->getText(tok)->chars)),$ast);
     }
   }
+  omc_first_comment = last;
 } :
   (
     { matchCase ? LA(1) != THEN : (LA(1) != END_IDENT && LA(1) != EQUATION && LA(1) != T_ALGORITHM && LA(1)!=INITIAL && LA(1) != PROTECTED && LA(1) != PUBLIC) }?=>
@@ -1283,11 +1363,34 @@ algorithm_elseif returns [void* ast]
   finally{ OM_POP(2); }
 
 equation_list_then returns [void* ast]
-@init{ OM_PUSHZ2(e.ast, es); } :
-    { LA(1) == THEN }? { ast = mmc_mk_nil(); }
-  | (e=equation SEMICOLON es=equation_list_then) { ast = mmc_mk_cons_typed(Absyn_Equation, e.ast, es); }
+@init {
+  OM_PUSHZ3(ast, e.ast, es);
+  int first = 0, last = 0;
+  first = omc_first_comment;
+  last = LT(1)->getTokenIndex(LT(1));
+  omc_first_comment = last;
+} :
+    { LA(1) == THEN }? {
+      ast = mmc_mk_nil();
+      for (;first<last;last--) {
+        pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,last-1);
+        if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+          ast = mmc_mk_cons_typed(Absyn_EquationItem, Absyn__EQUATIONITEMCOMMENT(mmc_mk_scon((char*)tok->getText(tok)->chars)),ast);
+        }
+      }
+    }
+  | (e=equation SEMICOLON es=equation_list_then) {
+      ast = es;
+      ast = mmc_mk_cons_typed(Absyn_Equation, e.ast, ast);
+      for (;first<last;last--) {
+        pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,last-1);
+        if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+          ast = mmc_mk_cons_typed(Absyn_EquationItem, Absyn__EQUATIONITEMCOMMENT(mmc_mk_scon((char*)tok->getText(tok)->chars)),ast);
+        }
+      }
+    }
   ;
-  finally{ OM_POP(2); }
+  finally{ OM_POP(3); }
 
 equation_list returns [void* ast]
 @init {
@@ -1322,10 +1425,33 @@ equation_list returns [void* ast]
   finally{ OM_POP(3); }
 
 algorithm_list returns [void* ast]
-@init { OM_PUSHZ2(a.ast, as); } :
+@init {
+  OM_PUSHZ3(ast, a.ast, as);
+  int first = 0, last = 0;
+  first = omc_first_comment;
+  last = LT(1)->getTokenIndex(LT(1));
+  omc_first_comment = last;
+} :
   {LA(1) != END_IDENT || LA(1) != END_IF || LA(1) != END_WHEN || LA(1) != END_FOR || LA(1) != END_WHILE}?
-    { ast = mmc_mk_nil(); }
-  | a=algorithm SEMICOLON as=algorithm_list { ast = mmc_mk_cons_typed(Absyn_AlgorithmItem, a.ast, as); }
+    {
+      ast = mmc_mk_nil();
+      for (;first<last;last--) {
+        pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,last-1);
+        if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+          ast = mmc_mk_cons_typed(Absyn_AlgorithmItem, Absyn__ALGORITHMITEMCOMMENT(mmc_mk_scon((char*)tok->getText(tok)->chars)),ast);
+        }
+      }
+    }
+  | a=algorithm SEMICOLON as=algorithm_list {
+     ast = as;
+     ast = mmc_mk_cons_typed(Absyn_AlgorithmItem, a.ast, ast);
+     for (;first<last;last--) {
+      pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,last-1);
+      if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+        ast = mmc_mk_cons_typed(Absyn_AlgorithmItem, Absyn__ALGORITHMITEMCOMMENT(mmc_mk_scon((char*)tok->getText(tok)->chars)),ast);
+      }
+    }
+  }
   ;
   finally{ OM_POP(2); }
 
@@ -1370,7 +1496,21 @@ connector_ref_2 returns [void* ast]
  * 2.2.7 Expressions
  */
 expression[int allowPartEvalFunc] returns [void* ast]
-@init { OM_PUSHZ1(e); } :
+@init {
+  void *commentBefore, *commentAfter;
+  OM_PUSHZ3(e, commentBefore, commentAfter);
+  commentBefore = mmc_mk_nil();
+  commentAfter = mmc_mk_nil();
+  int last = LT(1)->getTokenIndex(LT(1));
+  for (;omc_first_comment<last;omc_first_comment++) {
+    pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,omc_first_comment);
+    if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+#if !defined(OMC_BOOTSTRAPPING)
+      commentBefore = mmc_mk_cons_typed(Absyn_Exp, mmc_mk_scon((char*)tok->getText(tok)->chars), commentBefore);
+#endif
+    }
+  }
+} :
   ( e=if_expression { $ast = e; }
   | e=simple_expression { $ast = e; }
   | e=code_expression { $ast = e; }
@@ -1384,6 +1524,22 @@ expression[int allowPartEvalFunc] returns [void* ast]
       $ast = e;
     }
   )
+  {
+    int last = LT(1)->getTokenIndex(LT(1));
+    for (;omc_first_comment<last;omc_first_comment++) {
+      pANTLR3_COMMON_TOKEN tok = INPUT->get(INPUT,omc_first_comment);
+      if (tok->getChannel(tok) == HIDDEN && (tok->type == LINE_COMMENT || tok->type == ML_COMMENT)) {
+  #if !defined(OMC_BOOTSTRAPPING)
+        commentAfter = mmc_mk_cons_typed(Absyn_Exp, mmc_mk_scon((char*)tok->getText(tok)->chars), commentAfter);
+  #endif
+      }
+    }
+  #if !defined(OMC_BOOTSTRAPPING)
+    if (!(listEmpty(commentBefore) && listEmpty(commentAfter))) {
+      $ast = Absyn__EXPRESSIONCOMMENT(listReverseInPlace(commentBefore), $ast, listReverseInPlace(commentAfter));
+    }
+  #endif
+  }
   ;
   finally{ OM_POP(1); }
 
@@ -1553,7 +1709,11 @@ primary returns [void* ast]
 #endif
 
       errno = 0;
+#if defined(_WIN64) || defined(__MINGW64__)
+      l = strtoll(chars,&endptr,10);
+#else
       l = strtol(chars,&endptr,10);
+#endif
 
 #if !defined(OMJULIA)
       args[0] = chars;
@@ -1564,9 +1724,9 @@ primary returns [void* ast]
       if (errno || *endptr != 0) {
         double d = 0;
         errno = 0;
-        d = strtod(chars,&endptr);
+        d = strtod(chars, &endptr);
         modelicaParserAssert(*endptr == 0 && errno==0, "Number is too large to be represented by a double on this machine", primary, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition+1);
-        c_add_source_message(NULL,2, ErrorType_syntax, ErrorLevel_warning, "\%s-bit signed integers! Transforming: \%s into a real",
+        c_add_source_message(NULL, 2, ErrorType_syntax, ErrorLevel_warning, "\%s-bit signed integers! Transforming: \%s into a real",
           args, 2, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition+1,
           ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
         $ast = Absyn__REAL(mmc_mk_scon(chars));
@@ -1577,7 +1737,7 @@ primary returns [void* ast]
           mmc_sint_t lt = ((mmc_sint_t)1<<(MMC_SIZE_INT == 8 ? 62 : 30))-1;
           if (l > lt) {
             const char *msg = MMC_SIZE_INT != 8 ? "\%s-bit signed integers! Truncating integer: \%s to 1073741823" : "\%s-bit signed integers! Truncating integer: \%s to 4611686018427387903";
-            c_add_source_message(NULL,2, ErrorType_syntax, ErrorLevel_warning, msg,
+            c_add_source_message(NULL, 2, ErrorType_syntax, ErrorLevel_warning, msg,
                                  args, 2, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition+1,
                                  ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
             $ast = Absyn__INTEGER(MMC_IMMEDIATE(MMC_TAGFIXNUM(lt)));
@@ -1594,22 +1754,45 @@ primary returns [void* ast]
     {
       char* chars = (char*)$v.text->chars;
       char *endptr;
-      errno = 0;
-      double d = strtod(chars,&endptr);
-      if (!(*endptr == 0 && errno==0)) {
-        c_add_source_message(NULL,2,ErrorType_syntax, ErrorLevel_error, "\%s cannot be represented by a double on this machine", (const char **)&chars, 1, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition+1, ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
-        ModelicaParser_lexerError = ANTLR3_TRUE;
+      int errno_saved = errno; // save errno
+      int errno_local = 0;
+      errno = 0; // set the errno to zero
+      double d = strtod(chars, &endptr);
+      errno_local = errno; // get the local one
+      if (errno == 0) // restore errno
+        errno = errno_saved;
+      if (!(*endptr == 0 && errno_local == 0)) {
+        if (*endptr == 0 && !(d == 0 || fabs(d) > DBL_MIN)) { // ignore errors for subnormal values
+          $ast = Absyn__REAL(mmc_mk_scon(chars));
+        } else if (*endptr == 0 && errno_local == ERANGE && fabs(d) == HUGE_VAL) { // overflow is an error
+          c_add_source_message(NULL, 2, ErrorType_syntax, ErrorLevel_error, "Overflow: \%s cannot be represented by a double on this machine", (const char **)&chars, 1, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition+1, ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
+          $ast = Absyn__REAL(mmc_mk_scon(chars));
+          ModelicaParser_lexerError = ANTLR3_TRUE;
+        } else if (*endptr == 0 && errno_local == ERANGE && fabs(d) <= DBL_MIN) { // underflow is OK, convert to 0.0
+          c_add_source_message(NULL, 2, ErrorType_syntax, ErrorLevel_warning, "Underflow: \%s cannot be represented by a double on this machine. It will be converted to 0.0.", (const char **)&chars, 1, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition+1, ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
+          $ast = Absyn__REAL(mmc_mk_scon("0.0"));
+        } else {
+          c_add_source_message(NULL, 2, ErrorType_syntax, ErrorLevel_error, "\%s cannot be represented by a double on this machine", (const char **)&chars, 1, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition+1, ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
+          ModelicaParser_lexerError = ANTLR3_TRUE;
+        }
+      } else { // all dandy!
+        $ast = Absyn__REAL(mmc_mk_scon(chars));
       }
-      $ast = Absyn__REAL(mmc_mk_scon(chars));
     }
   | v=STRING           { $ast = Absyn__STRING(mmc_mk_scon((char*)$v.text->chars)); }
   | T_FALSE            { $ast = Absyn__BOOL(MMC_FALSE); }
   | T_TRUE             { $ast = Absyn__BOOL(MMC_TRUE); }
   | ptr=component_reference__function_call { $ast = ptr.ast; }
-  | DER el=function_call { $ast = Absyn__CALL(Absyn__CREF_5fIDENT(mmc_mk_scon("der"), mmc_mk_nil()),el); }
+  | DER el=function_call { $ast = Absyn__CALL(Absyn__CREF_5fIDENT(mmc_mk_scon("der"), mmc_mk_nil()),el,mmc_mk_nil()); }
+  | PURE el=function_call { $ast = Absyn__CALL(Absyn__CREF_5fIDENT(mmc_mk_scon("pure"), mmc_mk_nil()),el,mmc_mk_nil()); }
   | LPAR el=output_expression_list[&tupleExpressionIsTuple]
     {
-      $ast = tupleExpressionIsTuple ? Absyn__TUPLE(el) : el;
+      $ast = tupleExpressionIsTuple ? Absyn__TUPLE(el) :
+#if defined(OMC_BOOTSTRAPPING)
+      el;
+#else
+      Absyn__TUPLE(mmc_mk_cons(el, mmc_mk_nil()));
+#endif
     }
   | LBRACK el=matrix_expression_list RBRACK { $ast = Absyn__MATRIX(el); }
   | LBRACE for_or_el=for_or_expression_list RBRACE
@@ -1622,7 +1805,7 @@ primary returns [void* ast]
           "Empty array constructors are not valid in Modelica.", primary, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition);
         $ast = Absyn__ARRAY(for_or_el.ast);
       } else {
-        $ast = Absyn__CALL(Absyn__CREF_5fIDENT(mmc_mk_scon(ARRAY_REDUCTION_NAME), mmc_mk_nil()),for_or_el.ast);
+        $ast = Absyn__CALL(Absyn__CREF_5fIDENT(mmc_mk_scon(ARRAY_REDUCTION_NAME), mmc_mk_nil()),for_or_el.ast,mmc_mk_nil());
       }
     }
   | T_END { $ast = Absyn__END; }
@@ -1637,10 +1820,16 @@ matrix_expression_list returns [void* ast]
   finally{ OM_POP(2); }
 
 component_reference__function_call returns [void* ast]
-@init{ OM_PUSHZ3(cr.ast, fc, e.ast); i = 0; } :
-  cr=component_reference ( fc=function_call (DOT e=expression[metamodelica_enabled()])? )? {
+@init{ OM_PUSHZ4(cr.ast, ids, fc, e.ast); i = 0; } :
+  (component_reference LESS name_list GREATER function_call) =>
+  cr=component_reference LESS ids=name_list GREATER fc=function_call {
+    modelicaParserAssert(metamodelica_enabled(), "Polymorphic type specifiers are only available in MetaModelica",
+      component_reference__function_call, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition);
+    $ast = Absyn__CALL(cr.ast, fc, ids);
+  }
+  | cr=component_reference ( fc=function_call (DOT e=expression[metamodelica_enabled()])? )? {
       if (fc != NULL) {
-        $ast = Absyn__CALL(cr.ast, fc);
+        $ast = Absyn__CALL(cr.ast, fc, mmc_mk_nil());
         if (e.ast != 0) {
           modelicaParserAssert(ModelicaParser_langStd >= 1000, "Dot operator is not allowed in function calls in current Modelica standards.", component_reference__function_call, $start->line, $start->charPosition+1, LT(1)->line, LT(1)->charPosition);
           $ast = Absyn__DOT($ast, e.ast);
@@ -1651,7 +1840,7 @@ component_reference__function_call returns [void* ast]
     }
   | i=INITIAL LPAR RPAR {
       $ast = Absyn__CREF_5fIDENT(mmc_mk_scon("initial"), mmc_mk_nil());
-      $ast = Absyn__CALL($ast,Absyn__FUNCTIONARGS(mmc_mk_nil(),mmc_mk_nil()));
+      $ast = Absyn__CALL($ast,Absyn__FUNCTIONARGS(mmc_mk_nil(),mmc_mk_nil()),mmc_mk_nil());
     }
   ;
   finally{ OM_POP(3); }
@@ -1769,7 +1958,7 @@ for_or_expression_list returns [void* ast, int isFor]
 @init{ OM_PUSHZ3(e.ast, el, forind); } :
   ( {LA(1)==IDENT || (LA(1)==OPERATOR && LA(2) == EQUALS) || LA(1) == RPAR || LA(1) == RBRACE}? { $ast = mmc_mk_nil(); $isFor = 0; }
   | ( e=expression[1]
-      ( (COMMA el=for_or_expression_list2)
+      ( ({LA(1)==COMMA}? el=for_or_expression_list2)
       | (threaded=THREADED? FOR forind=for_indices)
       )?
     )
@@ -1788,9 +1977,11 @@ for_or_expression_list returns [void* ast, int isFor]
   finally{ OM_POP(3); }
 
 for_or_expression_list2 returns [void* ast]
-@init{ OM_PUSHZ2(e.ast, el); } :
-    {LA(2) == EQUALS}? { ast = mmc_mk_nil(); }
-  | e=expression[1] (COMMA el=for_or_expression_list2)? { ast = mmc_mk_cons_typed(Absyn_Exp, e.ast, or_nil(el)); }
+@init{
+  OM_PUSHZ2(e.ast, ast);
+  ast = mmc_mk_nil();
+} :
+  (COMMA (e=expression[1] { ast = mmc_mk_cons_typed(Absyn_Exp, e.ast, or_nil(ast)); } | {LA(1) != COMMA && LA(2) == EQUALS}? ))* {ast = listReverseInPlace(ast);}
   ;
   finally{ OM_POP(2); }
 
@@ -1900,8 +2091,8 @@ code_expression returns [void* ast]
       ( (EQUATION eq=code_equation_clause)
        |(CONSTRAINT constr=code_constraint_clause)
        |(T_ALGORITHM alg=code_algorithm_clause))
-    | (LPAR expression[metamodelica_enabled()] RPAR) => e=expression[metamodelica_enabled()]   /* Allow Code((<expr>)) */
     | m=modification
+    | (LPAR expression[metamodelica_enabled()] RPAR) => e=expression[metamodelica_enabled()]   /* Allow Code((<expr>)) */
     | (expression[metamodelica_enabled()] RPAR) => e=expression[metamodelica_enabled()]
     | el=element (SEMICOLON)?
     )  RPAR

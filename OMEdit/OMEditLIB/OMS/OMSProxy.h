@@ -38,7 +38,7 @@
 #include "Modeling/MessagesWidget.h"
 
 #include <QObject>
-#include <QTime>
+#include <QElapsedTimer>
 
 class OMSProxy : public QObject
 {
@@ -57,8 +57,8 @@ private:
   FILE *mpCommunicationLogFile;
   double mTotalOMSCallsTime;
 
-  void logCommand(QTime *commandTime, QString command);
-  void logResponse(QString command, oms_status_enu_t status, QTime *responseTime);
+  void logCommand(QString command);
+  void logResponse(QString command, oms_status_enu_t status, QElapsedTimer *responseTime);
 public:
   static OMSProxy* instance() {return mpInstance;}
 
@@ -73,16 +73,17 @@ public:
   void emitLogGUIMessage(MessageItem messageItem) {emit logGUIMessage(messageItem);}
 
   bool addBus(QString cref);
-  bool addConnection(QString crefA, QString crefB);
+  bool addConnection(QString crefA, QString crefB, bool suppressUnitConversion = false);
   bool addConnector(QString cref, oms_causality_enu_t causality, oms_signal_type_enu_t type);
   bool addConnectorToBus(QString busCref, QString connectorCref);
   bool addConnectorToTLMBus(QString busCref, QString connectorCref, QString type);
   bool addSubModel(QString cref, QString fmuPath);
+  bool replaceSubModel(QString cref, QString fmuPath, bool dryCount, int* count);
+  void createElementGeometryUsingPosition(const QString &cref, QPointF position);
   bool addExternalTLMModel(QString cref, QString startScript, QString modelPath);
   bool addSystem(QString cref, oms_system_enu_t type);
   bool addTLMBus(QString cref, oms_tlm_domain_t domain, int dimensions, const oms_tlm_interpolation_t interpolation);
   bool addTLMConnection(QString crefA, QString crefB, double delay, double alpha, double linearimpedance, double angularimpedance);
-  bool cancelSimulation_asynchronous(QString cref);
   bool deleteConnection(QString crefA, QString crefB);
   bool deleteConnectorFromBus(QString busCref, QString connectorCref);
   bool deleteConnectorFromTLMBus(QString busCref, QString connectorCref);
@@ -97,6 +98,7 @@ public:
   bool getFixedStepSize(QString cref, double* stepSize);
   bool getFMUInfo(QString cref, const oms_fmu_info_t** pFmuInfo);
   bool getInteger(QString signal, int* value);
+  bool getModelState(const QString &cref, oms_modelState_enu_t* modelState);
   bool getReal(QString cref, double* value);
   bool getSolver(QString cref, oms_solver_enu_t* solver);
   bool getStartTime(QString cref, double* startTime);
@@ -110,9 +112,11 @@ public:
   bool getVariableStepSize(QString cref, double* initialStepSize, double* minimumStepSize, double* maximumStepSize);
   bool instantiate(QString cref);
   bool initialize(QString cref);
-  bool list(QString cref, QString *pContents);
+  bool exportSnapshot(QString cref, QString *pContents);
   bool loadModel(QString filename, QString* pModelName);
+  bool importSnapshot(QString cref, QString snapshot, QString* pNewCref);
   bool newModel(QString cref);
+  bool rename(const QString &cref, const QString &newCref);
   bool omsDelete(QString cref);
   bool saveModel(QString cref, QString filename);
   bool setBoolean(QString signal, bool value);
@@ -129,7 +133,7 @@ public:
   bool setInteger(QString signal, int value);
   bool setReal(QString cref, double value);
   bool setResultFile(QString cref, QString filename, int bufferSize);
-  bool setSignalFilter(QString cref, QString regex);
+  bool getResultFile(QString cref, char **pFilename, int *pBufferSize);
   bool setSolver(QString cref, oms_solver_enu_t solver);
   bool setStartTime(QString cref, double startTime);
   bool setStopTime(QString cref, double stopTime);
@@ -140,11 +144,7 @@ public:
   bool setTolerance(QString cref, double absoluteTolerance, double relativeTolerance);
   bool setVariableStepSize(QString cref, double initialStepSize, double minimumStepSize, double maximumStepSize);
   void setWorkingDirectory(QString path);
-  bool simulate_asynchronous(QString cref);
   bool terminate(QString cref);
-
-  bool parseString(QString contents, QString* pModelName);
-  bool loadString(QString contents, QString* pModelName);
 signals:
   void logGUIMessage(MessageItem messageItem);
 };

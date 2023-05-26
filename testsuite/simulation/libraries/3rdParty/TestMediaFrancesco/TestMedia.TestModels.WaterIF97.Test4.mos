@@ -2,6 +2,7 @@
 // keywords: simulation TestMedia.TestModels.WaterIF97.Test4
 // status: correct
 // teardown_command: rm -rf _TestMedia.TestModels.WaterIF97.Test4.* TestMedia.TestModels.WaterIF97.Test4_* TestMedia.TestModels.WaterIF97.Test4 TestMedia.TestModels.WaterIF97.Test4.exe TestMedia.TestModels.WaterIF97.Test4.cpp TestMedia.TestModels.WaterIF97.Test4.makefile TestMedia.TestModels.WaterIF97.Test4.libs TestMedia.TestModels.WaterIF97.Test4.log TestMedia.TestModels.WaterIF97.Test4.c TestMedia.TestModels.WaterIF97.Test4.o output.log
+// cflags: -d=-newInst
 //
 // Simulation Results
 // Modelica Standard Library
@@ -19,9 +20,9 @@ res := OpenModelica.Scripting.compareSimulationResults("TestMedia.TestModels.Wat
 // Result:
 // true
 // true
-// "Notification: Automatically loaded package Modelica 3.2.1 due to uses annotation.
-// Notification: Automatically loaded package Complex 3.2.1 due to uses annotation.
-// Notification: Automatically loaded package ModelicaServices 3.2.1 due to uses annotation.
+// "Notification: Automatically loaded package Modelica 3.2.1 due to uses annotation from TestMedia.
+// Notification: Automatically loaded package Complex 3.2.1 due to uses annotation from Modelica.
+// Notification: Automatically loaded package ModelicaServices 3.2.1 due to uses annotation from Modelica.
 // "
 // record SimulationResult
 //     resultFile = "TestMedia.TestModels.WaterIF97.Test4_res.mat",

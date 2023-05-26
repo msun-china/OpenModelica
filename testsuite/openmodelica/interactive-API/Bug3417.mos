@@ -1,5 +1,6 @@
 // name: Bug3417.mos [BUG: #3417]
 // status: correct
+// cflags: -d=-newInst
 
 loadModel(Modelica, {"3.2.1"}); getErrorString();
 getClassNames(Modelica.Electrical); getErrorString();
@@ -17,9 +18,9 @@ getClassInformation(Modelica.Electrical);
 // ""
 // {Analog,Digital,Machines,MultiPhase,QuasiStationary,Spice3}
 // ""
-// ("package","Library of electrical models (analog, digital, machines, multi-phase)",false,false,false,"Modelica 3.2.1/Electrical/package.mo",false,2,1,46,15,{},false,false,"","",false,"")
+// ("package","Library of electrical models (analog, digital, machines, multi-phase)",false,false,false,"Modelica 3.2.1+maint.om/Electrical/package.mo",false,2,1,46,15,{},false,false,"","",false,"","","","","")
 // true
 // {X,Analog,Digital,Machines,MultiPhase,QuasiStationary,Spice3}
 // ""
-// ("package","new Electrical package",false,false,false,"NEW_DUMMY_FILE",false,2,1,5,15,{},false,false,"","",false,"")
+// ("package","new Electrical package",false,false,false,"NEW_DUMMY_FILE",false,2,1,5,15,{},false,false,"","",false,"","","","","")
 // endResult

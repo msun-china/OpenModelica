@@ -1,7 +1,8 @@
 // name:     Delta
 // keywords: builtin
 // status: correct
-// 
+// cflags: -d=-newInst
+//
 
 loadModel(Modelica, {"3.2.1"}); getErrorString();
 loadFile("Delta.mo"); getErrorString();

@@ -48,13 +48,14 @@ public:
   enum ViewType {Icon, Diagram, ModelicaText, NoView};
   enum ModelicaClasses {Model, Class, ExpandableConnector, Connector, Record, Block, Function, Package, Primitive, Type, Operator,
                         OperatorRecord, OperatorFunction, Optimization, Parameter, Constant, Protected, Enumeration};
-  enum OpenModelicaErrors {Notification, Warning, OMError, NoOMError};
+  enum OpenModelicaErrors {Internal, Notification, Warning, OMError, NoOMError};
   enum OpenModelicaErrorKinds {Syntax, Grammar, Translation, Symbolic, Simulation, Scripting, NoOMErrorKind};
   enum LinePattern {LineNone, LineSolid, LineDash, LineDot, LineDashDot, LineDashDotDot};
   enum FillPattern {FillNone, FillSolid, FillHorizontal, FillVertical, FillCross, FillForward, FillBackward, FillCrossDiag,
                     FillHorizontalCylinder, FillVerticalCylinder, FillSphere};
   enum BorderPattern {BorderNone, BorderRaised, BorderSunken, BorderEngraved};
   enum Smooth {SmoothNone, SmoothBezier};
+  enum EllipseClosure {ClosureNone, ClosureChord, ClosureRadial};
   enum Arrow {ArrowNone, ArrowOpen, ArrowFilled, ArrowHalf};
   enum TextStyle {TextStyleBold, TextStyleItalic, TextStyleUnderLine};
   enum TextAlignment {TextAlignmentLeft, TextAlignmentCenter, TextAlignmentRight};
@@ -68,6 +69,7 @@ public:
     OMEditInfo  /* used internally by OMEdit to mark message blue. */
   };
   enum TLMCausality { TLMBidirectional, TLMInput, TLMOutput };
+  enum ResultType {String, Integer};
   static QString getTLMCausality(int causality);
   enum TLMDomain { Mechanical, Electric, Hydraulic, Pneumatic, Magnetic, Signal };
   static QString getTLMDomain(int domain);
@@ -95,16 +97,19 @@ public:
   static QString getBorderPatternString(StringHandler::BorderPattern type);
   static StringHandler::Smooth getSmoothType(QString type);
   static QString getSmoothString(StringHandler::Smooth type);
+  static StringHandler::EllipseClosure getClosureType(QString type);
+  static QString getClosureString(StringHandler::EllipseClosure type);
   static StringHandler::Arrow getArrowType(QString type);
   static QString getArrowString(StringHandler::Arrow type);
   static QComboBox* getStartArrowComboBox();
   static QComboBox* getEndArrowComboBox();
-  static int getFontWeight(QList<StringHandler::TextStyle> styleList);
-  static bool getFontItalic(QList<StringHandler::TextStyle> styleList);
-  static bool getFontUnderline(QList<StringHandler::TextStyle> styleList);
+  static int getFontWeight(QVector<TextStyle> styleList);
+  static bool getFontItalic(QVector<StringHandler::TextStyle> styleList);
+  static bool getFontUnderline(QVector<StringHandler::TextStyle> styleList);
   static Qt::Alignment getTextAlignment(StringHandler::TextAlignment alignment);
   static StringHandler::TextAlignment getTextAlignmentType(QString alignment);
   static QString getTextAlignmentString(StringHandler::TextAlignment alignment);
+  static StringHandler::TextStyle getTextStyleType(QString textStyle);
   static QString getTextStyleString(StringHandler::TextStyle textStyle);
   static QString removeFirstLastCurlBrackets(QString value);
   static QString removeFirstLastParentheses(QString value);
@@ -112,7 +117,6 @@ public:
   static QString removeFirstLastQuotes(QString value);
   static QString removeFirstLastSingleQuotes(QString value);
   static QStringList getStrings(QString value);
-  static QStringList getStrings(QString value, char start, char end);
   /* Handles quoted identifiers A.B.'C.D' -> A.B, A.B.C.D -> A.B.C */
   static QString getLastWordAfterDot(QString value);
   static QString removeLastWordAfterDot(QString value);
@@ -120,6 +124,7 @@ public:
   static QString removeFirstWordAfterDot(QString value);
   static QString escapeString(QString value);
   static QString escapeStringQuotes(QString value);
+  static QString escapeTextAnnotationString(QString value);
   // Returns "" if the string is not a standard Modelica string. Else it unparses it into normal form.
   static QString unparse(QString value);
   // Returns empty list if the string is not a standard Modelica string-array. Else it unparses it into normal form.
@@ -142,17 +147,16 @@ public:
   static QStringList getAnnotation(QString componentAnnotation, QString annotationName);
   static QString getPlacementAnnotation(QString componentAnnotation);
   static qreal getNormalizedAngle(qreal angle);
-  static QStringList splitStringWithSpaces(QString value);
+  static QStringList splitStringWithSpaces(QString value, bool keepEmptyParts = true);
   static void fillEncodingComboBox(QComboBox *pEncodingComboBox);
   static QStringList makeVariableParts(QString variable);
   static QStringList makeVariablePartsWithInd(QString variable);
   static bool naturalSort(const QString &s1, const QString &s2);
-#ifdef WIN32
+#if defined(_WIN32)
   static QProcessEnvironment simulationProcessEnvironment();
 #endif
   static StringHandler::SimulationMessageType getSimulationMessageType(QString type);
   static QString getSimulationMessageTypeString(StringHandler::SimulationMessageType type);
-  static QColor getSimulationMessageTypeColor(StringHandler::SimulationMessageType type);
   static QString makeClassNameRelative(QString draggedClassName, QString droppedClassName);
   static QString toCamelCase(QString str);
   static QMap<int, int> getLeadingSpaces(QString contents);
@@ -164,7 +168,8 @@ public:
   static QString removeLeadingSpaces(QString contents);
   static QString removeLine(QString text, QString lineToRemove);
   static QString insertClassAtPosition(QString parentClassText, QString childClassText, int linePosition, int nestedLevel);
-  static QString number(double value, char format = 'g', int precision = 16);
+  static QString number(double value, QString hint = "", char format = 'g', int precision = 16);
+  static QString convertSemVertoReadableString(const QString &semver);
 protected:
   static QString mLastOpenDir;
 };

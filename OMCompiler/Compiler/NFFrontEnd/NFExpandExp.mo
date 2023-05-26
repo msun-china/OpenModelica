@@ -37,7 +37,8 @@ protected
   import ExpressionIterator = NFExpressionIterator;
   import Subscript = NFSubscript;
   import Type = NFType;
-  import NFCall.Call;
+  import Call = NFCall;
+  import NFCallAttributes;
   import Dimension = NFDimension;
   import ComponentRef = NFComponentRef;
   import NFFunction.Function;
@@ -45,28 +46,36 @@ protected
   import Ceval = NFCeval;
   import NFInstNode.InstNode;
   import SimplifyExp = NFSimplifyExp;
-  import NFPrefixes.Variability;
+  import NFPrefixes.{Variability, Purity};
   import MetaModelica.Dangerous.*;
   import EvalTarget = NFCeval.EvalTarget;
+  import Array;
 
 public
   function expand
     input output Expression exp;
+    input Boolean backend = false;
           output Boolean expanded;
   algorithm
     (exp, expanded) := match exp
       local
-        list<Expression> expl;
+        array<Expression> arr;
 
-      case Expression.CREF(ty = Type.ARRAY()) then expandCref(exp);
+      case Expression.INTEGER()      then (exp, true);
+      case Expression.REAL()         then (exp, true);
+      case Expression.STRING()       then (exp, true);
+      case Expression.BOOLEAN()      then (exp, true);
+      case Expression.ENUM_LITERAL() then (exp, true);
+
+      case Expression.CREF(ty = Type.ARRAY()) then expandCref(exp, backend);
 
       // One-dimensional arrays are already expanded.
-      case Expression.ARRAY(ty = Type.ARRAY(dimensions = {})) then (exp, true);
+      case Expression.ARRAY() guard Type.isVector(exp.ty) then (exp, true);
 
       case Expression.ARRAY()
         algorithm
-          (expl, expanded) := expandList(exp.elements);
-          exp.elements := expl;
+          (arr, expanded) := expandArray(exp.elements);
+          exp.elements := arr;
         then
           (exp, expanded);
 
@@ -75,14 +84,37 @@ public
       case Expression.CALL()     then expandCall(exp.call, exp);
       case Expression.SIZE()     then expandSize(exp);
       case Expression.BINARY()   then expandBinary(exp, exp.operator);
-      case Expression.UNARY()    then expandUnary(exp.exp, exp.operator);
+      case Expression.UNARY()    then expandUnary(exp);
       case Expression.LBINARY()  then expandLogicalBinary(exp);
-      case Expression.LUNARY()   then expandLogicalUnary(exp.exp, exp.operator);
+      case Expression.LUNARY()   then expandLogicalUnary(exp);
       case Expression.RELATION() then (exp, true);
       case Expression.CAST()     then expandCast(exp.exp, exp.ty);
       else expandGeneric(exp);
     end match;
   end expand;
+
+  function expandArray
+    "Expands an array of Expressions."
+    input array<Expression> arr;
+    output array<Expression> outArray;
+    output Boolean expanded = true;
+  protected
+    Boolean res;
+    Expression e;
+  algorithm
+    outArray := arrayCopy(arr);
+
+    for i in 1:arrayLength(outArray) loop
+      (e, res) := expand(arrayGetNoBoundsChecking(outArray, i));
+
+      if not res then
+        expanded := false;
+        return;
+      end if;
+
+      arrayUpdateNoBoundsChecking(outArray, i, e);
+    end for;
+  end expandArray;
 
   function expandList
     "Expands a list of Expressions. If abortOnFailure is true the function will
@@ -114,6 +146,7 @@ public
 
   function expandCref
     input Expression crefExp;
+    input Boolean backend = false;
     output Expression arrayExp;
     output Boolean expanded;
   protected
@@ -126,7 +159,7 @@ public
             arrayExp := Expression.makeEmptyArray(crefExp.ty);
             expanded := true;
           elseif Type.hasKnownSize(crefExp.ty) then
-            subs := expandCref2(crefExp.cref);
+            subs := expandCref2(crefExp.cref, backend);
             arrayExp := expandCref3(subs, crefExp.cref, Type.arrayElementType(crefExp.ty));
             expanded := true;
           else
@@ -142,6 +175,7 @@ public
 
   function expandCref2
     input ComponentRef cref;
+    input Boolean backend;
     input output list<list<Subscript>> subs = {};
   protected
     list<Subscript> cr_subs = {};
@@ -150,13 +184,13 @@ public
     import NFComponentRef.Origin;
   algorithm
     subs := match cref
-      case ComponentRef.CREF(origin = Origin.CREF)
+      case ComponentRef.CREF() guard(backend or cref.origin == Origin.CREF)
         algorithm
           dims := Type.arrayDims(cref.ty);
           cr_subs := Subscript.expandList(cref.subscripts, dims);
         then
           if listEmpty(cr_subs) and not listEmpty(dims) then
-            {} else expandCref2(cref.restCref, cr_subs :: subs);
+            {} else expandCref2(cref.restCref, backend, cr_subs :: subs);
 
       else subs;
     end match;
@@ -184,17 +218,26 @@ public
     input Type crefType;
     output Expression arrayExp;
   protected
-    list<Expression> expl = {};
+    array<Expression> expl;
     Type arr_ty;
     list<Subscript> slice, rest;
+    Integer i;
   algorithm
     arrayExp := match subs
       case {} then expandCref3(restSubs, cref, crefType, listReverse(comb) :: accum);
 
       case Subscript.EXPANDED_SLICE(indices = slice) :: rest
         algorithm
-          expl := list(expandCref4(rest, idx :: comb, accum, restSubs, cref, crefType) for idx in slice);
-          arr_ty := Type.liftArrayLeft(Expression.typeOf(listHead(expl)), Dimension.fromExpList(expl));
+          expl := arrayCreateNoInit(listLength(slice), Expression.INTEGER(0));
+          i := 1;
+
+          for idx in slice loop
+            arrayUpdateNoBoundsChecking(expl, i,
+              expandCref4(rest, idx :: comb, accum, restSubs, cref, crefType));
+            i := i + 1;
+          end for;
+
+          arr_ty := Type.liftArrayLeft(Expression.typeOf(arrayGet(expl, 1)), Dimension.fromExpArray(expl));
         then
           Expression.makeArray(arr_ty, expl);
 
@@ -211,13 +254,13 @@ public
         list<Expression> lits;
 
       case Type.ARRAY(elementType = Type.BOOLEAN())
-        then Expression.makeArray(ty, {Expression.BOOLEAN(false), Expression.BOOLEAN(true)}, true);
+        then Expression.makeArray(ty, listArray({Expression.BOOLEAN(false), Expression.BOOLEAN(true)}), true);
 
       case Type.ARRAY(elementType = Type.ENUMERATION())
         algorithm
           lits := Expression.makeEnumLiterals(ty.elementType);
         then
-          Expression.makeArray(ty, lits, true);
+          Expression.makeArray(ty, listArray(lits), true);
 
       else
         algorithm
@@ -273,13 +316,14 @@ public
     Absyn.Path fn_path = Function.nameConsiderBuiltin(fn);
   algorithm
     (outExp, expanded) := match AbsynUtil.pathFirstIdent(fn_path)
-      case "cat" then expandBuiltinCat(args, call);
-      case "der" then expandBuiltinGeneric(call);
-      case "diagonal" then expandBuiltinDiagonal(listHead(args));
-      case "pre" then expandBuiltinGeneric(call);
-      case "previous" then expandBuiltinGeneric(call);
-      case "promote" then expandBuiltinPromote(args);
-      case "transpose" then expandBuiltinTranspose(listHead(args));
+      case "cat"        then expandBuiltinCat(args, call);
+      case "der"        then expandBuiltinGeneric(call);
+      case "diagonal"   then expandBuiltinDiagonal(listHead(args));
+      case "fill"       then expandBuiltinFill(args);
+      case "pre"        then expandBuiltinGeneric(call);
+      case "previous"   then expandBuiltinGeneric(call);
+      case "promote"    then expandBuiltinPromote(args);
+      case "transpose"  then expandBuiltinTranspose(listHead(args));
     end match;
   end expandBuiltinCall;
 
@@ -329,6 +373,14 @@ public
     end if;
   end expandBuiltinDiagonal;
 
+  function expandBuiltinFill
+    input list<Expression> args;
+    output Expression outExp;
+    output Boolean expanded = true;
+  algorithm
+    outExp := Expression.fillArgs(listHead(args), listRest(args));
+  end expandBuiltinFill;
+
   function expandBuiltinTranspose
     input Expression arg;
     output Expression outExp;
@@ -349,15 +401,16 @@ public
     Function fn;
     Type ty;
     Variability var;
-    NFCall.CallAttributes attr;
+    Purity pur;
+    NFCallAttributes attr;
     Expression arg;
-    list<Expression> args, expl;
+    list<Expression> args;
   algorithm
-    Call.TYPED_CALL(fn, ty, var, {arg}, attr) := call;
+    Call.TYPED_CALL(fn, ty, var, pur, {arg}, attr) := call;
     ty := Type.arrayElementType(ty);
 
     (arg, true) := expand(arg);
-    outExp := expandBuiltinGeneric2(arg, fn, ty, var, attr);
+    outExp := expandBuiltinGeneric2(arg, fn, ty, var, pur, attr);
   end expandBuiltinGeneric;
 
   function expandBuiltinGeneric2
@@ -365,21 +418,23 @@ public
     input Function fn;
     input Type ty;
     input Variability var;
-    input NFCall.CallAttributes attr;
+    input Purity pur;
+    input NFCallAttributes attr;
   algorithm
     exp := match exp
       local
-        list<Expression> expl;
+        array<Expression> arr;
 
       case Expression.ARRAY(literal = true) then exp;
 
       case Expression.ARRAY()
         algorithm
-          expl := list(expandBuiltinGeneric2(e, fn, ty, var, attr) for e in exp.elements);
+          arr := Array.map(exp.elements,
+            function expandBuiltinGeneric2(fn = fn, ty = ty, var = var, pur = pur, attr = attr));
         then
-          Expression.makeArray(Type.setArrayElementType(exp.ty, ty), expl);
+          Expression.makeArray(Type.setArrayElementType(exp.ty, ty), arr);
 
-      else Expression.CALL(Call.TYPED_CALL(fn, ty, var, {exp}, attr));
+      else Expression.CALL(Call.TYPED_CALL(fn, ty, var, pur, {exp}, attr));
     end match;
   end expandBuiltinGeneric2;
 
@@ -392,13 +447,13 @@ public
   protected
     Expression e = exp, range;
     InstNode node;
-    list<Expression> ranges = {}, expl;
+    list<Expression> ranges = {};
     Mutable<Expression> iter;
     list<Mutable<Expression>> iters = {};
   algorithm
     for i in iterators loop
       (node, range) := i;
-      iter := Mutable.create(Expression.INTEGER(0));
+      iter := Mutable.create(Expression.EMPTY(InstNode.getType(node)));
       e := Expression.replaceIterator(e, node, Expression.MUTABLE(iter));
       iters := iter :: iters;
       (range, true) := expand(range);
@@ -442,7 +497,7 @@ public
         expl := expandArrayConstructor2(exp, el_ty, ranges_rest, iters_rest) :: expl;
       end while;
 
-      result := Expression.makeArray(ty, listReverseInPlace(expl));
+      result := Expression.makeArray(ty, listArray(listReverseInPlace(expl)));
     end if;
   end expandArrayConstructor2;
 
@@ -464,7 +519,7 @@ public
           dims := Type.dimensionCount(ty);
           expl := list(Expression.SIZE(e, SOME(Expression.INTEGER(i))) for i in 1:dims);
         then
-          Expression.makeArray(Type.ARRAY(ty, {Dimension.fromInteger(dims)}), expl);
+          Expression.makeArray(Type.ARRAY(ty, {Dimension.fromInteger(dims)}), listArray(expl));
 
       // Size with an index is scalar, and thus already maximally expanded.
       else exp;
@@ -545,7 +600,7 @@ public
       output Expression exp;
     end MakeFn;
   protected
-    list<Expression> expl1, expl2, expl;
+    array<Expression> expl1, expl2, expl;
     Type ty;
     Operator eop;
   algorithm
@@ -555,9 +610,10 @@ public
     eop := Operator.setType(Type.unliftArray(ty), op);
 
     if Type.dimensionCount(ty) > 1 then
-      expl := list(expandBinaryElementWise2(e1, eop, e2, func) threaded for e1 in expl1, e2 in expl2);
+      expl := Array.threadMap(expl1, expl2, function expandBinaryElementWise2(op = eop, func = func));
     else
-      expl := list(func(e1, eop, e2) threaded for e1 in expl1, e2 in expl2);
+      expl := Array.threadMap(expl1, expl2, function func(op = eop));
+      //expl := list(func(e1, eop, e2) threaded for e1 in expl1, e2 in expl2);
     end if;
 
     exp := Expression.makeArray(ty, expl);
@@ -570,7 +626,6 @@ public
     output Boolean expanded;
   protected
     Expression exp1, exp2;
-    list<Expression> expl;
     Operator op;
   algorithm
     Expression.BINARY(exp1 = exp1, operator = op, exp2 = exp2) := exp;
@@ -604,7 +659,6 @@ public
     output Boolean expanded;
   protected
     Expression exp1, exp2;
-    list<Expression> expl;
     Operator op;
   algorithm
     Expression.BINARY(exp1 = exp1, operator = op, exp2 = exp2) := exp;
@@ -626,7 +680,7 @@ public
     output Boolean expanded;
   protected
     Expression exp1, exp2;
-    list<Expression> expl;
+    array<Expression> arr;
     Type ty;
     Dimension m;
   algorithm
@@ -634,18 +688,18 @@ public
     (exp2, expanded) := expand(exp2);
 
     if expanded then
-      Expression.ARRAY(Type.ARRAY(ty, {m, _}), expl) := Expression.transposeArray(exp2);
+      Expression.ARRAY(Type.ARRAY(ty, {m, _}), arr) := Expression.transposeArray(exp2);
       ty := Type.ARRAY(ty, {m});
 
-      if listEmpty(expl) then
+      if arrayEmpty(arr) then
         outExp := Expression.makeZero(ty);
       else
         (exp1, expanded) := expand(exp1);
 
         if expanded then
           // c[i] = a * b[:, i] for i in 1:m
-          expl := list(makeScalarProduct(exp1, e2) for e2 in expl);
-          outExp := Expression.makeArray(ty, expl);
+          arr := Array.map(arr, function makeScalarProduct(exp1 = exp1));
+          outExp := Expression.makeArray(ty, arr);
         else
           outExp := exp;
         end if;
@@ -662,7 +716,7 @@ public
     output Boolean expanded;
   protected
     Expression exp1, exp2;
-    list<Expression> expl;
+    array<Expression> arr;
     Type ty;
     Dimension n;
   algorithm
@@ -670,18 +724,18 @@ public
     (exp1, expanded) := expand(exp1);
 
     if expanded then
-      Expression.ARRAY(Type.ARRAY(ty, {n, _}), expl) := exp1;
+      Expression.ARRAY(Type.ARRAY(ty, {n, _}), arr) := exp1;
       ty := Type.ARRAY(ty, {n});
 
-      if listEmpty(expl) then
+      if arrayEmpty(arr) then
         outExp := Expression.makeZero(ty);
       else
         (exp2, expanded) := expand(exp2);
 
         if expanded then
           // c[i] = a[i, :] * b for i in 1:n
-          expl := list(makeScalarProduct(e1, exp2) for e1 in expl);
-          outExp := Expression.makeArray(ty, expl);
+          arr := Array.map(arr, function makeScalarProduct(exp2 = exp2));
+          outExp := Expression.makeArray(ty, arr);
         else
           outExp := exp;
         end if;
@@ -718,23 +772,23 @@ public
     input Expression exp2;
     output Expression exp;
   protected
-    list<Expression> expl1, expl2;
+    array<Expression> arr1, arr2;
     Type ty, elem_ty;
     Operator mul_op, add_op;
   algorithm
-    Expression.ARRAY(ty, expl1) := exp1;
-    Expression.ARRAY( _, expl2) := exp2;
+    Expression.ARRAY(ty, arr1) := exp1;
+    Expression.ARRAY( _, arr2) := exp2;
     elem_ty := Type.unliftArray(ty);
 
-    if listEmpty(expl1) then
+    if arrayEmpty(arr1) then
       // Scalar product of two empty arrays. The result is defined in the spec
       // by sum, so we return 0 since that's the default value of sum.
       exp := Expression.makeZero(elem_ty);
     else
       mul_op := Operator.makeMul(elem_ty);
       add_op := Operator.makeAdd(elem_ty);
-      expl1 := list(SimplifyExp.simplifyBinaryOp(e1, mul_op, e2) threaded for e1 in expl1, e2 in expl2);
-      exp := List.reduce(expl1, function SimplifyExp.simplifyBinaryOp(op = add_op));
+      arr1 := Array.threadMap(arr1, arr2, function SimplifyExp.simplifyBinaryOp(op = mul_op));
+      exp := Array.reduce(arr1, function SimplifyExp.simplifyBinaryOp(op = add_op));
     end if;
   end makeScalarProduct;
 
@@ -765,35 +819,45 @@ public
     input Expression exp2;
     output Expression exp;
   protected
-    list<Expression> expl1, expl2;
+    array<Expression> arr1, arr2, arr;
     Type ty, row_ty, mat_ty;
     Dimension n, p;
+    Integer len;
+    Expression e;
   algorithm
-    Expression.ARRAY(Type.ARRAY(ty, {n, _}), expl1) := exp1;
+    Expression.ARRAY(Type.ARRAY(ty, {n, _}), arr1) := exp1;
     // Transpose the second matrix. This makes it easier to do the multiplication,
     // since we can do row-row multiplications instead of row-column.
-    Expression.ARRAY(Type.ARRAY(dimensions = {p, _}), expl2) := Expression.transposeArray(exp2);
+    Expression.ARRAY(Type.ARRAY(dimensions = {p, _}), arr2) := Expression.transposeArray(exp2);
     mat_ty := Type.ARRAY(ty, {n, p});
 
-    if listEmpty(expl2) then
+    if arrayEmpty(arr2) then
       // If any of the matrices' dimensions are zero, the result will be a matrix
-      // of zeroes (the default value of sum). Only expl2 needs to be checked here,
-      // the normal case can handle expl1 being empty.
+      // of zeroes (the default value of sum). Only arr2 needs to be checked here,
+      // the normal case can handle arr1 being empty.
       exp := Expression.makeZero(mat_ty);
     else
       // c[i, j] = a[i, :] * b[:, j] for i in 1:n, j in 1:p.
       row_ty := Type.ARRAY(ty, {p});
-      expl1 := list(Expression.makeArray(row_ty, makeBinaryMatrixProduct2(e, expl2)) for e in expl1);
-      exp := Expression.makeArray(mat_ty, expl1);
+      len := arrayLength(arr1);
+      arr := arrayCreateNoInit(len, exp1);
+
+      for i in 1:len loop
+        e := arrayGetNoBoundsChecking(arr1, i);
+        arrayUpdateNoBoundsChecking(arr, i,
+          Expression.makeArray(row_ty, makeBinaryMatrixProduct2(e, arr2)));
+      end for;
+
+      exp := Expression.makeArray(mat_ty, arr);
     end if;
   end makeBinaryMatrixProduct;
 
   function makeBinaryMatrixProduct2
     input Expression row;
-    input list<Expression> matrix;
-    output list<Expression> outRow;
+    input array<Expression> matrix;
+    output array<Expression> outRow;
   algorithm
-    outRow := list(makeScalarProduct(row, e) for e in matrix);
+    outRow := Array.map(matrix, function makeScalarProduct(exp1 = row));
   end makeBinaryMatrixProduct2;
 
   function expandBinaryPowMatrix
@@ -861,18 +925,21 @@ public
 
   function expandUnary
     input Expression exp;
-    input Operator op;
     output Expression outExp;
     output Boolean expanded;
   protected
-    Operator scalar_op;
+    Expression operand;
+    Operator op, scalar_op;
   algorithm
-    (outExp, expanded) := expand(exp);
-    scalar_op := Operator.scalarize(op);
+    Expression.UNARY(op, operand) := exp;
+    (operand, expanded) := expand(operand);
 
     if expanded then
-      outExp := Expression.mapArrayElements(outExp,
+      scalar_op := Operator.scalarize(op);
+      outExp := Expression.mapArrayElements(operand,
         function SimplifyExp.simplifyUnaryOp(op = scalar_op));
+    else
+      outExp := exp;
     end if;
   end expandUnary;
 
@@ -919,17 +986,18 @@ public
 
   function expandLogicalUnary
     input Expression exp;
-    input Operator op;
     output Expression outExp;
     output Boolean expanded;
   protected
-    Operator scalar_op;
+    Expression operand;
+    Operator op, scalar_op;
   algorithm
-    (outExp, expanded) := expand(exp);
-    scalar_op := Operator.scalarize(op);
+    Expression.LUNARY(op, operand) := exp;
+    (operand, expanded) := expand(operand);
 
     if expanded then
-      outExp := Expression.mapArrayElements(outExp, function makeLogicalUnaryOp(op = scalar_op));
+      scalar_op := Operator.scalarize(op);
+      outExp := Expression.mapArrayElements(operand, function makeLogicalUnaryOp(op = scalar_op));
     else
       outExp := exp;
     end if;
@@ -992,14 +1060,22 @@ public
   protected
     Type t;
     list<Subscript> sub;
-    list<Expression> expl;
+    array<Expression> expl;
     list<list<Subscript>> rest_subs;
+    Integer i;
   algorithm
     outExp := match subs
       case sub :: rest_subs
         algorithm
           t := Type.unliftArray(ty);
-          expl := list(expandGeneric2(rest_subs, exp, t, s :: accum) for s in sub);
+          expl := arrayCreateNoInit(listLength(sub), exp);
+          i := 1;
+
+          for s in sub loop
+            arrayUpdateNoBoundsChecking(expl, i,
+              expandGeneric2(rest_subs, exp, t, s :: accum));
+            i := i + 1;
+          end for;
         then
           Expression.makeArray(ty, expl);
 

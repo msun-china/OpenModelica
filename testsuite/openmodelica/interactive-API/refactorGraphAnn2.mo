@@ -1,6 +1,7 @@
 // name:     refactorGraphAnn2
 // keywords: annotation
 // status:   correct
+// cflags: -d=-newInst
 //
 // Graphical  class annotations of old standard to be refactored into a new on.
 //
@@ -25,6 +26,3 @@ equation
       rgbcolor={0,0,255},
       thickness=4));
 end connecttest;
-
-// class complextest
-// end complextest;

@@ -108,9 +108,9 @@ algorithm
     case DAE.VAR(componentRef=cr, kind = DAE.VARIABLE(), direction=dir, connectorType = ct, binding=SOME(e), source=source)
       equation
         (varSize, eqnSize, eqns, hs) = inArg;
-        b = DAEUtil.topLevelInput(cr, dir, ct, element.protection);
+        b = DAEUtil.isInput(element) and DAEUtil.isPublicVar(element);
         ce = Expression.crefExp(cr);
-        size = if b then 0 else 1;
+        size = if b then 0 else Expression.sizeOf(element.ty);
         eqns = List.consOnTrue(not b, DAE.EQUATION(ce, e, source), eqns);
         hs = if not b then BaseHashSet.add(cr, hs) else hs;
       then (varSize+size, eqnSize+size, eqns, hs);
@@ -119,9 +119,9 @@ algorithm
     case DAE.VAR(componentRef=cr, kind = DAE.DISCRETE(), direction=dir, connectorType = ct, binding=SOME(e), source=source)
       equation
         (varSize, eqnSize, eqns, hs) = inArg;
-        b = DAEUtil.topLevelInput(cr, dir, ct, element.protection);
+        b = DAEUtil.isInput(element) and DAEUtil.isPublicVar(element);
         ce = Expression.crefExp(cr);
-        size = if b then 0 else 1;
+        size = if b then 0 else Expression.sizeOf(element.ty);
         eqns = List.consOnTrue(not b, DAE.EQUATION(ce, e, source), eqns);
         hs = if not b then BaseHashSet.add(cr, hs) else hs;
       then (varSize+size, eqnSize+size, eqns, hs);
@@ -130,8 +130,8 @@ algorithm
     case DAE.VAR(componentRef=cr, kind = DAE.VARIABLE(), direction=dir, connectorType = ct)
       equation
         (varSize, eqnSize, eqns, hs) = inArg;
-        b = DAEUtil.topLevelInput(cr, dir, ct, element.protection);
-        size = if b then 0 else 1;
+        b = DAEUtil.isInput(element) and DAEUtil.isPublicVar(element);
+        size = if b then 0 else Expression.sizeOf(element.ty);
         hs = if not b then BaseHashSet.add(cr, hs) else hs;
       then (varSize+size, eqnSize, eqns, hs);
 
@@ -139,8 +139,8 @@ algorithm
     case DAE.VAR(componentRef=cr, kind = DAE.DISCRETE(), direction=dir, connectorType = ct)
       equation
         (varSize, eqnSize, eqns, hs) = inArg;
-        b = DAEUtil.topLevelInput(cr, dir, ct, element.protection);
-        size = if b then 0 else 1;
+        b = DAEUtil.isInput(element) and DAEUtil.isPublicVar(element);
+        size = if b then 0 else Expression.sizeOf(element.ty);
         hs = if not b then BaseHashSet.add(cr, hs) else hs;
       then (varSize+size, eqnSize, eqns, hs);
 
@@ -207,6 +207,22 @@ algorithm
         (varSize, eqnSize, eqns, hs) = inArg;
         (_, size, _, _) = List.fold(daeElts, countVarEqnSize, (0, 0, {}, hs));
       then (varSize, eqnSize+size, eqns, hs);
+
+    case DAE.INITIAL_FOR_EQUATION()
+      equation
+        (varSize, eqnSize, eqns, hs) = inArg;
+        (_, size, _, _) = List.fold(element.equations, countVarEqnSize, (0, 0, {}, hs));
+        size = size * Expression.sizeOf(Expression.typeof(element.range));
+      then
+        (varSize, eqnSize+size, eqns, hs);
+
+    case DAE.FOR_EQUATION()
+      equation
+        (varSize, eqnSize, eqns, hs) = inArg;
+        (_, size, _, _) = List.fold(element.equations, countVarEqnSize, (0, 0, {}, hs));
+        size = size * Expression.sizeOf(Expression.typeof(element.range));
+      then
+        (varSize, eqnSize+size, eqns, hs);
 
     // if equation with condition false and no else
     case DAE.IF_EQUATION(condition1 = {DAE.BCONST(false)}, equations3 = {})
@@ -321,7 +337,7 @@ algorithm
     // the algorithm came from a component that is member of an array or not
     case (_, DAE.SOURCE(), _)
       then
-        if PrefixUtil.haveSubs(inSource.instance)
+        if PrefixUtil.hasSubs(inSource.instance)
         then algorithmOutputs(inAlgorithm, DAE.NOT_EXPAND())
         else algorithmOutputs(inAlgorithm, inCrefExpansionRule);
 
@@ -445,7 +461,7 @@ algorithm
         // replace the iterator variable with the range expression
         cr = ComponentReference.makeCrefIdent(iteratorName, tp, {});
         (stmts, _) = DAEUtil.traverseDAEEquationsStmts(stmts, Expression.traverseSubexpressionsHelper, (Expression.replaceCref, (cr, e)));
-        ht = List.fold1(stmts, statementOutputs, inCrefExpansion, iht);
+        ht = List.fold1(stmts, statementOutputs, DAE.EXPAND(), iht);
       then ht;
 
     case(DAE.STMT_PARFOR(type_=tp, iter = iteratorName, range = e, statementLst = stmts), _, _)
@@ -453,7 +469,7 @@ algorithm
         // replace the iterator variable with the range expression
         cr = ComponentReference.makeCrefIdent(iteratorName, tp, {});
         (stmts, _) = DAEUtil.traverseDAEEquationsStmts(stmts, Expression.traverseSubexpressionsHelper, (Expression.replaceCref, (cr, e)));
-        ht = List.fold1(stmts, statementOutputs, inCrefExpansion, iht);
+        ht = List.fold1(stmts, statementOutputs, DAE.EXPAND(), iht);
       then ht;
 
     case(DAE.STMT_WHILE(statementLst = stmts), _, _)

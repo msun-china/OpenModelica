@@ -37,6 +37,17 @@ type StateSelect = enumeration(
   always "Do use it as a state."
 ) annotation(__OpenModelica_builtin = true);
 
+type Uncertainty = enumeration(
+  given,
+  sought,
+  refine,
+  propagate
+) annotation(__OpenModelica_builtin = true);
+
+partial class Clock
+  annotation(__OpenModelica_builtin=true);
+end Clock;
+
 partial class ExternalObject
   annotation(__OpenModelica_builtin=true);
 end ExternalObject;
@@ -45,7 +56,7 @@ function der "Derivative of the input expression"
   input Real x(unit="'p");
   output Real dx(unit="'p/s");
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'der()'\">der()</a>
 </html>"));
 end der;
@@ -53,7 +64,7 @@ end der;
 impure function initial "True if in initialization phase"
   discrete output Boolean isInitial;
 external "builtin";
-annotation(__OpenModelica_Impure=true, Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, __OpenModelica_Impure=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'initial()'\">initial()</a>
 </html>"));
 end initial;
@@ -61,12 +72,12 @@ end initial;
 impure function terminal "True after successful analysis"
   discrete output Boolean isTerminal;
 external "builtin";
-annotation(__OpenModelica_Impure=true, Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, __OpenModelica_Impure=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'terminal()'\">terminal()</a>
 </html>"));
 end terminal;
 
-type AssertionLevel = enumeration(error, warning) annotation(__OpenModelica_builtin=true,
+type AssertionLevel = enumeration(warning, error) annotation(__OpenModelica_builtin=true,
   Documentation(info="<html>Used by <a href=\"modelica://assert\">assert()</a></html>"));
 
 function assert "Check an assertion condition"
@@ -74,25 +85,16 @@ function assert "Check an assertion condition"
   input String message;
   input AssertionLevel level = AssertionLevel.error;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'assert()'\">assert()</a>
 </html>"));
 end assert;
-
-function constrain
-  input Real i1;
-  input Real i2;
-  input Real i3;
-  output Real o1;
-external "builtin";
-annotation(version="Dymola / MSL 1.6");
-end constrain;
 
 function ceil "Round a real number towards plus infinity"
   input Real x;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'ceil()'\">ceil()</a>
 </html>"));
 end ceil;
@@ -101,7 +103,7 @@ function floor "Round a real number towards minus infinity"
   input Real x;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'floor()'\">floor()</a>
 </html>"));
 end floor;
@@ -110,7 +112,7 @@ function integer "Returns the largest integer not greater than x. The argument s
   input Real x;
   output Integer y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'integer()'\">integer()</a>
 </html>"));
 end integer;
@@ -119,7 +121,7 @@ function sqrt "Square root"
   input Real x(unit="'p");
   output Real y(unit="'p(1/2)");
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'sqrt()'\">sqrt()</a>
 </html>"));
 end sqrt;
@@ -128,7 +130,7 @@ function sign "Sign of real or integer number"
   input Real v;
   output Integer _sign;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'sign()'\">sign()</a>
 </html>"));
 /* We do this with external "builtin" for now. But maybe we should inline it instead...
@@ -142,7 +144,7 @@ function identity "Identity matrix of given size"
   input Integer arraySize;
   output Integer[arraySize,arraySize] outArray;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'identity()'\">identity()</a>
 </html>"));
 end identity;
@@ -153,7 +155,7 @@ function semiLinear
   input Real negativeSlope;
   output Real result;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'semiLinear()'\">semiLinear()</a>
 </html>"));
 end semiLinear;
@@ -163,7 +165,7 @@ impure function edge "Indicate rising edge"
   output Boolean edgeEvent;
   // TODO: Ceval parameters? Needed to remove the builtin handler
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'edge()'\">edge()</a>
 </html>"));
 end edge;
@@ -172,7 +174,7 @@ function sin "Sine"
   input Real x;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'sin()'\">sin()</a>
 </html>"));
 end sin;
@@ -181,7 +183,7 @@ function cos "Cosine"
   input Real x;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'cos()'\">cos()</a>
 </html>"));
 end cos;
@@ -190,7 +192,7 @@ function tan "Tangent (u shall not be -pi/2, pi/2, 3*pi/2, ...)"
   input Real u;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'tan()'\">tan()</a>
 </html>"));
 end tan;
@@ -199,7 +201,7 @@ function sinh "Hyperbolic sine"
   input Real x;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'sinh()'\">sinh()</a>
 </html>"));
 end sinh;
@@ -208,7 +210,7 @@ function cosh "Hyperbolic cosine"
   input Real x;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'cosh()'\">cosh()</a>
 </html>"));
 end cosh;
@@ -217,7 +219,7 @@ function tanh "Hyperbolic tangent"
   input Real x;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'tanh()'\">tanh()</a>
 </html>"));
 end tanh;
@@ -226,7 +228,7 @@ function asin "Inverse sine (-1 <= u <= 1)"
   input Real u;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'asin()'\">asin()</a>
 </html>"));
 end asin;
@@ -235,7 +237,7 @@ function acos "Inverse cosine (-1 <= u <= 1)"
   input Real u;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'acos()'\">acos()</a>
 </html>"));
 end acos;
@@ -244,7 +246,7 @@ function atan "Inverse tangent"
   input Real x;
   output Real y;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'atan()'\">atan()</a>
 </html>"));
 end atan;
@@ -254,7 +256,7 @@ function atan2 "Four quadrant inverse tangent"
   input Real x;
   output Real z;
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'atan2()'\">atan2()</a>
 </html>"));
 end atan2;
@@ -263,7 +265,7 @@ function exp "Exponential, base e"
   input Real x(unit="1");
   output Real y(unit="1");
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'exp()'\">exp()</a>
 </html>"));
 end exp;
@@ -272,7 +274,7 @@ function log "Natural (base e) logarithm (u shall be > 0)"
   input Real u(unit="1");
   output Real y(unit="1");
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'log()'\">log()</a>
 </html>"));
 end log;
@@ -281,7 +283,7 @@ function log10 "Base 10 logarithm (u shall be > 0)"
   input Real u(unit="1");
   output Real y(unit="1");
 external "builtin";
-annotation(Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'log10()'\">log10()</a>
 </html>"));
 end log10;
@@ -291,7 +293,7 @@ impure function homotopy
   input Real simplified;
   output Real outValue;
 external "builtin";
-annotation(version="Modelica 3.2",Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, version="Modelica 3.2",Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'homotopy()'\">homotopy()</a> (experimental implementation)
 </html>"));
 end homotopy;
@@ -311,25 +313,25 @@ end linspace;
 
 function div = $overload(OpenModelica.Internal.intDiv,OpenModelica.Internal.realDiv)
   "Integer part of a division of two Real numbers"
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'div()'\">div()</a>
 </html>"));
 
 function mod = $overload(OpenModelica.Internal.intMod,OpenModelica.Internal.realMod)
   "Integer modulus of a division of two Real numbers"
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'mod()'\">mod()</a>
 </html>"));
 
 function rem = $overload(OpenModelica.Internal.intRem,OpenModelica.Internal.realRem)
   "Integer remainder of the division of two Real numbers"
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'rem()'\">rem()</a>
 </html>"));
 
 function abs = $overload(OpenModelica.Internal.intAbs,OpenModelica.Internal.realAbs)
   "Absolute value"
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'abs()'\">abs()</a>
 </html>"));
 
@@ -350,7 +352,7 @@ function cross "Cross product of two 3-vectors"
   output Real[3] z;
 algorithm
   z := { x[2]*y[3]-x[3]*y[2] , x[3]*y[1]-x[1]*y[3] , x[1]*y[2]-x[2]*y[1] };
-annotation(__OpenModelica_EarlyInline = true, preferredView="text",Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, __OpenModelica_EarlyInline = true, preferredView="text",Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'cross()'\">cross()</a>
 </html>"));
 end cross;
@@ -360,13 +362,13 @@ function skew "The skew matrix associated with the vector"
   output Real[3,3] y;
 algorithm
   y := {{0, -x[3], x[2]}, {x[3], 0, -x[1]}, {-x[2], x[1], 0}};
-annotation(__OpenModelica_EarlyInline = true, preferredView = "text", Documentation(info="<html>
+annotation(__OpenModelica_builtin=true, __OpenModelica_EarlyInline = true, preferredView = "text", Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'skew()'\">skew()</a>
 </html>"));
 end skew;
 
 function delay = $overload(OpenModelica.Internal.delay2,OpenModelica.Internal.delay3) "Delay expression"
-  annotation(__OpenModelica_Impure=true, Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, __OpenModelica_Impure=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'delay()'\">delay()</a>
 </html>"));
 
@@ -376,7 +378,7 @@ function delay = $overload(OpenModelica.Internal.delay2,OpenModelica.Internal.de
 //function min = $overload(OpenModelica.Internal.scalarMin, OpenModelica.Internal.arrayMin)
 function min
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'min()'\">min()</a>
 </html>"));
 end min;
@@ -387,42 +389,48 @@ end min;
 //function max = $overload(OpenModelica.Internal.scalarMax, OpenModelica.Internal.arrayMax)
 function max
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'max()'\">max()</a>
 </html>"));
 end max;
 
-function sum<ArrayType, ScalarBasicType> "Sum of all array elements"
-  input ArrayType a;
-  output ScalarBasicType s;
+function sum<__Array, __Scalar> "Sum of all array elements"
+  input __Array a;
+  output __Scalar s;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'sum()'\">sum()</a>
 </html>"));
 end sum;
 
-function product<ArrayType, ScalarBasicType> "Product of all array elements"
-  input ArrayType a;
-  output ScalarBasicType s;  external "builtin";
-  annotation(Documentation(info="<html>
+function product<__Array, __Scalar> "Product of all array elements"
+  input __Array a;
+  output __Scalar s;
+  external "builtin";
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'product()'\">product()</a>
 </html>"));
 end product;
+
+function promote
+  external "builtin";
+  annotation(__OpenModelica_builtin=true);
+end promote;
 
 function transpose<T> "Transpose a matrix"
   input T a;
   output T b;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'transpose()'\">transpose()</a>
 </html>"));
 end transpose;
 
 function symmetric<T> "Returns a symmetric matrix"
-  input T[:,:] a;
-  output T[:,:] b;
+  input T[:, size(a, 1)] a;
+  output T[size(a, 1), size(a, 2)] b;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'symmetric()'\">symmetric()</a>
 </html>"));
 end symmetric;
@@ -432,60 +440,62 @@ function smooth<RealArrayOrRecord> "Indicate smoothness of expression"
   input RealArrayOrRecord expr;
   output RealArrayOrRecord s;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'smooth()'\">smooth()</a>
 </html>"));
 end smooth;
 
-function diagonal<T> "Returns a diagonal matrix"
-  input T v[:];
-  output T mat[size(v,1),size(v,1)];
+function diagonal<__Scalar> "Returns a diagonal matrix"
+  input __Scalar v[:];
+  output __Scalar mat[size(v,1),size(v,1)];
   external "builtin";
-  annotation(__OpenModelica_UnboxArguments=true, Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, __OpenModelica_UnboxArguments=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'diagonal()'\">diagonal()</a>
 </html>"));
 end diagonal;
 
-function cardinality "Number of connectors in connection"
-  input Real c;
+function cardinality<__Connector> "Number of connectors in connection"
+  input __Connector c;
   parameter output Integer numOccurances;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'cardinality()'\">cardinality()</a>
 </html>"),version="Deprecated");
 end cardinality;
 
 function array "Constructs an array"
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'array()'\">array()</a>
 </html>"));
 end array;
 
 function zeros "Returns a zero array"
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'zeros()'\">zeros()</a>
 </html>"));
 end zeros;
 
 function ones "Returns a one array"
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'ones()'\">ones()</a>
 </html>"));
 end ones;
 
 function fill "Returns an array with all elements equal"
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'fill()'\">fill()</a>
 </html>"));
 end fill;
 
-function noEvent "Turn off event triggering"
+function noEvent<__Any> "Turn off event triggering"
+  input __Any x;
+  output __Any y;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'noEvent()'\">noEvent()</a>
 </html>"));
 end noEvent;
@@ -494,7 +504,7 @@ impure function pre<PodCref> "Refer to left limit"
   discrete input PodCref y;
   output PodCref p;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'pre()'\">pre()</a>
 </html>"));
 end pre;
@@ -503,7 +513,7 @@ impure function change<PodCref> "Indicate discrete variable changing"
   discrete input PodCref y;
   output Boolean p;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'change()'\">change()</a>
 </html>"));
 end change;
@@ -512,27 +522,27 @@ function reinit<RealOrArrayCref, RealOrArrayExpr> "Reinitialize state variable"
   input RealOrArrayCref x;
   input RealOrArrayExpr expr;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'reinit()'\">reinit()</a>
 </html>"));
 end reinit;
 
 function sample = $overload(OMC_NO_CLOCK.sample, OMC_CLOCK.sample)
    "Returns the interval between the previous and present tick of the clock of its argument"
-  annotation(__OpenModelica_UnboxArguments=true, Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, __OpenModelica_UnboxArguments=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'sample()'\">sample()</a>
 </html>"));
 
 package OMC_NO_CLOCK
-	impure function sample "Overloaded operator to either trigger time events or to convert between continuous-time and clocked-time representation"
-	  parameter input Real start;
-	  parameter input Real interval;
-	  output Boolean b;
-	  external "builtin";
-	  annotation(Documentation(info="<html>
-	  See <a href=\"modelica://ModelicaReference.Operators.'sample()'\">sample()</a>
-	</html>"));
-	end sample;
+  impure function sample "Overloaded operator to either trigger time events or to convert between continuous-time and clocked-time representation"
+    parameter input Real start;
+    parameter input Real interval;
+    output Boolean b;
+    external "builtin";
+    annotation(Documentation(info="<html>
+    See <a href=\"modelica://ModelicaReference.Operators.'sample()'\">sample()</a>
+  </html>"));
+  end sample;
 end OMC_NO_CLOCK;
 
 package OMC_CLOCK
@@ -547,45 +557,55 @@ package OMC_CLOCK
   end sample;
 end OMC_CLOCK;
 
-function shiftSample<T> "First activation of clock is shifted in time"
-  input T u;
+function shiftSample<__Any> "First activation of clock is shifted in time"
+  input __Any u;
   parameter input Integer shiftCounter(min = 0);
   parameter input Integer resolution(min = 1) = 1;
-  output T c;
+  output __Any c;
   external "builtin";
-  annotation(__OpenModelica_UnboxArguments=true, version="Modelica 3.3", Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, version="Modelica 3.3", Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'shiftSample()'\">shiftSample()</a>
 </html>"));
 end shiftSample;
 
-function backSample<T> "First activation of clock is shifted in time before activation of u"
-  input T u;
+function backSample<__Any> "First activation of clock is shifted in time before activation of u"
+  input __Any u;
   parameter input Integer backCounter(min = 0);
   parameter input Integer resolution(min = 1) = 1;
-  output T c;
+  output __Any c;
   external "builtin";
-  annotation(__OpenModelica_UnboxArguments=true, version="Modelica 3.3", Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, version="Modelica 3.3", Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'backSample()'\">backSample()</a>
 </html>"));
 end backSample;
 
-function transition "Define state machine transition"
+function transition<__Block> "Define state machine transition"
+  input __Block from;
+  input __Block to;
+  input Boolean condition;
+  input Boolean immediate = true;
+  input Boolean reset = true;
+  input Boolean synchronize = false;
+  input Integer priority = 1;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'transition()'\">transition()</a>
 </html>"));
 end transition;
 
-function initialState "Define inital state of a state machine"
+function initialState<__Block> "Define inital state of a state machine"
+  input __Block state;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'initialState()'\">initialState()</a>
 </html>"));
 end initialState;
 
-function activeState "Return true if instance of a state machine is active, otherwise false"
+function activeState<__Block> "Return true if instance of a state machine is active, otherwise false"
+  input __Block state;
+  output Boolean active;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'activeState()'\">activeState()</a>
 </html>"));
 end activeState;
@@ -594,24 +614,24 @@ function ndims<T> "Number of array dimensions"
   input T a;
   parameter output Integer d;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'ndims()'\">ndims()</a>
 </html>"));
 end ndims;
 
 function size "Returns dimensions of an array"
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'size()'\">size()</a>
 </html>"));
 end size;
 
-function DynamicSelect<T> "select static or dynamic expressions in the annotations"
-  input T static;
-  input T dynamic;
-  output T selected;
+impure function DynamicSelect<__Any> "select static or dynamic expressions in the annotations"
+  input __Any static;
+  input __Any dynamic;
+  output __Any selected;
   external "builtin";
-  annotation(__OpenModelica_UnboxArguments=true, __OpenModelica_Impure=true, Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, __OpenModelica_Impure=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Annotations.DynamicSelect\">DynamicSelect</a>
 </html>"));
 end DynamicSelect;
@@ -620,7 +640,7 @@ function scalar<T,ScalarType> "Returns a one-element array as scalar"
   input T i;
   output ScalarType s;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'scalar()'\">scalar()</a>
 </html>"));
 end scalar;
@@ -629,7 +649,7 @@ function vector<T,VectorType> "Returns an array as vector"
   input T i;
   output VectorType v;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'vector()'\">vector()</a>
 </html>"));
 end vector;
@@ -638,14 +658,14 @@ function matrix<T,Matrix> "Returns the first two dimensions of an array as matri
   input T i;
   output Matrix m;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'matrix()'\">matrix()</a>
 </html>"));
 end matrix;
 
 function cat "Concatenate arrays along given dimension"
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'cat()'\">cat()</a>
 </html>"));
 end cat;
@@ -654,17 +674,24 @@ function actualStream
   input Real x;
   output Real y;
   external "builtin";
+  annotation(__OpenModelica_builtin=true);
 end actualStream;
 
 function inStream
   input Real x;
   output Real y;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'inStream()'\">inStream()</a>
 </html>"));
 end inStream;
 
+function pure<__Any>
+  input __Any x;
+  output __Any y;
+  external "builtin";
+  annotation(__OpenModelica_builtin=true, version="Modelica 3.4");
+end pure;
 
 /* Extension for uncertainty computations */
 record Distribution
@@ -681,6 +708,7 @@ end Correlation;
 
 function rooted
   external "builtin";
+  annotation(__OpenModelica_builtin=true);
 end rooted;
 
 encapsulated package Connections
@@ -690,29 +718,34 @@ encapsulated package Connections
     input VariableName node1;
     input VariableName node2;
     external "builtin";
+    annotation(__OpenModelica_builtin=true);
   end branch;
 
   function root
     input VariableName node;
     external "builtin";
+    annotation(__OpenModelica_builtin=true);
   end root;
 
   function potentialRoot
     input VariableName node;
     parameter input Integer priority = 0;
     external "builtin";
+    annotation(__OpenModelica_builtin=true);
   end potentialRoot;
 
   function isRoot
     input VariableName node;
     output Boolean isroot;
     external "builtin";
+    annotation(__OpenModelica_builtin=true);
   end isRoot;
 
   function uniqueRoot
     input VariableName root;
     input String message = "";
     external "builtin";
+    annotation(__OpenModelica_builtin=true);
   end uniqueRoot;
 
   function uniqueRootIndices
@@ -722,11 +755,12 @@ encapsulated package Connections
     output Integer[size(roots, 1)] rootIndices;
     // adrpo: I would like an assert here: size(nodes) <= size (roots)
     external "builtin";
+    annotation(__OpenModelica_builtin=true);
   end uniqueRootIndices;
 
   function rooted
     external "builtin";
-    annotation(Documentation(info="<html>
+    annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   <h4>Syntax</h4>
   <blockquote>
   <pre><b>Connections.rooted</b>(x)</pre>
@@ -746,6 +780,8 @@ encapsulated package Connections
   </p>
   </html>"));
   end rooted;
+
+  annotation(__OpenModelica_builtin=true);
 end Connections;
 
 encapsulated package Subtask
@@ -783,7 +819,7 @@ end classDirectory;
 function getInstanceName
   output String instanceName;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
 <h4>
 Modelica definition:
 </h4>
@@ -828,27 +864,27 @@ function spatialDistribution "Not yet implemented"
   output Real out0;
   output Real out1;
 external "builtin";
-annotation(version="Modelica 3.3");
+annotation(__OpenModelica_builtin=true, version="Modelica 3.3");
 end spatialDistribution;
 
-function previous<T> "Access previous value of a clocked variable"
-  input T u;
-  output T y;
+function previous<__ComponentExpression> "Access previous value of a clocked variable"
+  input __ComponentExpression u;
+  output __ComponentExpression y;
   external "builtin";
-  annotation(__OpenModelica_UnboxArguments=true, version="Modelica 3.3", Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, version="Modelica 3.3", Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'previous()'\">previous()</a>
 </html>"));
 end previous;
 
 function firstTick = $overload(OMC_NO_ARGS.firstTick, OMC_ARGS.firstTick)
    "Returns the interval between the previous and present tick of the clock of its argument"
-  annotation(__OpenModelica_UnboxArguments=true, Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, __OpenModelica_UnboxArguments=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'firstTick()'\">firstTick()</a>
 </html>"));
 
 function interval = $overload(OMC_NO_ARGS.interval, OMC_ARGS.interval)
    "Returns the interval between the previous and present tick of the clock of its argument"
-  annotation(__OpenModelica_UnboxArguments=true, Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, __OpenModelica_UnboxArguments=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'interval()'\">interval()</a>
 </html>"));
 
@@ -896,30 +932,30 @@ end OMC_ARGS;
 
 function subSample = $overload(OpenModelica.Internal.subSampleExpression, OpenModelica.Internal.subSampleClock)
   "Conversion from faster clock to slower clock"
-  annotation(__OpenModelica_UnboxArguments=true, version="Modelica 3.3", Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, version="Modelica 3.3", Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'subSample()'\">subSample()</a>
 </html>"));
 
 function superSample = $overload(OpenModelica.Internal.superSampleExpression, OpenModelica.Internal.superSampleClock)
   "Conversion from slower clock to faster clock"
-  annotation(__OpenModelica_UnboxArguments=true, version="Modelica 3.3", Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, version="Modelica 3.3", Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'superSample()'\">superSample()</a>
 </html>"));
 
-function hold<T> "Conversion from clocked discrete-time to continuous time"
-  input T u;
-  output T y;
+function hold<__Any> "Conversion from clocked discrete-time to continuous time"
+  input __Any u;
+  output __Any y;
   external "builtin";
-  annotation(__OpenModelica_UnboxArguments=true, version="Modelica 3.3", Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, version="Modelica 3.3", Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'hold()'\">hold()</a>
 </html>"));
 end hold;
 
-function noClock<T> "Clock of y=Clock(u) is always inferred"
-  input T u;
-  output T y;
+function noClock<__Any> "Clock of y=Clock(u) is always inferred"
+  input __Any u;
+  output __Any y;
   external "builtin";
-  annotation(__OpenModelica_UnboxArguments=true, version="Modelica 3.3", Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, version="Modelica 3.3", Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'noClock()'\">noClock()</a>
 </html>"));
 end noClock;
@@ -927,7 +963,7 @@ end noClock;
 impure function ticksInState "Returns the number of clock ticks since a transition was made to the currently active state"
   output Integer ticks;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'ticksInState()'\">ticksInState()</a>
 </html>"));
 end ticksInState;
@@ -935,7 +971,7 @@ end ticksInState;
 impure function timeInState "Returns the time duration as Real in [s] since a transition was made to the currently active state"
   output Real t;
   external "builtin";
-  annotation(Documentation(info="<html>
+  annotation(__OpenModelica_builtin=true, Documentation(info="<html>
   See <a href=\"modelica://ModelicaReference.Operators.'ticksInState()'\">ticksInState()</a>
 </html>"));
 end timeInState;
@@ -1032,12 +1068,11 @@ package Internal "Contains internal implementations, e.g. overloaded builtin fun
     external "builtin";
   end solverClock;
 
-  impure function subSampleExpression<T>
-    input T u;
+  impure function subSampleExpression<__Any>
+    input __Any u;
     parameter input Integer factor(min=0)=0;
-    output T y;
+    output __Any y;
     external "builtin" y=subSample(u,factor);
-    annotation(__OpenModelica_UnboxArguments=true);
   end subSampleExpression;
 
   impure function subSampleClock
@@ -1047,12 +1082,11 @@ package Internal "Contains internal implementations, e.g. overloaded builtin fun
     external "builtin" y=subSample(u,factor);
   end subSampleClock;
 
-  impure function superSampleExpression<T>
-    input T u;
+  impure function superSampleExpression<__Any>
+    input __Any u;
     parameter input Integer factor(min=0)=0;
-    output T y;
+    output __Any y;
     external "builtin" y=superSample(u,factor);
-    annotation(__OpenModelica_UnboxArguments=true);
   end superSampleExpression;
 
   impure function superSampleClock
@@ -1322,8 +1356,7 @@ type FileType = enumeration(NoFile, RegularFile, Directory, SpecialFile);
 function stat
   input String name;
   output FileType fileType;
-  external "C" fileType = ModelicaInternal_stat(name);
-  annotation(Library="ModelicaExternalC");
+  external "C" fileType = OpenModelicaInternal_stat(name);
 end stat;
 
 end Internal;
@@ -1338,6 +1371,8 @@ function loadFile "load file (*.mo) and merge it with the loaded AST."
   input String fileName;
   input String encoding = "UTF-8";
   input Boolean uses = true;
+  input Boolean notify = true "Give a notification of the libraries and versions that were loaded";
+  input Boolean requireExactVersion = false "If the version is required to be exact, if there is a uses Modelica(version=\"3.2\"), Modelica 3.2.1 will not match it.";
   output Boolean success;
 external "builtin";
 annotation(Documentation(info="<html>
@@ -1354,14 +1389,31 @@ function loadFiles "load files (*.mo) and merges them with the loaded AST."
   input String[:] fileNames;
   input String encoding = "UTF-8";
   input Integer numThreads = OpenModelica.Scripting.numProcessors();
+  input Boolean uses = true;
+  input Boolean notify = true "Give a notification of the libraries and versions that were loaded";
+  input Boolean requireExactVersion = false "If the version is required to be exact, if there is a uses Modelica(version=\"3.2\"), Modelica 3.2.1 will not match it.";
   output Boolean success;
 external "builtin";
 annotation(preferredView="text");
 end loadFiles;
 
+function parseEncryptedPackage
+  input String fileName;
+  input String workdir = "<default>" "The output directory for imported encrypted files. <default> will put the files to current working directory.";
+  output TypeName names[:];
+external "builtin";
+annotation(Documentation(info="<html>
+<p>Parses the given encrypted package and returns the names of the parsed classes.</p>
+</html>"), preferredView="text");
+end parseEncryptedPackage;
+
 function loadEncryptedPackage
   input String fileName;
   input String workdir = "<default>" "The output directory for imported encrypted files. <default> will put the files to current working directory.";
+  input Boolean skipUnzip = false "Skips the unzip of .mol if true. In that case we expect the files are already extracted e.g., because of parseEncryptedPackage() call.";
+  input Boolean uses = true;
+  input Boolean notify = true "Give a notification of the libraries and versions that were loaded";
+  input Boolean requireExactVersion = false "If the version is required to be exact, if there is a uses Modelica(version=\"3.2\"), Modelica 3.2.1 will not match it.";
   output Boolean success;
 external "builtin";
 annotation(Documentation(info="<html>
@@ -1426,6 +1478,9 @@ end loadFileInteractiveQualified;
 function loadFileInteractive
   input String filename;
   input String encoding = "UTF-8";
+  input Boolean uses = true;
+  input Boolean notify = true "Give a notification of the libraries and versions that were loaded";
+  input Boolean requireExactVersion = false "If the version is required to be exact, if there is a uses Modelica(version=\"3.2\"), Modelica 3.2.1 will not match it.";
   output TypeName names[:];
 external "builtin";
 annotation(preferredView="text");
@@ -1484,6 +1539,13 @@ function generateHeader
 external "builtin";
 annotation(preferredView="text");
 end generateHeader;
+
+function generateJuliaHeader
+  input String fileName;
+  output Boolean success;
+external "builtin";
+annotation(preferredView="text");
+end generateJuliaHeader;
 
 function generateSeparateCode
   input TypeName className;
@@ -1682,7 +1744,8 @@ function setModelicaPath "The Modelica Library Path - MODELICAPATH in the langua
   output Boolean success;
 external "builtin";
 annotation(Documentation(info="<html>
-See <a href=\"modelica://OpenModelica.Scripting.loadModel\">loadModel()</a> for a description of what the MODELICAPATH is used for.
+<p>See <a href=\"modelica://OpenModelica.Scripting.loadModel\">loadModel()</a> for a description of what the MODELICAPATH is used for.</p>
+<p>Set it to empty string to clear it: setModelicaPath(\"\");</p>
 </html>"),
   preferredView="text");
 end setModelicaPath;
@@ -1691,11 +1754,18 @@ function getModelicaPath "Get the Modelica Library Path."
   output String modelicaPath;
 external "builtin";
 annotation(Documentation(info="<html>
-<p>The MODELICAPATH is list of paths to search when trying to  <a href=\"modelica://OpenModelica.Scripting.loadModel\">load a library</a>. It is a string separated by colon (:) on all OSes except Windows, which uses semicolon (;).</p>
+<p>The MODELICAPATH is a list of paths to search when trying to  <a href=\"modelica://OpenModelica.Scripting.loadModel\">load a library</a>. It is a string separated by colon (:) on all OSes except Windows, which uses semicolon (;).</p>
 <p>To override the default path (<a href=\"modelica://OpenModelica.Scripting.getInstallationDirectoryPath\">OPENMODELICAHOME</a>/lib/omlibrary/:~/.openmodelica/libraries/), set the environment variable OPENMODELICALIBRARY=...</p>
+<p>On Windows the HOME directory '~' is replaced by %APPDATA%</p>
 </html>"),
   preferredView="text");
 end getModelicaPath;
+
+function getHomeDirectoryPath "This returns the path to user HOME directory."
+  output String homeDirectoryPath;
+external "builtin";
+annotation(preferredView="text");
+end getHomeDirectoryPath;
 
 function setCompilerFlags
   input String compilerFlags;
@@ -1703,6 +1773,18 @@ function setCompilerFlags
 external "builtin";
 annotation(preferredView="text");
 end setCompilerFlags;
+
+function enableNewInstantiation
+  output Boolean success;
+external "builtin";
+annotation(preferredView="text");
+end enableNewInstantiation;
+
+function disableNewInstantiation
+  output Boolean success;
+external "builtin";
+annotation(preferredView="text");
+end disableNewInstantiation;
 
 function setDebugFlags "example input: failtrace,-noevalfunc"
   input String debugFlags;
@@ -1843,15 +1925,15 @@ end getVersion;
 function regularFileExists
   input String fileName;
   output Boolean exists;
-algorithm
-  exists := Internal.stat(fileName) == Internal.FileType.RegularFile;
+external "builtin";
+annotation(preferredView="text");
 end regularFileExists;
 
 function directoryExists
   input String dirName;
   output Boolean exists;
-algorithm
-  exists := Internal.stat(dirName) == Internal.FileType.Directory;
+external "builtin";
+annotation(preferredView="text");
 end directoryExists;
 
 impure function stat
@@ -2000,7 +2082,7 @@ type ErrorKind = enumeration(
   runtime "simulation/function runtime error",
   scripting "runtime scripting /interpretation error"
 );
-type ErrorLevel = enumeration(notification,warning,error);
+type ErrorLevel = enumeration(internal,notification,warning,error);
 
 record ErrorMessage
   SourceInfo info;
@@ -2196,6 +2278,14 @@ external "builtin";
 annotation(preferredView="text");
 end mkdir;
 
+function copy "copies the source file to the destination file. Returns true if the file has been copied."
+  input String source;
+  input String destination;
+  output Boolean success;
+external "builtin";
+annotation(preferredView="text");
+end copy;
+
 function remove "removes a file or directory of given path (which may be either relative or absolute)."
   input String path;
   output Boolean success "Returns true on success.";
@@ -2231,20 +2321,6 @@ function instantiateModel "Instantiates the class and returns the flat Modelica 
 external "builtin";
 annotation(preferredView="text");
 end instantiateModel;
-
-function buildOpenTURNSInterface "generates wrapper code for OpenTURNS"
-  input TypeName className;
-  input String pythonTemplateFile;
-  input Boolean showFlatModelica = false;
-  output String outPythonScript;
-  external "builtin";
-end buildOpenTURNSInterface;
-
-function runOpenTURNSPythonScript "runs OpenTURNS with the given python script returning the log file"
-  input String pythonScriptFile;
-  output String logOutputFile;
-  external "builtin";
-end runOpenTURNSPythonScript;
 
 function generateCode "The input is a function name for which C-code is generated and compiled into a dll/so"
   input TypeName className;
@@ -2316,16 +2392,29 @@ function saveTotalModel "Save the className model in a single file, together wit
    which loads className and all the other needed classes into memory.
    This is useful to allow third parties to run a certain model (e.g. for debugging)
    without worrying about all the library dependencies.
-   Please note that SaveTotal file is not a valid Modelica .mo file according to the 
+   Please note that SaveTotal file is not a valid Modelica .mo file according to the
    specification, and cannot be loaded in OMEdit - it can only be loaded with loadFile()."
   input String fileName;
   input TypeName className;
   input Boolean stripAnnotations = false;
   input Boolean stripComments = false;
+  input Boolean obfuscate = false;
   output Boolean success;
 external "builtin";
 annotation(preferredView="text");
 end saveTotalModel;
+
+function saveTotalModelDebug
+  "Saves the className model in a single file, together with all other classes
+   that it depends on. This function uses a naive heuristic based on which
+   identifiers are used and might save things which are not actually used,
+   and is meant to be used in cases where the normal saveTotalModel fails."
+  input String filename;
+  input TypeName className;
+  output Boolean success;
+external "builtin";
+annotation(preferredView="text");
+end saveTotalModelDebug;
 
 function save
   input TypeName className;
@@ -2485,6 +2574,7 @@ end list;
 
 function listFile "Lists the contents of the file given by the class."
   input TypeName class_;
+  input Boolean nestedClasses = true;
   output String contents;
 external "builtin";
 annotation(Documentation(info="<html>
@@ -2504,6 +2594,7 @@ type DiffFormat = enumeration(plain "no deletions, no markup", color "terminal e
 function diffModelicaFileListings "Creates diffs of two strings corresponding to Modelica files"
   input String before, after;
   input DiffFormat diffFormat = DiffFormat.color;
+  input Boolean failOnSemanticsChange = false "Defaults to returning after instead of hard fail";
   output String result;
 external "builtin";
 annotation(Documentation(info="<html>
@@ -2561,7 +2652,7 @@ end rewriteBlockCall;
 function realpath "Get full path name of file or directory name"
   input String name "Absolute or relative file or directory name";
   output String fullName "Full path of 'name'";
-external "C" fullName = ModelicaInternal_fullPathName(name) annotation(Library="ModelicaExternalC");
+external "builtin" fullName = OpenModelicaInternal_fullPathName(name);
   annotation (Documentation(info="<html>
 Return the canonicalized absolute pathname.
 Similar to <a href=\"http://linux.die.net/man/3/realpath\">realpath(3)</a>, but with the safety of Modelica strings.
@@ -2588,15 +2679,11 @@ Returns a list of names of libraries and their path on the system, for example:
 </html>"));
 end getLoadedLibraries;
 
-type LinearSystemSolver = enumeration(dgesv,lpsolve55);
 function solveLinearSystem
-  "Solve A*X = B, using dgesv or lp_solve (if any variable in X is integer)
-  Returns for solver dgesv: info>0: Singular for element i. info<0: Bad input.
-  For solver lp_solve: ???"
+  "Solve A*X = B using dgesv.
+  Returns for solver dgesv: info>0: Singular for element i. info<0: Bad input."
   input Real[size(B,1),size(B,1)] A;
   input Real[:] B;
-  input LinearSystemSolver solver = LinearSystemSolver.dgesv;
-  input Integer[:] isInt = {-1} "list of indices that are integers";
   output Real[size(B,1)] X;
   output Integer info;
 external "builtin";
@@ -2622,6 +2709,7 @@ function importFMU "Imports the Functional Mockup Unit
   input Boolean debugLogging = false "When true the FMU's debug output is printed.";
   input Boolean generateInputConnectors = true "When true creates the input connector pins.";
   input Boolean generateOutputConnectors = true "When true creates the output connector pins.";
+  input TypeName modelName = $TypeName(Default) "Name of the generated model. If default then the name is auto generated using FMU information.";
   output String generatedFileName "Returns the full path of the generated file.";
 external "builtin";
 annotation(preferredView="text");
@@ -2666,7 +2754,11 @@ The only required argument is the className, while all others have some default 
   input String version = "2.0" "FMU version, 1.0 or 2.0.";
   input String fmuType = "me" "FMU type, me (model exchange), cs (co-simulation), me_cs (both model exchange and co-simulation)";
   input String fileNamePrefix = "<default>" "fileNamePrefix. <default> = \"className\"";
-  input String platforms[:] = {"static"} "The list of platforms to generate code for. \"dynamic\"=current platform, dynamically link the runtime. \"static\"=current platform, statically link everything. Else, use a host triple, e.g. \"x86_64-linux-gnu\" or \"x86_64-w64-mingw32\"";
+  input String platforms[:] = {"static"} "The list of platforms to generate code for.
+                                          \"dynamic\"=current platform, dynamically link the runtime.
+                                          \"static\"=current platform, statically link everything.
+                                          \"<cpu>-<vendor>-<os>\", host tripple, e.g. \"x86_64-linux-gnu\" or \"x86_64-w64-mingw32\".
+                                          \"<cpu>-<vendor>-<os> docker run <image>\" host tripple with Docker image, e.g. \"x86_64-linux-gnu docker run --pull=never multiarch/crossbuild\"";
   input Boolean includeResources = false "include Modelica based resources via loadResource or not";
   output String generatedFileName "Returns the full path of the generated FMU.";
 external "builtin";
@@ -2675,8 +2767,8 @@ end buildModelFMU;
 
 function buildEncryptedPackage
   input TypeName className "the class that should encrypted";
+  input Boolean encrypt = true;
   output Boolean success;
-  output String commandOutput "Output of the packagetool executable";
 external "builtin";
 annotation(preferredView="text");
 end buildEncryptedPackage;
@@ -2690,13 +2782,13 @@ function simulate "simulates a modelica model by generating c code, build it and
   input TypeName className "the class that should simulated";
   input Real startTime = "<default>" "the start time of the simulation. <default> = 0.0";
   input Real stopTime = 1.0 "the stop time of the simulation. <default> = 1.0";
-  input Real numberOfIntervals = 500 "number of intervals in the result file. <default> = 500";
+  input Integer numberOfIntervals = 500 "number of intervals in the result file. <default> = 500";
   input Real tolerance = 1e-6 "tolerance used by the integration method. <default> = 1e-6";
   input String method = "<default>" "integration method used for simulation. <default> = dassl";
   input String fileNamePrefix = "<default>" "fileNamePrefix. <default> = \"\"";
   input String options = "<default>" "options. <default> = \"\"";
   input String outputFormat = "mat" "Format for the result file. <default> = \"mat\"";
-  input String variableFilter = ".*" "Filter for variables that should store in result file. <default> = \".*\"";
+  input String variableFilter = ".*" "Only variables fully matching the regexp are stored in the result file. <default> = \".*\"";
   input String cflags = "<default>" "cflags. <default> = \"\"";
   input String simflags = "<default>" "simflags. <default> = \"\"";
   output SimulationResult simulationResults;
@@ -2726,13 +2818,13 @@ function buildModel "builds a modelica model by generating c code and build it.
   input TypeName className "the class that should be built";
   input Real startTime = "<default>" "the start time of the simulation. <default> = 0.0";
   input Real stopTime = 1.0 "the stop time of the simulation. <default> = 1.0";
-  input Real numberOfIntervals = 500 "number of intervals in the result file. <default> = 500";
+  input Integer numberOfIntervals = 500 "number of intervals in the result file. <default> = 500";
   input Real tolerance = 1e-6 "tolerance used by the integration method. <default> = 1e-6";
   input String method = "<default>" "integration method used for simulation. <default> = dassl";
   input String fileNamePrefix = "<default>" "fileNamePrefix. <default> = \"\"";
   input String options = "<default>" "options. <default> = \"\"";
   input String outputFormat = "mat" "Format for the result file. <default> = \"mat\"";
-  input String variableFilter = ".*" "Filter for variables that should store in result file. <default> = \".*\"";
+  input String variableFilter = ".*" "Only variables fully matching the regexp are stored in the result file. <default> = \".*\"";
   input String cflags = "<default>" "cflags. <default> = \"\"";
   input String simflags = "<default>" "simflags. <default> = \"\"";
   output String[2] buildModelResults;
@@ -2750,7 +2842,7 @@ input TypeName className "the class that should be built";
   input String fileNamePrefix = "" "fileNamePrefix. <default> = \"\"";
   input String options = "" "options. <default> = \"\"";
   input String outputFormat = "mat" "Format for the result file. <default> = \"mat\"";
-  input String variableFilter = ".*" "Filter for variables that should store in result file. <default> = \".*\"";
+  input String variableFilter = ".*" "Only variables fully matching the regexp are stored in the result file. <default> = \".*\"";
   input String cflags = "" "cflags. <default> = \"\"";
   input String simflags = "" "simflags. <default> = \"\"";
 output String[2] buildModelResults;
@@ -2768,7 +2860,7 @@ input TypeName className "the class that should be built";
   input String fileNamePrefix = "" "fileNamePrefix. <default> = \"\"";
   input String options = "" "options. <default> = \"\"";
   input String outputFormat = "mat" "Format for the result file. <default> = \"mat\"";
-  input String variableFilter = ".*" "Filter for variables that should store in result file. <default> = \".*\"";
+  input String variableFilter = ".*" "Only variables fully matching the regexp are stored in the result file. <default> = \".*\"";
   input String cflags = "" "cflags. <default> = \"\"";
   input String simflags = "" "simflags. <default> = \"\"";
   input String labelstoCancel="";
@@ -2819,11 +2911,11 @@ external "builtin";
 annotation(preferredView="text");
 end copyClass;
 
-function linearize "creates a model with symbolic linearization matrixes"
+function linearize "creates a model with symbolic linearization matrices"
   input TypeName className "the class that should simulated";
   input Real startTime = "<default>" "the start time of the simulation. <default> = 0.0";
   input Real stopTime = 1.0 "the stop time of the simulation. <default> = 1.0";
-  input Real numberOfIntervals = 500 "number of intervals in the result file. <default> = 500";
+  input Integer numberOfIntervals = 500 "number of intervals in the result file. <default> = 500";
   input Real stepSize = 0.002 "step size that is used for the result file. <default> = 0.002";
   input Real tolerance = 1e-6 "tolerance used by the integration method. <default> = 1e-6";
   input String method = "<default>" "integration method used for simulation. <default> = dassl";
@@ -2832,18 +2924,18 @@ function linearize "creates a model with symbolic linearization matrixes"
   input Boolean noClean = false "noClean. <default> = false";
   input String options = "<default>" "options. <default> = \"\"";
   input String outputFormat = "mat" "Format for the result file. <default> = \"mat\"";
-  input String variableFilter = ".*" "Filter for variables that should store in result file. <default> = \".*\"";
+  input String variableFilter = ".*" "Only variables fully matching the regexp are stored in the result file. <default> = \".*\"";
   input String cflags = "<default>" "cflags. <default> = \"\"";
   input String simflags = "<default>" "simflags. <default> = \"\"";
   output String linearizationResult;
 external "builtin";
 annotation(Documentation(info="<html>
-<p>Creates a model with symbolic linearization matrixes.</p>
-<p>At stopTime the linearization matrixes are evaluated and a modelica model is created.</p>
+<p>Creates a model with symbolic linearization matrices.</p>
+<p>At stopTime the linearization matrices are evaluated and a modelica model is created.</p>
 <p>The only required argument is the className, while all others have some default values.</p>
 <h2>Usage:</h2>
 <p><b>linearize</b>(<em>A</em>, stopTime=0.0);</p>
-<p>Creates the file \"linear_A.mo\" that contains the linearized matrixes at stopTime.</p>
+<p>Creates the file \"linear_A.mo\" that contains the linearized matrices at stopTime.</p>
 </html>", revisions="<html>
 <table>
 <tr><th>Revision</th><th>Author</th><th>Comment</th></tr>
@@ -2860,7 +2952,7 @@ function optimize "optimize a modelica/optimica model by generating c code, buil
   input TypeName className "the class that should simulated";
   input Real startTime = "<default>" "the start time of the simulation. <default> = 0.0";
   input Real stopTime = 1.0 "the stop time of the simulation. <default> = 1.0";
-  input Real numberOfIntervals = 500 "number of intervals in the result file. <default> = 500";
+  input Integer numberOfIntervals = 500 "number of intervals in the result file. <default> = 500";
   input Real stepSize = 0.002 "step size that is used for the result file. <default> = 0.002";
   input Real tolerance = 1e-6 "tolerance used by the integration method. <default> = 1e-6";
   input String method = DAE.SCONST("optimization") "optimize a modelica/optimica model.";
@@ -2869,7 +2961,7 @@ function optimize "optimize a modelica/optimica model by generating c code, buil
   input Boolean noClean = false "noClean. <default> = false";
   input String options = "<default>" "options. <default> = \"\"";
   input String outputFormat = "mat" "Format for the result file. <default> = \"mat\"";
-  input String variableFilter = ".*" "Filter for variables that should store in result file. <default> = \".*\"";
+  input String variableFilter = ".*" "Only variables fully matching the regexp are stored in the result file. <default> = \".*\"";
   input String cflags = "<default>" "cflags. <default> = \"\"";
   input String simflags = "<default>" "simflags. <default> = \"\"";
   output String optimizationResults;
@@ -2935,9 +3027,9 @@ annotation(preferredView="text");
 end getPackages;
 
 function getAllSubtypeOf
-  "Returns the list of all classes that extend from class_ given a parentClass where the lookup for class_ should start"
+  "Returns the list of all classes that extend from className given a parentClass where the lookup for className should start"
+  input TypeName className;
   input TypeName parentClass = $TypeName(AllLoadedClasses);
-  input TypeName class_;
   input Boolean qualified = false;
   input Boolean includePartial = false;
   input Boolean sort = false;
@@ -2972,7 +3064,7 @@ function plot "Launches a plot window using OMPlot."
   input Boolean externalWindow = false "Opens the plot in a new plot window";
   input String fileName = "<default>" "The filename containing the variables. <default> will read the last simulation result";
   input String title = "" "This text will be used as the diagram title.";
-  input String grid = "detailed" "Sets the grid for the plot i.e simple, detailed, none.";
+  input String grid = "simple" "Sets the grid for the plot i.e simple, detailed, none.";
   input Boolean logX = false "Determines whether or not the horizontal axis is logarithmically scaled.";
   input Boolean logY = false "Determines whether or not the vertical axis is logarithmically scaled.";
   input String xLabel = "time" "This text will be used as the horizontal label in the diagram.";
@@ -3010,7 +3102,7 @@ function plotAll "Works in the same way as plot(), but does not accept any
   input Boolean externalWindow = false "Opens the plot in a new plot window";
   input String fileName = "<default>" "The filename containing the variables. <default> will read the last simulation result";
   input String title = "" "This text will be used as the diagram title.";
-  input String grid = "detailed" "Sets the grid for the plot i.e simple, detailed, none.";
+  input String grid = "simple" "Sets the grid for the plot i.e simple, detailed, none.";
   input Boolean logX = false "Determines whether or not the horizontal axis is logarithmically scaled.";
   input Boolean logY = false "Determines whether or not the vertical axis is logarithmically scaled.";
   input String xLabel = "time" "This text will be used as the horizontal label in the diagram.";
@@ -3039,10 +3131,10 @@ function plotParametric "Launches a plotParametric window using OMPlot. Returns 
   input Boolean externalWindow = false "Opens the plot in a new plot window";
   input String fileName = "<default>" "The filename containing the variables. <default> will read the last simulation result";
   input String title = "" "This text will be used as the diagram title.";
-  input String grid = "detailed" "Sets the grid for the plot i.e simple, detailed, none.";
+  input String grid = "simple" "Sets the grid for the plot i.e simple, detailed, none.";
   input Boolean logX = false "Determines whether or not the horizontal axis is logarithmically scaled.";
   input Boolean logY = false "Determines whether or not the vertical axis is logarithmically scaled.";
-  input String xLabel = "time" "This text will be used as the horizontal label in the diagram.";
+  input String xLabel = "" "This text will be used as the horizontal label in the diagram.";
   input String yLabel = "" "This text will be used as the vertical label in the diagram.";
   input Real xRange[2] = {0.0,0.0} "Determines the horizontal interval that is visible in the diagram. {0,0} will select a suitable range.";
   input Real yRange[2] = {0.0,0.0} "Determines the vertical interval that is visible in the diagram. {0,0} will select a suitable range.";
@@ -3092,11 +3184,19 @@ public function filterSimulationResults
   input String[:] vars;
   input Integer numberOfIntervals = 0 "0=Do not resample";
   input Boolean removeDescription = false;
+  input Boolean hintReadAllVars = true;
   output Boolean success;
 external "builtin";
 annotation(Documentation(info="<html>
 <p>Takes one simulation result and filters out the selected variables only, producing the output file.</p>
 <p>If numberOfIntervals<>0, re-sample to that number of intervals, ignoring event points (might be changed in the future).</p>
+<p>if removeDescription=true, the description matrix will contain 0-length strings, making the file smaller.</p>
+<p>if hintReadAllVars=true, the whole mat-file will be read at once (this is faster but uses more memory if you only use few variables from the file). May cause a crash if there is not enough virtual memory.</p>
+</html>",revisions="<html>
+<table>
+<tr><th>Revision</th><th>Author</th><th>Comment</th></tr>
+<tr><td>1.13.0</td><td>sjoelund.se</td><td>Introduced removeDescription.</td></tr>
+</table>
 </html>"),preferredView="text");
 end filterSimulationResults;
 
@@ -3250,7 +3350,7 @@ function getComponentModifierValue
 external "builtin";
 annotation(
   Documentation(info="<html>
-  <p>Returns the modifier value (only the binding exculding submodifiers) of component.
+  <p>Returns the modifier value (only the binding excluding submodifiers) of component.
     For instance,
       model A
         B b1(a1(p1=5,p2=4));
@@ -3280,17 +3380,6 @@ annotation(
   preferredView="text");
 end getComponentModifierValues;
 
-function getInstantiatedParametersAndValues
-  input TypeName cls;
-  output String[:] values;
-external "builtin";
-annotation(
-  Documentation(info="<html>
-  <p>Returns the parameter names and values from the DAE.</p>
-</html>"),
-  preferredView="text");
-end getInstantiatedParametersAndValues;
-
 function removeComponentModifiers
   input TypeName class_;
   input String componentName;
@@ -3304,6 +3393,127 @@ annotation(
   preferredView="text");
 end removeComponentModifiers;
 
+function getElementModifierNames
+  input TypeName className;
+  input String elementName;
+  output String[:] modifiers;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Returns the list of element (component or short class) modifiers in a class.
+</html>"),
+  preferredView="text");
+end getElementModifierNames;
+
+function setComponentModifierValue = setElementModifierValue;
+
+function setElementModifierValue
+  input TypeName className;
+  input TypeName elementName;
+  input ExpressionOrModification modifier;
+  output Boolean success;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Sets a modifier on an element in a class definition.
+</html>"),
+  preferredView="text");
+end setElementModifierValue;
+
+function getElementModifierValue
+  input TypeName className;
+  input TypeName modifier;
+  output String value;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  <p>Returns the modifier value (only the binding excluding submodifiers) of element (component or short class).
+    For instance,
+      model A
+        B b1(a1(p1=5,p2=4));
+        model X = Y(a1(p1=5,p2=4));
+      end A;
+      getElementModifierValue(A,b1.a1.p1) => 5
+      getElementModifierValue(A,b1.a1.p2) => 4
+      getElementModifierValue(A,X.a1.p1) => 5
+      getElementModifierValue(A,X.a1.p2) => 4
+    See also <a href=\"modelica://OpenModelica.Scripting.getElementModifierValues\">getElementModifierValues()</a>.</p>
+</html>"),
+  preferredView="text");
+end getElementModifierValue;
+
+function getElementModifierValues
+  input TypeName className;
+  input TypeName modifier;
+  output String value;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  <p>Returns the modifier value (including the submodfiers) of element (component or short class).
+    For instance,
+      model A
+        B b1(a1(p1=5,p2=4));
+        model X = Y(a1(p1=5,p2=4));
+      end A;
+      getElementModifierValues(A,b1.a1) => (p1 = 5, p2 = 4)
+      getElementModifierValues(A,X.a1) => (p1 = 5, p2 = 4)
+    See also <a href=\"modelica://OpenModelica.Scripting.getElementModifierValue\">getElementModifierValue()</a>.</p>
+</html>"),
+  preferredView="text");
+end getElementModifierValues;
+
+function removeElementModifiers
+  input TypeName className;
+  input String componentName;
+  input Boolean keepRedeclares = false;
+  output Boolean success;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Removes the element (component or short class) modifiers.
+</html>"),
+  preferredView="text");
+end removeElementModifiers;
+
+function setExtendsModifierValue
+  input TypeName className;
+  input TypeName extendsName;
+  input TypeName elementName;
+  input ExpressionOrModification modifier;
+  output Boolean success;
+external "builtin"
+annotation(
+  Documentation(info="<html>
+Sets a modifier on an extends clause in a class definition, for example:
+<pre>
+package P
+  model M
+    extends A.B(a = 1.0, x(z = 2.0));
+  end M;
+end P;
+
+setExtendsModifierValue(P.M, A.B, x.y, $Code((start = 3.0))) =>
+
+package P
+  model M
+    extends A.B(a = 1.0, x(z = 2.0), y(start = 3.0)));
+  end M;
+end P;
+</html>"),
+  preferredView="text");
+end setExtendsModifierValue;
+
+function getInstantiatedParametersAndValues
+  input TypeName cls;
+  output String[:] values;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  <p>Returns the top-level parameter names and values from the DAE.</p>
+</html>"),
+  preferredView="text");
+end getInstantiatedParametersAndValues;
+
 function removeExtendsModifiers
   input TypeName className;
   input TypeName baseClassName;
@@ -3316,6 +3526,43 @@ annotation(
 </html>"),
   preferredView="text");
 end removeExtendsModifiers;
+
+function updateConnection
+  input TypeName className;
+  input String from;
+  input String to;
+  input ExpressionOrModification annotate;
+  output Boolean result;
+external "builtin";
+annotation(preferredView="text",Documentation(info="<html>
+<p>Updates the connection annotation in the class. See also updateConnectionNames().</p>
+</html>"));
+end updateConnection;
+
+function updateConnectionAnnotation
+  input TypeName className;
+  input String from;
+  input String to;
+  input String annotate;
+  output Boolean result;
+external "builtin";
+annotation(preferredView="text",Documentation(info="<html>
+<p>Updates the connection annotation in the class. See also updateConnectionNames().</p>
+</html>"));
+end updateConnectionAnnotation;
+
+function updateConnectionNames
+  input TypeName className;
+  input String from;
+  input String to;
+  input String fromNew;
+  input String toNew;
+  output Boolean result;
+external "builtin";
+annotation(preferredView="text",Documentation(info="<html>
+<p>Updates the connection connector names in the class. See also updateConnection().</p>
+</html>"));
+end updateConnectionNames;
 
 function getConnectionCount "Counts the number of connect equation in a class."
   input TypeName className;
@@ -3333,6 +3580,18 @@ function getNthConnection "Returns the Nth connection.
 external "builtin";
 annotation(preferredView="text");
 end getNthConnection;
+
+function getConnectionList "returns an array of all connections including those within loops"
+  input TypeName className;
+  output String[:,:] result;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+Returns a list of all connect equations including those in loops. For example:
+<pre>{{\"connection1.lhs\",\"connection1.rhs\"}, {\"connection2.lhs\",\"connection2.rhs\"}}</pre>
+</html>"),
+  preferredView="text");
+end getConnectionList;
 
 function getAlgorithmCount "Counts the number of Algorithm sections in a class."
   input TypeName class_;
@@ -3475,6 +3734,22 @@ function getImportCount "Counts the number of Import sections in a class."
 external "builtin";
 annotation(preferredView="text");
 end getImportCount;
+
+function getMMfileTotalDependencies
+  input String in_package_name;
+  input String public_imports_dir;
+  output String[:] total_pub_imports;
+external "builtin";
+annotation(preferredView="text");
+end getMMfileTotalDependencies;
+
+function getImportedNames "Returns the prefix paths of all imports in a class."
+  input TypeName class_;
+  output String[:] out_public;
+  output String[:] out_protected;
+external "builtin";
+annotation(preferredView="text");
+end getImportedNames;
 
 function getNthImport "Returns the Nth Import as string."
   input TypeName class_;
@@ -3676,6 +3951,28 @@ annotation(
   preferredView="text");
 end isPartial;
 
+function isReplaceable
+  input TypeName element;
+  output Boolean b;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Returns true if the given element is replaceable.
+</html>"),
+  preferredView="text");
+end isReplaceable;
+
+function isRedeclare
+  input TypeName element;
+  output Boolean b;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Returns true if the given element is a redeclare.
+</html>"),
+  preferredView="text");
+end isRedeclare;
+
 function isModel
   input TypeName cl;
   output Boolean b;
@@ -3818,22 +4115,22 @@ annotation(
   preferredView="text");
 end getInheritedClasses;
 
-function getComponentsTest
+function getComponentsTest "returns an array of records with information about the components of the given class"
   input TypeName name;
   output Component[:] components;
   record Component
-    String className; // when building record the constructor. Records are allowed to contain only components of basic types, arrays of basic types or other records.
-    String name;
-    String comment;
-    Boolean isProtected;
-    Boolean isFinal;
-    Boolean isFlow;
-    Boolean isStream;
-    Boolean isReplaceable;
+    String className "the type of the component";
+    String name "the name of the component";
+    String comment "the comment of the component";
+    Boolean isProtected "true if component is protected";
+    Boolean isFinal "true if component is final";
+    Boolean isFlow "true if component is flow";
+    Boolean isStream "true if component is stream";
+    Boolean isReplaceable "true if component is replaceable";
     String variability "'constant', 'parameter', 'discrete', ''";
     String innerOuter "'inner', 'outer', ''";
     String inputOutput "'input', 'output', ''";
-    String dimensions[:];
+    String dimensions[:] "array with the dimensions of the component";
   end Component;
 external "builtin";
 annotation(Documentation(info="<html>
@@ -3985,6 +4282,91 @@ annotation(
   preferredView="text");
 end getAvailableLibraries;
 
+function getAvailableLibraryVersions
+  input TypeName libraryName;
+  output String[:] librariesAndVersions;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Returns the installed versions of a library.
+</html>"),
+  preferredView="text");
+end getAvailableLibraryVersions;
+
+function installPackage
+  input TypeName pkg;
+  input String version = "";
+  input Boolean exactMatch = false;
+  output Boolean result;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Installs the package with the best matching version (or only the specified version if exactMatch is given).
+  To update the index, call <code>updatePackageIndex()</code>.
+</html>"),
+  preferredView="text");
+end installPackage;
+
+function updatePackageIndex
+  output Boolean result;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Updates the package index from the internet.
+  This adds new packages to be able to install or upgrade packages.
+  To upgrade installed packages, call <code>upgradeInstalledPackages()</code>.
+</html>"),
+  preferredView="text");
+end updatePackageIndex;
+
+function upgradeInstalledPackages
+  input Boolean installNewestVersions = true;
+  output Boolean result;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Upgrades installed packages that have been registered by the package manager.
+  To update the index, call <code>updatePackageIndex()</code>.
+</html>"),
+  preferredView="text");
+end upgradeInstalledPackages;
+
+function getAvailablePackageVersions
+  input TypeName pkg;
+  input String version;
+  output String[:] withoutConversion;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Returns the versions that provide the requested version of the library.
+</html>"),
+  preferredView="text");
+end getAvailablePackageVersions;
+
+function getAvailablePackageConversionsTo
+  input TypeName pkg;
+  input String version;
+  output String[:] convertsTo;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Returns the versions that provide conversion to the requested version of the library.
+</html>"),
+  preferredView="text");
+end getAvailablePackageConversionsTo;
+
+function getAvailablePackageConversionsFrom
+  input TypeName pkg;
+  input String version;
+  output String[:] convertsTo;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  Returns the versions that provide conversion from the requested version of the library.
+</html>"),
+  preferredView="text");
+end getAvailablePackageConversionsFrom;
+
 function getUses
   input TypeName pack;
   output String[:,:] uses;
@@ -3995,6 +4377,18 @@ Returns the libraries used by the package {{\"Library1\",\"Version\"},{\"Library
 </html>"),
   preferredView="text");
 end getUses;
+
+function getConversionsFromVersions
+  input TypeName pack;
+  output String[:] withoutConversion;
+  output String[:] withConversion;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+Returns the versions this library can convert from with and without conversions.
+</html>"),
+  preferredView="text");
+end getConversionsFromVersions;
 
 function getDerivedClassModifierNames "Returns the derived class modifier names.
   Example command:
@@ -4172,6 +4566,10 @@ function getClassInformation
   output String preferredView;
   output Boolean state;
   output String access;
+  output String versionDate;
+  output String versionBuild;
+  output String dateModified;
+  output String revisionId;
 external "builtin";
 annotation(
   Documentation(info="<html>
@@ -4304,6 +4702,80 @@ annotation(
 <p>The entry points are MetaModelica code calling CevalScript directly, and Qt/C++ code that calls the MetaModelica code.</p>
 </html>"), preferredView="text");
 end generateScriptingAPI;
+
+function runConversionScript
+  input TypeName packageToConvert;
+  input String scriptFile;
+  output Boolean success;
+external "builtin";
+annotation(preferredView="text",Documentation(info="<html>
+<p>Runs a conversion script on a selected package.</p>
+</html>"));
+end runConversionScript;
+
+function convertPackageToLibrary
+  input TypeName packageToConvert;
+  input TypeName library;
+  input String libraryVersion;
+  output Boolean success;
+external "builtin";
+annotation(preferredView="text",Documentation(info="<html>
+<p>Runs the conversion script for a library on a selected package.</p>
+</html>"));
+end convertPackageToLibrary;
+
+function getModelInstance
+  "Dumps a model instance as a JSON string."
+  input TypeName className;
+  input String modifier = "";
+  input Boolean prettyPrint = false;
+  output String result;
+external "builtin";
+end getModelInstance;
+
+function getModelInstanceIcon
+  "Dumps only the Icon and IconMap annotations of a model, using the same JSON
+   format as getModelInstance."
+  input TypeName className;
+  input Boolean prettyPrint = false;
+  output String result;
+external "builtin";
+end getModelInstanceIcon;
+
+function modifierToJSON
+  "Parses a modifier given as a string and dumps it as JSON."
+  input String modifier;
+  input Boolean prettyPrint = false;
+  output String json;
+external "builtin";
+end modifierToJSON;
+
+function storeAST
+  output Integer id;
+external "builtin";
+annotation(preferredView="text",Documentation(info="<html>
+<p>Stores the AST and returns an id that can be used to restore it with restoreAST.</p>
+</html>"));
+end storeAST;
+
+function restoreAST
+  input Integer id;
+  output Boolean success;
+external "builtin";
+annotation(preferredView="text",Documentation(info="<html>
+<p>Restores an AST that was previously stored with storeAST.</p>
+</html>"));
+end restoreAST;
+
+function qualifyPath
+  input TypeName classPath;
+  input TypeName path;
+  output TypeName qualifiedPath;
+external "builtin";
+annotation(preferredView="text",Documentation(info="<html>
+<p>Returns the fully qualified path for the given path in a class.</p>
+</html>"));
+end qualifyPath;
 
 // OMSimulator API calls
 type oms_system = enumeration(oms_system_none,oms_system_tlm, oms_system_wc,oms_system_sc);
@@ -4492,13 +4964,6 @@ external "builtin";
 annotation(preferredView="text");
 end oms_addTLMConnection;
 
-function oms_cancelSimulation_asynchronous
-  input String cref;
-  output Integer status;
-external "builtin";
-annotation(preferredView="text");
-end oms_cancelSimulation_asynchronous;
-
 function oms_compareSimulationResults
   input String filenameA;
   input String filenameB;
@@ -4560,11 +5025,20 @@ end oms_export;
 function oms_exportDependencyGraphs
   input String cref;
   input String initialization;
+  input String event;
   input String simulation;
   output Integer status;
 external "builtin";
 annotation(preferredView="text");
 end oms_exportDependencyGraphs;
+
+function oms_exportSnapshot
+  input String cref;
+  output String contents;
+  output Integer status;
+external "builtin";
+annotation(preferredView="text");
+end oms_exportSnapshot;
 
 function oms_extractFMIKind
   input String filename;
@@ -4690,6 +5164,14 @@ external "builtin";
 annotation(preferredView="text");
 end oms_importFile;
 
+function oms_importSnapshot
+  input String cref;
+  input String snapshot;
+  output Integer status;
+external "builtin";
+annotation(preferredView="text");
+end oms_importSnapshot;
+
 function oms_initialize
   input String cref;
   output Integer status;
@@ -4723,6 +5205,7 @@ end oms_listUnconnectedConnectors;
 function oms_loadSnapshot
   input String cref;
   input String snapshot;
+  output String newCref;
   output Integer status;
 external "builtin";
 annotation(preferredView="text");
@@ -4734,14 +5217,6 @@ function oms_newModel
 external "builtin";
 annotation(preferredView="text");
 end oms_newModel;
-
-function oms_parseModelName
-  input String contents;
-  output String cref;
-  output Integer status;
-external "builtin";
-annotation(preferredView="text");
-end oms_parseModelName;
 
 function oms_removeSignalsFromResults
   input String cref;
@@ -4991,6 +5466,16 @@ annotation(
 </html>"), preferredView="text");
 end relocateFunctions;
 
+function toJulia
+  output String res;
+external "builtin";
+end toJulia;
+
+function interactiveDumpAbsynToJL
+  output String res;
+external "builtin";
+end interactiveDumpAbsynToJL;
+
 end Experimental;
 
 end Scripting;
@@ -5110,7 +5595,7 @@ package AutoCompletion "Auto completion information for OMEdit."
     // Annotation Choices for Modifications and Redeclarations
     record choices "Defines a suitable redeclaration or modifications of the element."
       Boolean checkBox = true "Display a checkbox to input the values false or true in the graphical user interface.";
-      // TODO: how to handle choice?
+      String choice[:] = fill("", 0) "the choices as an array of strings";
     end choices;
 
     Boolean choicesAllMatching "Specify whether to construct an automatic list of choices menu or not.";

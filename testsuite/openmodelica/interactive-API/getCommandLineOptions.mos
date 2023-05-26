@@ -1,6 +1,7 @@
 // name: getCommandLineOptions
 // keywords: 
 // status: correct
+// cflags: -d=-newInst
 //
 // Tests the getCommandLineOptions API function.
 //
@@ -15,6 +16,8 @@ setCommandLineOptions("-d=ceval");
 getCommandLineOptions();
 setCommandLineOptions("--postOptModules=dumpDAE,dumpDAEXML");
 getCommandLineOptions();
+setCommandLineOptions("-d=-newInst");
+getCommandLineOptions();
 
 // Result:
 // true
@@ -27,4 +30,6 @@ getCommandLineOptions();
 // {"-d=ceval,failtrace","--showAnnotations=true"}
 // true
 // {"-d=ceval,failtrace","--postOptModules=dumpDAE,dumpDAEXML","--showAnnotations=true"}
+// true
+// {"-d=nonewInst,ceval,failtrace","--postOptModules=dumpDAE,dumpDAEXML","--showAnnotations=true"}
 // endResult

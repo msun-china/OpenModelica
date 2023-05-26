@@ -259,6 +259,7 @@ public:
   bool isUndoAvailable() {return mIsUndoAvailable;}
   bool isRedoAvailable() {return mIsRedoAvailable;}
   void setCompletionCharacters(QString chars) { mCompletionCharacters = chars; }
+  void setReadOnlyStyleSheet();
 private:
   BaseEditor *mpBaseEditor;
   LineNumberArea *mpLineNumberArea;
@@ -355,6 +356,7 @@ protected:
   bool mForceSetPlainText;
 
   QMenu* createStandardContextMenu();
+  void contentsChanged();
 private slots:
   virtual void showContextMenu(QPoint point) = 0;
 public slots:

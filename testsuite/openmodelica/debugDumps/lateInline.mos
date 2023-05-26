@@ -1,6 +1,7 @@
 // name: optdaedump.mos
 // keywords: omc debug dump
 // status: correct
+// cflags: -d=-newInst
 //
 // omc debug dump: +d=optdaedump
 //
@@ -393,6 +394,34 @@ buildModel(testOptdaedump); getErrorString();
 //
 //
 // ########################################
+// pre-optimization module resolveLoops (simulation)
+// ########################################
+//
+//
+// unspecified partition
+// ========================================
+//
+// Variables (2)
+// ========================================
+// 1: y:VARIABLE()  type: Real
+// 2: x:VARIABLE()  type: Real
+//
+//
+// Equations (2, 2)
+// ========================================
+// 1/1 (1): x = testOptdaedump.f(time)   [binding |0|0|0|0|]
+// 2/2 (1): y = exp(time ^ 3.0) + x   [binding |0|0|0|0|]
+//
+//
+// no matching
+//
+//
+//
+// BackendDAEType: simulation
+//
+//
+//
+// ########################################
 // pre-optimization module evalFunc (simulation)
 // ########################################
 //
@@ -488,7 +517,7 @@ buildModel(testOptdaedump); getErrorString();
 //
 //
 // ########################################
-// created initial system
+// created initialization system
 // ########################################
 //
 //
@@ -497,8 +526,8 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (2)
 // ========================================
-// 1: y:VARIABLE()  type: Real
-// 2: x:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
+// 2: y:VARIABLE()  type: Real
 //
 //
 // Equations (2, 2)
@@ -516,7 +545,7 @@ buildModel(testOptdaedump); getErrorString();
 //
 //
 // ########################################
-// partitioned initial system
+// partitioned initialization system
 // ########################################
 //
 //
@@ -525,8 +554,8 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (2)
 // ========================================
-// 1: y:VARIABLE()  type: Real
-// 2: x:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
+// 2: y:VARIABLE()  type: Real
 //
 //
 // Equations (2, 2)
@@ -539,13 +568,13 @@ buildModel(testOptdaedump); getErrorString();
 // ========================================
 // number of rows: 2
 // 1: 2 1
-// 2: 2
+// 2: 1
 //
 // Transposed Adjacency Matrix (row: variable)
 // ========================================
 // number of rows: 2
-// 1: 1
-// 2: 2 1
+// 1: 2 1
+// 2: 1
 //
 // no matching
 //
@@ -565,8 +594,8 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (2)
 // ========================================
-// 1: y:VARIABLE()  type: Real
-// 2: x:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
+// 2: y:VARIABLE()  type: Real
 //
 //
 // Equations (2, 2)
@@ -578,14 +607,14 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 2 variables and equations
-// var 1 is solved in eqn 1
-// var 2 is solved in eqn 2
+// var 1 is solved in eqn 2
+// var 2 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {2:2}
-// {1:1}
+// {2:1}
+// {1:2}
 //
 //
 //
@@ -603,8 +632,8 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (2)
 // ========================================
-// 1: y:VARIABLE()  type: Real
-// 2: x:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
+// 2: y:VARIABLE()  type: Real
 //
 //
 // Equations (2, 2)
@@ -616,14 +645,14 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 2 variables and equations
-// var 1 is solved in eqn 1
-// var 2 is solved in eqn 2
+// var 1 is solved in eqn 2
+// var 2 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {2:2}
-// {1:1}
+// {2:1}
+// {1:2}
 //
 //
 //
@@ -641,8 +670,8 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (2)
 // ========================================
-// 1: y:VARIABLE()  type: Real
-// 2: x:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
+// 2: y:VARIABLE()  type: Real
 //
 //
 // Equations (2, 2)
@@ -654,14 +683,14 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 2 variables and equations
-// var 1 is solved in eqn 1
-// var 2 is solved in eqn 2
+// var 1 is solved in eqn 2
+// var 2 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {2:2}
-// {1:1}
+// {2:1}
+// {1:2}
 //
 //
 //
@@ -679,8 +708,8 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (2)
 // ========================================
-// 1: y:VARIABLE()  type: Real
-// 2: x:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
+// 2: y:VARIABLE()  type: Real
 //
 //
 // Equations (2, 2)
@@ -692,14 +721,14 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 2 variables and equations
-// var 1 is solved in eqn 1
-// var 2 is solved in eqn 2
+// var 1 is solved in eqn 2
+// var 2 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {2:2}
-// {1:1}
+// {2:1}
+// {1:2}
 //
 //
 //
@@ -717,8 +746,8 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (2)
 // ========================================
-// 1: y:VARIABLE()  type: Real
-// 2: x:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
+// 2: y:VARIABLE()  type: Real
 //
 //
 // Equations (2, 2)
@@ -730,14 +759,14 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 2 variables and equations
-// var 1 is solved in eqn 1
-// var 2 is solved in eqn 2
+// var 1 is solved in eqn 2
+// var 2 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {2:2}
-// {1:1}
+// {2:1}
+// {1:2}
 //
 //
 //
@@ -755,8 +784,8 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (2)
 // ========================================
-// 1: y:VARIABLE()  type: Real
-// 2: x:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
+// 2: y:VARIABLE()  type: Real
 //
 //
 // Equations (2, 2)
@@ -768,14 +797,14 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 2 variables and equations
-// var 1 is solved in eqn 1
-// var 2 is solved in eqn 2
+// var 1 is solved in eqn 2
+// var 2 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {2:2}
-// {1:1}
+// {2:1}
+// {1:2}
 //
 //
 //

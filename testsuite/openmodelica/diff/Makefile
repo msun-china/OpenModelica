@@ -7,13 +7,23 @@ AddComment.mos \
 AddComponent.mos \
 AddComponent2.mos \
 AddDeleteComponent.mos \
+Air.mos \
 ChangeSourceFile.mos \
+ClosedDoors.mos \
 LargeFileChange.mos \
+LimPID.mos \
 ListFile.mos \
+MoistAirUnsaturated.mos \
 MoveComment.mos \
 MoveComponent.mos \
 MoveConnection.mos \
+multipoleFluidTemperature.mos \
+PartialCoolingCapacity.mos \
+Pipe.mos \
 removeComponentModifiers.mos \
+RLC.mos \
+SimilarNamesAnnotation.mos \
+SubExpParenthesis.mos \
 Tables.mos \
 TestDiffListAPI.mos \
 ticket3619.mos \
@@ -22,6 +32,9 @@ Ticket4110.mos \
 ticket4153.mos \
 ticket4368.mos \
 ticket5360.mos \
+ticket5949.mos \
+TrueHoldWithReset.mos \
+TwoWayFlowElementBuoyancy.mos \
 UTF8.mos \
 ticket4781.mos
 

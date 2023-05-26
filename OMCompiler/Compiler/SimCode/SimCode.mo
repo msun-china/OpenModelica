@@ -68,6 +68,7 @@ type ExtDestructor = tuple<String, DAE.ComponentRef>;
 type ExtAlias = tuple<DAE.ComponentRef, DAE.ComponentRef>;
 
 type SparsityPattern = list< tuple<Integer, list<Integer>> >;
+type NonlinearPattern = SparsityPattern; // same structure but different name for the sake of maintenance
 
 uniontype JacobianColumn
   record JAC_COLUMN
@@ -85,16 +86,18 @@ uniontype JacobianMatrix
     String matrixName;                  // unique matrix name
     SparsityPattern sparsity;
     SparsityPattern sparsityT;
+    NonlinearPattern nonlinear;
+    NonlinearPattern nonlinearT;
     list<list<Integer>> coloredCols;
     Integer maxColorCols;
     Integer jacobianIndex;
     Integer partitionIndex;
+    list<SimGenericCall> generic_loop_calls;
     Option<HashTableCrefSimVar.HashTable> crefsHT; // all jacobian variables
   end JAC_MATRIX;
 end JacobianMatrix;
 
-constant JacobianMatrix emptyJacobian = JAC_MATRIX({}, {}, "", {}, {}, {}, 0, -1, 0, NONE());
-
+constant JacobianMatrix emptyJacobian = JAC_MATRIX({}, {}, "", {}, {}, {}, {}, {}, 0, -1, 0, {}, NONE());
 constant PartitionData emptyPartitionData = PARTITIONDATA(-1,{},{},{});
 
 
@@ -106,6 +109,7 @@ uniontype SimCode
     list<DAE.Exp> literals "shared literals";
     list<SimCodeFunction.RecordDeclaration> recordDecls;
     list<String> externalFunctionIncludes;
+    list<SimGenericCall> generic_loop_calls;
     list<SimEqSystem> localKnownVars "state and input dependent variables, that are not inserted into any partion";
     list<SimEqSystem> allEquations;
     list<list<SimEqSystem>> odeEquations;
@@ -134,10 +138,12 @@ uniontype SimCode
     ExtObjInfo extObjInfo;
     SimCodeFunction.MakefileParams makefileParams;
     DelayedExpression delayedExps;
-    list<JacobianMatrix> jacobianMatrixes;
+    SpatialDistributionInfo spatialInfo;
+    list<JacobianMatrix> jacobianMatrices;
     Option<SimulationSettings> simulationSettingsOpt;
-    String fileNamePrefix, fullPathPrefix "Used in FMI where files are generated in a special directory";
-    String fmuTargetName;
+    String fileNamePrefix "Prefix for all enerated C files. Usually the model name with dots replaced by underscores.";
+    String fullPathPrefix "Used in FMI where files are generated in a special directory";
+    String fmuTargetName "Name of FMU file <fmuTargetName>.fmu";
     HpcOmSimCode.HpcOmData hpcomData;
     AvlTreeCRToInt.Tree valueReferences "Used in FMI";
     //maps each variable to an array of storage indices (with this information, arrays must not be unrolled) and a list for the array-dimensions
@@ -150,6 +156,7 @@ uniontype SimCode
     Option<BackendMapping> backendMapping;
     //FMI 2.0 data for model structure
     Option<FmiModelStructure> modelStructure;
+    Option<FmiSimulationFlags> fmiSimulationFlags;
     PartitionData partitionData;
     Option<DaeModeData> daeModeData;
     list<SimEqSystem> inlineEquations;
@@ -207,13 +214,55 @@ uniontype DelayedExpression
   end DELAYED_EXPRESSIONS;
 end DelayedExpression;
 
+uniontype SpatialDistributionInfo
+  record SPATIAL_DISTRIBUTION_INFO
+    list<SpatialDistribution> spatialDistributions;
+    Integer maxIndex;
+  end SPATIAL_DISTRIBUTION_INFO;
+end SpatialDistributionInfo;
+
+uniontype SpatialDistribution
+  record SPATIAL_DISTRIBUTION
+    Integer index         "uniqueIndex";
+    DAE.Exp in0           "input 0";
+    DAE.Exp in1           "input 1";
+    DAE.Exp pos           "current pos";
+    DAE.Exp dir           "flow direction";
+    DAE.Exp initPnts      "initial grid points";
+    DAE.Exp initVals      "initial grid values";
+    Integer initSize      "number of initial points";
+  end SPATIAL_DISTRIBUTION;
+end SpatialDistribution;
+
+uniontype UnitDefinition "unitDefinitions for fmi modelDescription.xml"
+  record UNITDEFINITION
+    String name;
+    BaseUnit baseUnit;
+    //TODO DisplayUnit
+  end UNITDEFINITION;
+end UnitDefinition;
+
+uniontype BaseUnit
+  record BASEUNIT
+    Integer mol "exponent";
+    Integer cd  "exponent";
+    Integer m   "exponent";
+    Integer s   "exponent";
+    Integer A   "exponent";
+    Integer K   "exponent";
+    Integer kg  "exponent";
+    Real factor "prefix";
+    Real offset "offset";
+  end BASEUNIT;
+
+  record NOBASEUNIT "no baseunit definition available"
+  end NOBASEUNIT;
+end BaseUnit;
+
 uniontype ModelInfo "Container for metadata about a Modelica model."
   record MODELINFO
     Absyn.Path name;
     String description;
-    String stateInfo;
-    String inputInfo;
-    String outputInfo;
     String directory;
     VarInfo varInfo;
     SimCodeVar.SimVars vars;
@@ -224,9 +273,11 @@ uniontype ModelInfo "Container for metadata about a Modelica model."
     //Files files "all the files from SourceInfo and DAE.ElementSource";
     Integer nClocks;
     Integer nSubClocks;
+    Integer nSpatialDistributions;
     Boolean hasLargeLinearEquationSystems; // True if model has large linear eq. systems that are crucial for performance.
     list<SimEqSystem> linearSystems;
     list<SimEqSystem> nonLinearSystems;
+    list<UnitDefinition> unitDefinitions "export unitDefintion in modelDescription.xml";
   end MODELINFO;
 end ModelInfo;
 
@@ -278,6 +329,9 @@ uniontype VarInfo "Number of variables of various types in a Modelica model."
     Integer numSensitivityParameters;
     Integer numSetcVars;
     Integer numDataReconVars;
+    Integer numRealInputVars "for fmi cs to interpolate inputs";
+    Integer numSetbVars "for data reconciliation setB vars";
+    Integer numRelatedBoundaryConditions "for data reconciliation count number of boundary conditions which failed the extraction algorithm";
   end VARINFO;
 end VarInfo;
 
@@ -333,10 +387,31 @@ uniontype SimEqSystem
   "Represents a single equation or a system of equations that must be solved together."
   record SES_RESIDUAL
     Integer index;
+    Integer res_index;
     DAE.Exp exp;
     DAE.ElementSource source;
     BackendDAE.EquationAttributes eqAttr;
   end SES_RESIDUAL;
+
+  record SES_FOR_RESIDUAL
+    Integer index;
+    Integer res_index;
+    list<tuple<DAE.ComponentRef, DAE.Exp>> iterators;
+    DAE.Exp exp;
+    DAE.ElementSource source;
+    BackendDAE.EquationAttributes eqAttr;
+  end SES_FOR_RESIDUAL;
+
+  record SES_GENERIC_RESIDUAL
+    "a generic residual calling a for loop body function with an index list."
+    Integer index;
+    Integer res_index;
+    list<Integer> scal_indices;
+    list<tuple<DAE.ComponentRef, DAE.Exp>> iterators;
+    DAE.Exp exp;
+    DAE.ElementSource source;
+    BackendDAE.EquationAttributes eqAttr;
+  end SES_GENERIC_RESIDUAL;
 
   record SES_SIMPLE_ASSIGN
     Integer index;
@@ -363,6 +438,24 @@ uniontype SimEqSystem
     DAE.ElementSource source;
     BackendDAE.EquationAttributes eqAttr;
   end SES_ARRAY_CALL_ASSIGN;
+
+  record SES_GENERIC_ASSIGN
+    "a generic assignment calling a for loop body function with an index list."
+    Integer index;
+    Integer call_index;
+    list<Integer> scal_indices;
+    DAE.ElementSource source;
+    BackendDAE.EquationAttributes eqAttr;
+  end SES_GENERIC_ASSIGN;
+
+  record SES_ENTWINED_ASSIGN
+    "entwined generic assignments calling for loop body functions with an index list and a call order."
+    Integer index;
+    list<Integer> call_order;
+    list<SimEqSystem> single_calls;
+    DAE.ElementSource source;
+    BackendDAE.EquationAttributes eqAttr;
+  end SES_ENTWINED_ASSIGN;
 
   record SES_IFEQUATION
     Integer index;
@@ -460,6 +553,38 @@ uniontype SimEqSystem
 
 end SimEqSystem;
 
+public uniontype SimGenericCall
+  record SINGLE_GENERIC_CALL
+    Integer index;
+    list<BackendDAE.SimIterator> iters;
+    DAE.Exp lhs;
+    DAE.Exp rhs;
+  end SINGLE_GENERIC_CALL;
+
+  record IF_GENERIC_CALL
+    Integer index;
+    list<BackendDAE.SimIterator> iters;
+    list<SimBranch> branches;
+  end IF_GENERIC_CALL;
+
+  record WHEN_GENERIC_CALL
+    Integer index;
+    list<BackendDAE.SimIterator> iters;
+    list<SimBranch> branches;
+  end WHEN_GENERIC_CALL;
+end SimGenericCall;
+
+public uniontype SimBranch
+  record SIM_BRANCH
+    Option<DAE.Exp> condition;
+    list<tuple<DAE.Exp, DAE.Exp>> body;
+  end SIM_BRANCH;
+
+  record SIM_BRANCH_STMT
+    Option<DAE.Exp> condition;
+    list<DAE.Statement> body;
+  end SIM_BRANCH_STMT;
+end SimBranch;
 
 public
 uniontype DerivativeMatrix
@@ -509,6 +634,7 @@ uniontype NonlinearSystem
     Boolean homotopySupport;
     Boolean mixedSystem;
     Boolean tornSystem;
+    Option<Integer> clockIndex;
   end NONLINEARSYSTEM;
 end NonlinearSystem;
 
@@ -583,6 +709,8 @@ end FmiDiscreteStates;
 public uniontype FmiInitialUnknowns
   record FMIINITIALUNKNOWNS
     list<FmiUnknown> fmiUnknownsList;
+    list<tuple<Integer, DAE.ComponentRef>> sortedUnknownCrefs "use the sorted crefs to get the ValueReference of unknowns";
+    list<tuple<Integer, DAE.ComponentRef>> sortedknownCrefs "use the sorted crefs to get the ValueReference of knowns";
   end FMIINITIALUNKNOWNS;
 end FmiInitialUnknowns;
 
@@ -591,10 +719,23 @@ public uniontype FmiModelStructure
     FmiOutputs fmiOutputs;
     FmiDerivatives fmiDerivatives;
     Option<JacobianMatrix> continuousPartialDerivatives;
+    Option<JacobianMatrix> initialPartialDerivatives;
     FmiDiscreteStates fmiDiscreteStates;
     FmiInitialUnknowns fmiInitialUnknowns;
   end FMIMODELSTRUCTURE;
 end FmiModelStructure;
+
+public uniontype FmiSimulationFlags
+  record FMI_SIMULATION_FLAGS
+    list<tuple<String,String>> nameValueTuples;
+  end FMI_SIMULATION_FLAGS;
+
+  record FMI_SIMULATION_FLAGS_FILE
+    String path;
+  end FMI_SIMULATION_FLAGS_FILE;
+end FmiSimulationFlags;
+
+constant FmiSimulationFlags defaultFmiSimulationFlags = FMI_SIMULATION_FLAGS({("s","euler")});
 
 annotation(__OpenModelica_Interface="backend");
 end SimCode;

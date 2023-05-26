@@ -40,6 +40,8 @@ PolynomialEvaluator2.mos \
 PolynomialEvaluator3.mos \
 ticket2336.mos \
 ticket5114.mos \
+ticket_5994.mos \
+ticket_6099.mos \
 VariableRangeSubscript.mos \
 VectorizeOneReturnValue.mos \
 Xpowers1.mos \
@@ -53,6 +55,9 @@ Bug3916.mos
 FAILINGTESTFILES= \
 ArrayFieldSlice.mos \
 bug_2300.mos \
+Ticket7455.mos \
+ParametricInitialArrayEquationBug.mos \
+
 
 # Dependency files that are not .mo .mos or Makefile
 # Add them here or they will be cleaned.

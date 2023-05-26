@@ -34,6 +34,7 @@
 
 #include <QApplication>
 #include <QSplashScreen>
+#include <QStatusBar>
 #include <QMdiArea>
 #include <QLineEdit>
 #include <QThread>
@@ -59,7 +60,7 @@
 #include <QScrollBar>
 #include <QGenericMatrix>
 
-#ifdef WIN32
+#if defined(_WIN32)
 #include <windows.h>
 #include <tlhelp32.h>
 #endif
@@ -82,7 +83,24 @@ public slots:
   void showMessage(const QString &message, int alignment = Qt::AlignLeft, const QColor &color = Qt::black)
   {
     QSplashScreen::showMessage(message, alignment, color);
-    qApp->processEvents();
+    // Call repaint() to get the immediate update. Calling repaint() is better than qApp->processEvents() which processes all pending events.
+    repaint();
+  }
+};
+
+class StatusBar : public QStatusBar
+{
+  Q_OBJECT
+public:
+  StatusBar() : QStatusBar() {}
+public slots:
+  void showMessage(const QString &message, int timeout = 0)
+  {
+    QStatusBar::showMessage(message, timeout);
+    /* QStatusBar::showMessage calls update() which schedules a paint event for processing when Qt returns to the main event loop
+     * so we call repaint() to get the immediate update. Calling repaint() is better than qApp->processEvents() which processes all pending events.
+     */
+    repaint();
   }
 };
 
@@ -106,23 +124,27 @@ public:
   TreeSearchFilters(QWidget *pParent = 0);
   QLineEdit* getFilterTextBox() {return mpFilterTextBox;}
   QTimer* getFilterTimer() {return mpFilterTimer;}
+  QToolButton* getScrollToActiveButton() {return mpScrollToActiveButton;}
+  QToolButton* getExpandAllButton() {return mpExpandAllButton;}
+  QToolButton* getCollapseAllButton() {return mpCollapseAllButton;}
   QComboBox* getSyntaxComboBox() {return mpSyntaxComboBox;}
   QCheckBox* getCaseSensitiveCheckBox() {return mpCaseSensitiveCheckBox;}
-  QPushButton* getExpandAllButton() {return mpExpandAllButton;}
-  QPushButton* getCollapseAllButton() {return mpCollapseAllButton;}
 
   bool eventFilter(QObject *pObject, QEvent *pEvent);
 private:
   QLineEdit *mpFilterTextBox;
   QTimer *mpFilterTimer;
+  QToolButton *mpScrollToActiveButton;
+  QToolButton *mpExpandAllButton;
+  QToolButton *mpCollapseAllButton;
   QToolButton *mpShowHideButton;
   QWidget *mpFiltersWidget;
   QComboBox *mpSyntaxComboBox;
   QCheckBox *mpCaseSensitiveCheckBox;
-  QPushButton *mpExpandAllButton;
-  QPushButton *mpCollapseAllButton;
 private slots:
   void showHideFilters(bool On);
+signals:
+  void clearFilter(const QString &);
 };
 
 class FileDataNotifier : public QThread
@@ -149,8 +171,8 @@ signals:
 class Label : public QLabel
 {
 public:
-  Label(QWidget *parent = 0, Qt::WindowFlags flags = 0);
-  Label(const QString &text, QWidget *parent = 0, Qt::WindowFlags flags = 0);
+  Label(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
+  Label(const QString &text, QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
   Qt::TextElideMode elideMode() const {return mElideMode;}
   void setElideMode(Qt::TextElideMode elideMode) {mElideMode = elideMode;}
   virtual QSize minimumSizeHint() const override;
@@ -365,34 +387,6 @@ private:
   QColor mColor;
 };
 
-class CodeColorsWidget : public QWidget
-{
-  Q_OBJECT
-public:
-  CodeColorsWidget(QWidget *pParent = 0);
-  QListWidget* getItemsListWidget() {return mpItemsListWidget;}
-  PreviewPlainTextEdit* getPreviewPlainTextEdit() {return mpPreviewPlainTextEdit;}
-private:
-  QGroupBox *mpColorsGroupBox;
-  Label *mpItemsLabel;
-  QListWidget *mpItemsListWidget;
-  Label *mpItemColorLabel;
-  QPushButton *mpItemColorPickButton;
-  Label *mpPreviewLabel;
-  PreviewPlainTextEdit *mpPreviewPlainTextEdit;
-  ListWidgetItem *mpTextItem;
-  ListWidgetItem *mpNumberItem;
-  ListWidgetItem *mpKeywordItem;
-  ListWidgetItem *mpTypeItem;
-  ListWidgetItem *mpFunctionItem;
-  ListWidgetItem *mpQuotesItem;
-  ListWidgetItem *mpCommentItem;
-signals:
-  void colorUpdated();
-private slots:
-  void pickColor();
-};
-
 /*!
  * \brief The VerticalScrollArea class
  * A scroll area with vertical bar and adjustment of width
@@ -418,13 +412,50 @@ public:
   }
 };
 
+class QDetachableProcess : public QProcess
+{
+  Q_OBJECT
+public:
+  QDetachableProcess(QObject *pParent = 0);
+
+  void start(const QString &program, const QStringList &arguments, OpenMode mode = ReadWrite);
+#if (QT_VERSION < QT_VERSION_CHECK(5, 15, 0))
+  void start(const QString &command, OpenMode mode = ReadWrite);
+#endif
+};
+
+class JsonDocument : public QObject
+{
+  Q_OBJECT
+public:
+  JsonDocument(QObject *pParent = 0);
+  bool parse(const QString &fileName);
+  bool parse(const QByteArray &jsonData);
+
+  QVariant result;
+  QString errorString;
+};
+
+class VariableNode
+{
+public:
+  VariableNode(const QVector<QVariant> &variableNodeData);
+  ~VariableNode();
+  QVector<QVariant> mVariableNodeData;
+  bool mEditable;
+  QString mVariability;
+  QHash<QString, VariableNode*> mChildren;
+
+  static VariableNode* findVariableNode(const QString &name, VariableNode *pParentVariableNode);
+};
+
 namespace Utilities {
 
   enum LineEndingMode {
     CRLFLineEnding = 0,
     LFLineEnding = 1,
     NativeLineEnding =
-#ifdef WIN32
+#if defined(_WIN32)
     CRLFLineEnding,
 #else
     LFLineEnding
@@ -452,16 +483,14 @@ namespace Utilities {
   void highlightCurrentLine(QPlainTextEdit *pPlainTextEdit);
   void highlightParentheses(QPlainTextEdit *pPlainTextEdit, QTextCharFormat parenthesesMatchFormat, QTextCharFormat parenthesesMisMatchFormat);
   qint64 getProcessId(QProcess *pProcess);
-#ifdef WIN32
+  QString formatExitCode(int code);
+#if defined(_WIN32)
   void killProcessTreeWindows(DWORD myprocID);
 #endif
   bool isCFile(QString extension);
   bool isModelicaFile(QString extension);
-  void insertText(QPlainTextEdit *pPlainTextEdit, QString text, QTextCharFormat format = QTextCharFormat());
   QGenericMatrix<3,3, double> getRotationMatrix(QGenericMatrix<3,1,double> rotation);
-#ifdef WIN32
   QString getGDBPath();
-#endif
 
   namespace FileIconProvider {
     class FileIconProviderImplementation : public QFileIconProvider
@@ -486,9 +515,12 @@ namespace Utilities {
   QList<QPointF> liangBarskyClipper(float xmin, float ymin, float xmax, float ymax, float x1, float y1, float x2, float y2);
   void removeDirectoryRecursivly(QString path);
   qreal mapToCoOrdinateSystem(qreal value, qreal startA, qreal endA, qreal startB, qreal endB);
-
   QStringList variantListToStringList(const QVariantList lst);
-
+  void addDefaultDisplayUnit(const QString &unit, QStringList &displayUnit);
+  QString convertUnitToSymbol(const QString &displayUnit);
+  QString convertSymbolToUnit(const QString &symbol);
+  QRectF adjustSceneRectangle(const QRectF sceneRectangle, const qreal factor);
+  void setToolTip(QComboBox *pComboBox, const QString &description, const QStringList &optionsDescriptions);
 } // namespace Utilities
 
 #endif // UTILITIES_H

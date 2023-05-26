@@ -57,20 +57,22 @@ GDBLoggerWidget::GDBLoggerWidget(QWidget *pParent)
   : QWidget(pParent)
 {
   /* GDB commands area */
-  mpCommandsTextBox = new QPlainTextEdit;
+  mpCommandsTextBox = new OutputPlainTextEdit;
   mpCommandsTextBox->setLineWrapMode(QPlainTextEdit::WidgetWidth);
   mpCommandsTextBox->setFont(QFont(Helper::monospacedFontInfo.family()));
+  mpCommandsTextBox->setUseTimer(false);
   /* GDB commands area */
-  mpResponseTextBox = new QPlainTextEdit;
+  mpResponseTextBox = new OutputPlainTextEdit;
   mpResponseTextBox->setLineWrapMode(QPlainTextEdit::WidgetWidth);
   mpResponseTextBox->setFont(QFont(Helper::monospacedFontInfo.family()));
+  mpResponseTextBox->setUseTimer(false);
   /* user command text box */
   mpCommandTextBox = new QLineEdit;
   mpCommandTextBox->setEnabled(false);
   mpCommandTextBox->setFont(QFont(Helper::monospacedFontInfo.family()));
   connect(mpCommandTextBox, SIGNAL(returnPressed()), SLOT(postCommand()));
   /* send command button */
-  mpSendCommandButton = new QPushButton(tr("Send"));
+  mpSendCommandButton = new QPushButton(Helper::send);
   mpSendCommandButton->setEnabled(false);
   connect(mpSendCommandButton, SIGNAL(clicked()), SLOT(postCommand()));
   /* Log Windows Splitter */
@@ -101,7 +103,7 @@ GDBLoggerWidget::GDBLoggerWidget(QWidget *pParent)
  */
 void GDBLoggerWidget::logDebuggerCommand(QString command)
 {
-  Utilities::insertText(mpCommandsTextBox, command + "\n\n");
+  mpCommandsTextBox->appendOutput(command + "\n\n");
 }
 
 /*!
@@ -135,7 +137,7 @@ void GDBLoggerWidget::logDebuggerResponse(QString response, QColor color)
   QString newLine = response.endsWith("\n") ? "\n" : "\n\n";
   QTextCharFormat format;
   format.setForeground(color);
-  Utilities::insertText(mpResponseTextBox, response + newLine, format);
+  mpResponseTextBox->appendOutput(response + newLine, format);
 }
 
 /*!
@@ -187,7 +189,7 @@ void GDBLoggerWidget::handleGDBProcessFinished()
  * \param pParent
  */
 TargetOutputWidget::TargetOutputWidget(QWidget *pParent)
-  : QPlainTextEdit(pParent)
+  : OutputPlainTextEdit(pParent)
 {
   setFont(QFont(Helper::monospacedFontInfo.family()));
   connect(GDBAdapter::instance(), SIGNAL(GDBProcessStarted()), SLOT(handleGDBProcessStarted()));
@@ -230,7 +232,7 @@ void TargetOutputWidget::logDebuggerOutput(QString output, QColor color)
   QString newLine = output.endsWith("\n") ? "" : "\n";
   QTextCharFormat format;
   format.setForeground(color);
-  Utilities::insertText(this, output + newLine, format);
+  OutputPlainTextEdit::appendOutput(output + newLine, format);
 }
 
 /*!
@@ -270,6 +272,7 @@ void GDBAdapter::create()
 void GDBAdapter::destroy()
 {
   mpInstance->deleteLater();
+  mpInstance = 0;
 }
 
 /*!
@@ -310,7 +313,7 @@ void GDBAdapter::launch(QString program, QString workingDirectory, QStringList a
   }
   mpGDBProcess = new QProcess;
   setGDBKilled(false);
-#ifdef WIN32
+#if defined(_WIN32)
   /* Set the environment for GDB process */
   QProcessEnvironment processEnvironment = StringHandler::simulationProcessEnvironment();
   if (!simulationOptions.getFileName().isEmpty()) {
@@ -360,7 +363,7 @@ void GDBAdapter::launch(QString processId, QString GDBPath)
   mAttachToProcessId = processId;
   mpGDBProcess = new QProcess;
   setGDBKilled(false);
-#ifdef WIN32
+#if defined(_WIN32)
   /* Set the environment for GDB process */
   mpGDBProcess->setProcessEnvironment(StringHandler::simulationProcessEnvironment());
 #endif
@@ -1008,17 +1011,13 @@ void GDBAdapter::processGDBMIResponse(QString response)
     }
     delete pGDBMIResponse;
   } else {
-    list<string> parserErrorsList = getParserErrorsList();
-    list<string>::iterator parserErrorsListIterator;
-    for (parserErrorsListIterator = parserErrorsList.begin(); parserErrorsListIterator != parserErrorsList.end(); ++parserErrorsListIterator) {
-      qCritical() << (*parserErrorsListIterator).c_str();
+    for (auto &e: getParserErrorsList()) {
+      qCritical() << e.c_str();
     }
     clearParserErrorsList();
   }
-  list<string> lexerErrorsList = getLexerErrorsList();
-  list<string>::iterator lexerErrorsListIterator;
-  for (lexerErrorsListIterator = lexerErrorsList.begin(); lexerErrorsListIterator != lexerErrorsList.end(); ++lexerErrorsListIterator) {
-    qCritical() << (*lexerErrorsListIterator).c_str();
+  for (auto &e: getLexerErrorsList()) {
+    qCritical() << e.c_str();
   }
   clearLexerErrorsList();
 }
@@ -1048,7 +1047,7 @@ void GDBAdapter::processGDBMIResultRecord(GDBMIResultRecord *pGDBMIResultRecord)
   if (pGDBMIResultRecord->token == -1) {
     /* handle stopped response */
     if (pGDBMIResultRecord->cls.compare("stopped") == 0) {
-      string reason = "";
+      std::string reason;
       GDBMIResultList::iterator it;
       for (it = pGDBMIResultRecord->miResultsList.begin(); it != pGDBMIResultRecord->miResultsList.end(); ++it) {
         GDBMIResult *pGDBMIResult = *it;
@@ -1142,7 +1141,7 @@ void GDBAdapter::handleGDBMIStreamRecord(GDBMIStreamRecord *pGDBMIStreamRecord)
 void GDBAdapter::handleGDBMIConsoleStream(GDBMIStreamRecord *pGDBMIStreamRecord)
 {
   QString consoleData = StringHandler::unparse(pGDBMIStreamRecord->value.c_str());
-  mPendingConsoleStreamOutput += consoleData;
+  mPendingConsoleStreamOutput += consoleData.toUtf8();
   /* Only display some selected console messages */
   if (consoleData.startsWith("Reading symbols from ") || consoleData.startsWith("[New ") || consoleData.startsWith("[Thread ")) {
     MainWindow::instance()->getStackFramesWidget()->setStatusMessage(consoleData.simplified());
@@ -1159,7 +1158,7 @@ void GDBAdapter::handleGDBMIConsoleStream(GDBMIStreamRecord *pGDBMIStreamRecord)
 void GDBAdapter::handleGDBMILogStream(GDBMIStreamRecord *pGDBMIStreamRecord)
 {
   QString logData = StringHandler::unparse(pGDBMIStreamRecord->value.c_str());
-  mPendingLogStreamOutput += logData;
+  mPendingLogStreamOutput += logData.toUtf8();
   /*! \note Skip the log messages we get as a result of pending breakpoint.
    * e.g., No source file named Catch.omc.
    */
@@ -1202,7 +1201,7 @@ bool GDBAdapter::skipSteppedInFrames(GDBMIResultRecord *pGDBMIResultRecord)
  * \param reason
  * \param pGDBMIResultRecord
  */
-void GDBAdapter::handleStoppedEvent(string reason, GDBMIResultRecord *pGDBMIResultRecord)
+void GDBAdapter::handleStoppedEvent(std::string reason, GDBMIResultRecord *pGDBMIResultRecord)
 {
   // call changeStdStreamBuffer no matter for what reason we have stopped
   if (!isChangeStdStreamBuffer() && !(reason.compare("\"exited-normally\"") == 0 || reason.compare("\"exited\""))) {
@@ -1430,7 +1429,7 @@ void GDBAdapter::readGDBStandardOutput()
   int newstart = 0;
   int scan = mStandardOutputBuffer.size();
   QString standardOutput = mpGDBProcess->readAllStandardOutput();
-  mStandardOutputBuffer.append(standardOutput);
+  mStandardOutputBuffer.append(standardOutput.toUtf8());
   // This can trigger when a blocking command starts an event loop.
   if (isParsingStandardOutput()) {
     GDBMICommand cmd = mGDBMICommandsHash.value(currentToken());
@@ -1538,7 +1537,7 @@ void GDBAdapter::handleGDBProcessFinishedForSimulation(int exitCode)
 void GDBAdapter::GDBcommandTimeout()
 {
   QList<int> keys = mGDBMICommandsHash.keys();
-  qSort(keys);
+  std::sort(keys.begin(), keys.end());
   bool killIt = false;
   foreach (int key, keys) {
     const GDBMICommand &cmd = mGDBMICommandsHash.value(key);

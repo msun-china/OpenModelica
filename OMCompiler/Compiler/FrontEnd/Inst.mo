@@ -130,7 +130,7 @@ import Flags;
 import FGraph;
 import FGraphBuildEnv;
 import FNode;
-import GC;
+import GCExt;
 import Global;
 import HashTable;
 import HashTable5;
@@ -171,6 +171,7 @@ protected function instantiateClass_dispatch
   input SCode.Program inProgram;
   input SCode.Path inPath;
   input Boolean doSCodeDep "Do SCode dependency (if the debug flag is also enabled)";
+  input Boolean relaxedFrontEnd=true "Do not check for illegal simulation models, so we allow instantation of packages, etc";
   output FCore.Cache outCache;
   output FCore.Graph outEnv;
   output InnerOuter.InstHierarchy outIH;
@@ -206,11 +207,11 @@ algorithm
         source = ElementSource.addElementSourcePartOfOpt(DAE.emptyElementSource, FGraph.getScopePath(env));
 
         if Flags.isSet(Flags.GC_PROF) then
-          print(GC.profStatsStr(GC.getProfStats(), head="GC stats after pre-frontend work (building graphs):") + "\n");
+          print(GCExt.profStatsStr(GCExt.getProfStats(), head="GC stats after pre-frontend work (building graphs):") + "\n");
         end if;
         ExecStat.execStat("FrontEnd - mkProgramGraph");
 
-        (cache,env,ih,dae2) = instClassInProgram(cache, env, ih, cdecls, path, source);
+        (cache,env,ih,dae2) = instClassInProgram(cache, env, ih, cdecls, path, source, relaxedFrontEnd);
         // check the models for balancing
         //Debug.fcall2(Flags.CHECK_MODEL_BALANCE, checkModelBalancing, SOME(path), dae1);
         //Debug.fcall2(Flags.CHECK_MODEL_BALANCE, checkModelBalancing, SOME(path), dae2);
@@ -246,13 +247,16 @@ algorithm
         //print("\nLookupClass");
         (cache,(cdef as SCode.CLASS(name = n)),env) = Lookup.lookupClass(cache, env, path, SOME(AbsynUtil.dummyInfo));
 
+        // Check if we are trying to instantiate a function or pacakage when we should not.
+        checkInstanceRestriction(cdef, path, relaxedFrontEnd);
+
         //System.stopTimer();
         //print("\nLookupClass: " + realString(System.getTimerIntervalTime()));
 
         //System.startTimer();
         //print("\nInstClass");
         if Flags.isSet(Flags.GC_PROF) then
-          print(GC.profStatsStr(GC.getProfStats(), head="GC stats after pre-frontend work (building graphs):") + "\n");
+          print(GCExt.profStatsStr(GCExt.getProfStats(), head="GC stats after pre-frontend work (building graphs):") + "\n");
         end if;
         ExecStat.execStat("FrontEnd - mkProgramGraph");
 
@@ -303,6 +307,7 @@ public function instantiateClass
   input SCode.Program inProgram;
   input SCode.Path inPath;
   input Boolean doSCodeDep=true "Do SCode dependency (if the debug flag is also enabled)";
+  input Boolean relaxedFrontEnd=true "Do not check for illegal simulation models, so we allow instantation of packages, etc";
   output FCore.Cache outCache;
   output FCore.Graph outEnv;
   output InnerOuter.InstHierarchy outIH;
@@ -326,7 +331,7 @@ algorithm
     // instantiate a class
     case (cache,ih,cdecls as _::_,path)
       algorithm
-        (outCache,outEnv,outIH,outDAElist) := instantiateClass_dispatch(cache,ih,cdecls,path,doSCodeDep);
+        (outCache,outEnv,outIH,outDAElist) := instantiateClass_dispatch(cache,ih,cdecls,path,doSCodeDep,relaxedFrontEnd);
         outDAElist := UnitCheck.checkUnits(outDAElist,FCore.getFunctionTree(outCache));
       then
         (outCache,outEnv,outIH,outDAElist);
@@ -447,6 +452,7 @@ protected function instClassInProgram
   input SCode.Program inProgram;
   input SCode.Path inPath;
   input DAE.ElementSource inSource;
+  input Boolean relaxedFrontEnd = true "Do not check for illegal simulation models, so we allow instantation of packages, etc";
   output FCore.Cache outCache;
   output FCore.Graph outEnv;
   output InnerOuter.InstHierarchy outIH;
@@ -473,6 +479,10 @@ algorithm
     case (_, _, _, _, Absyn.IDENT(name = name), _)
       equation
         cls = InstUtil.lookupTopLevelClass(name, inProgram, true);
+
+        // Disable this check since we have some test cases that instantiate
+        // TOP level functions and pacakges.
+        // checkInstanceRestriction(cls, inPath, relaxedFrontEnd);
 
         (cache, env, ih, _, dae, _, _, _, _, _) = instClass(inCache, inEnv,
           inIH, UnitAbsynBuilder.emptyInstStore(), DAE.NOMOD(), makeTopComponentPrefix(inEnv, name),
@@ -610,7 +620,10 @@ algorithm
 
         dae1_1 = DAEUtil.addComponentType(dae1, fq_class);
 
+        // phi: very old unit checking
+        /*
         InstUtil.reportUnitConsistency(callscope_1,store);
+        */
         (csets, _, graph) = InnerOuter.retrieveOuterConnections(cache,env_3,ih,pre,csets,callscope_1, graph);
 
         //System.startTimer();
@@ -836,8 +849,8 @@ algorithm
 
         if not Config.getGraphicsExpMode() then
           s1 = n;
-          s2 = Dump.unparseInnerouterStr(io);
-          Error.addSourceMessage(Error.MISSING_INNER_CLASS,{s1, s2}, info);
+          s2 = AbsynUtil.innerOuterStr(io);
+          Error.addSourceMessage(Error.MISSING_INNER_CLASS,{s1, s2, ""}, info);
         end if;
 
         (cache,env,ih,store,ci_state,graph,csets,dae,tys,bc,oDA,equalityConstraint) =
@@ -999,7 +1012,7 @@ algorithm
       end for;
       tvars := listReverse(tvars);
 
-    then DAE.T_COMPLEX(inType.complexClassType, tvars, inType.equalityConstraint);
+    then DAE.T_COMPLEX(inType.complexClassType, tvars, inType.equalityConstraint, inType.usedExternally);
   end match;
 
 end markDerivedRecordOutsideBindings;
@@ -1071,7 +1084,7 @@ algorithm
       end for;
       tvars := listReverse(tvars);
 
-    then DAE.T_COMPLEX(inType.complexClassType, tvars, inType.equalityConstraint);
+    then DAE.T_COMPLEX(inType.complexClassType, tvars, inType.equalityConstraint, inType.usedExternally);
   end match;
 
 end markTypesVarsOutsideBindings;
@@ -2137,9 +2150,12 @@ algorithm
       equation
         false = Mutable.access(stopInst);
         false = SCodeUtil.isExternalObject(els);
+        // phi: very old unit checking
+        /*
         if Flags.getConfigBool(Flags.UNIT_CHECKING) then
           UnitParserExt.checkpoint();
         end if;
+        */
         //Debug.traceln(" Instclassdef for: " + PrefixUtil.printPrefixStr(pre) + "." +  className + " mods: " + Mod.printModStr(mods));
         ci_state1 = ClassInf.trans(ci_state, ClassInf.NEWDEF());
         els = InstUtil.extractConstantPlusDeps(els,instSingleCref,{},className);
@@ -2302,12 +2318,15 @@ algorithm
 
         csets5 = InnerOuter.changeInnerOuterInOuterConnect(csets5);
 
+        // phi: very old unit checking
+        /*
         // adrpo: moved bunch of a lot of expensive unit checking operations to this function
         (cache,env5,store) = InstUtil.handleUnitChecking(cache,env5,store,pre,dae1,{dae2,dae3,dae4,dae5},className);
 
         if Flags.getConfigBool(Flags.UNIT_CHECKING) then
           UnitParserExt.rollback(); // print("rollback for "+className+"\n");
         end if;
+        */
 
         // Search for equalityConstraint
         eqConstraint = InstUtil.equalityConstraint(env5, els, info);
@@ -3136,7 +3155,7 @@ protected
 algorithm
   cache := InstUtil.pushStructuralParameters(inCache);
 
-  // Sort elements based on their dependencies.
+  // Sort elements based on their dependencies. This is not done for MetaModelica
   el := InstUtil.sortElementList(inElements, inEnv, FGraph.inFunctionScope(inEnv));
   // adrpo: MAKE SURE inner objects ARE FIRST in the list for instantiation!
   el := InstUtil.sortInnerFirstTplLstElementMod(el);
@@ -3168,8 +3187,8 @@ algorithm
 
     outVars := listAppend(lst for lst in var_arr);
     outDae := DAE.DAE(listAppend(lst for lst in dae_arr));
-    GC.free(var_arr);
-    GC.free(dae_arr);
+    GCExt.free(var_arr);
+    GCExt.free(dae_arr);
   else
     // For functions, use the sorted elements instead, otherwise things break.
     for e in el loop
@@ -3905,7 +3924,7 @@ algorithm
         cmod2 = List.fold2r(cmod::ltmod,Mod.merge,name,true,DAE.NOMOD());
         SCode.PREFIXES(finalPrefix = fprefix) = SCodeUtil.elementPrefixes(comp);
 
-        //print("("+intString(listLength(ltmod))+")UpdateCompeltsMods_(" + stringDelimitList(List.map(crefs,AbsynUtil.printComponentRefStr),",") + ") subs: " + stringDelimitList(List.map(crefs,Absyn.printComponentRefStr),",")+ "\n");
+        //print("("+intString(listLength(ltmod))+")UpdateCompeltsMods_(" + stringDelimitList(List.map(crefs,Dump.printComponentRefStr),",") + ") subs: " + stringDelimitList(List.map(crefs,Dump.printComponentRefStr),",")+ "\n");
         //print("REDECL     acquired mods: " + Mod.printModStr(cmod2) + "\n");
         (cache,env2,ih) = updateComponentsInEnv(cache, env, ih, pre, cmod2, crefs, ci_state, impl);
         (cache,env2,ih) = updateComponentsInEnv(cache, env2, ih, pre,
@@ -3945,7 +3964,7 @@ algorithm
         cmod2 = List.fold2r(ltmod,Mod.merge,name,true,DAE.NOMOD());
         SCode.PREFIXES(finalPrefix = fprefix) = SCodeUtil.elementPrefixes(comp);
 
-        //print("("+intString(listLength(ltmod))+")UpdateCompeltsMods_(" + stringDelimitList(List.map(crefs,AbsynUtil.printComponentRefStr),",") + ") subs: " + stringDelimitList(List.map(crefs,Absyn.printComponentRefStr),",")+ "\n");
+        //print("("+intString(listLength(ltmod))+")UpdateCompeltsMods_(" + stringDelimitList(List.map(crefs,Dump.printComponentRefStr),",") + ") subs: " + stringDelimitList(List.map(crefs,Dump.printComponentRefStr),",")+ "\n");
         //print("     acquired mods: " + Mod.printModStr(cmod2) + "\n");
 
         (cache,env2,ih) = updateComponentsInEnv(cache, env, ih, pre, cmod2, crefs, ci_state, impl);
@@ -5430,7 +5449,6 @@ algorithm
     case "ceil" then Absyn.FULLYQUALIFIED(Absyn.IDENT("ceil"));
     case "change" then Absyn.FULLYQUALIFIED(Absyn.IDENT("change"));
     case "classDirectory" then Absyn.FULLYQUALIFIED(Absyn.IDENT("classDirectory"));
-    case "constrain" then Absyn.FULLYQUALIFIED(Absyn.IDENT("constrain"));
     case "cos" then Absyn.FULLYQUALIFIED(Absyn.IDENT("cos"));
     case "cosh" then Absyn.FULLYQUALIFIED(Absyn.IDENT("cosh"));
     case "cross" then Absyn.FULLYQUALIFIED(Absyn.IDENT("cross"));
@@ -5594,6 +5612,33 @@ algorithm
     else DAE.DAE({DAE.COMMENT(SCode.COMMENT(SOME(SCode.ANNOTATION(mod)), comment))});
   end match;
 end instFunctionAnnotations;
+
+public function instClassType
+  input output FCore.Cache cache;
+  input output FCore.Graph env;
+  input SCode.Element classElem;
+        output DAE.Type ty;
+algorithm
+  (cache, env, _, _, _, _, ty) := instClass(cache, env, InnerOuter.emptyInstHierarchy,
+    UnitAbsyn.noStore, DAE.NOMOD(), DAE.NOPRE(), classElem, {}, true,
+    InstTypes.TOP_CALL(), ConnectionGraph.EMPTY, Connect.emptySet);
+end instClassType;
+
+
+protected function checkInstanceRestriction
+  input SCode.Element cdef;
+  input Absyn.Path path;
+  input Boolean relaxedFrontEnd;
+algorithm
+  // Do not allow instantiation of functions and packages.
+  if not relaxedFrontEnd and (SCodeUtil.isFunction(cdef) or
+                              SCodeUtil.isPackage(cdef)) then
+    Error.addSourceMessage(Error.INST_INVALID_RESTRICTION,
+      {AbsynUtil.pathString(path), SCodeDump.restrString(SCodeUtil.getClassRestriction(cdef))},
+      SCodeUtil.elementInfo(cdef));
+    fail();
+  end if;
+end checkInstanceRestriction;
 
 annotation(__OpenModelica_Interface="frontend");
 end Inst;

@@ -37,8 +37,6 @@ encapsulated package SimCodeMain
   The entry points to this module are the translateModel function and the
   translateFunctions function."
 
-
-// public imports
 public
 import Absyn;
 import BackendDAE;
@@ -50,13 +48,14 @@ import HashTableExpToIndex;
 import Tpl;
 import Values;
 import SimCode;
+import NSimCode; /* used for new backend */
 
-// protected imports
 protected
 import Autoconf;
 import AvlSetString;
 import BackendDAECreate;
 import BackendDump;
+import NBackendDAE;
 import BackendVariable;
 import Builtin;
 import ClockIndexes;
@@ -67,15 +66,11 @@ import CodegenFMU;
 import CodegenFMUCpp;
 import CodegenOMSICpp;
 import CodegenFMUCppHpcom;
-import CodegenAdevs;
-import CodegenSparseFMI;
-import CodegenCSharp;
 import CodegenCpp;
 import CodegenCppHpcom;
 import CodegenOMSIC;
 import CodegenOMSI_common;
 import CodegenXML;
-import CodegenJava;
 import CodegenJS;
 import Config;
 import DAEMode;
@@ -86,18 +81,22 @@ import Error;
 import ErrorExt;
 import ExecStat;
 import Flags;
+import FlatModel = NFFlatModel;
+import FunctionTree = NFFlatten.FunctionTree;
 import FMI;
-import GC;
+import GCExt;
 import HashTable;
 import HashTableCrefSimVar;
 import HashTableCrIListArray;
 import HashTableCrILst;
 import HpcOmSimCodeMain;
 import HpcOmTaskGraph;
+import NFConvertDAE;
 import RuntimeSources;
-import SerializeModelInfo;
-import TaskSystemDump;
+import SemanticVersion;
 import SerializeInitXML;
+import SerializeModelInfo;
+import SerializeSparsityPattern;
 import SimCodeUtil;
 import StackOverflow;
 import StringUtil;
@@ -106,6 +105,7 @@ import SymbolTable;
 import System;
 import Testsuite;
 import Util;
+import SerializeTaskSystemInfo;
 
 public
 constant Boolean debug=true;
@@ -175,7 +175,8 @@ protected
 algorithm
   System.realtimeTick(ClockIndexes.RT_CLOCK_SIMCODE);
   a_cref := AbsynUtil.pathToCref(className);
-  if ((Config.simCodeTarget() ==  "omsic") or (Config.simCodeTarget() == "omsicpp")) then
+  /*Temporary disabled omsicpp*/
+  if ((Config.simCodeTarget() ==  "omsic") /*or (Config.simCodeTarget() == "omsicpp")*/) then
     fileDir := listHead(AbsynUtil.pathToStringList(className))+".tmp";
   else
     fileDir := CevalScriptBackend.getFileDir(a_cref, p);
@@ -191,7 +192,12 @@ algorithm
   ExecStat.execStat("SimCode");
 
   System.realtimeTick(ClockIndexes.RT_CLOCK_TEMPLATES);
-  callTargetTemplatesFMU(simCode, Config.simCodeTarget(), FMUVersion, FMUType);
+  /*Temporary disabled omsi fmu and generate C-fmu for omsicpp simcodetarget*/
+  if Config.simCodeTarget() == "omsicpp" then
+     callTargetTemplatesFMU(simCode, "C", FMUVersion, FMUType);
+   else
+    callTargetTemplatesFMU(simCode, Config.simCodeTarget(), FMUVersion, FMUType);
+  end if;
   timeTemplates := System.realtimeTock(ClockIndexes.RT_CLOCK_TEMPLATES);
 end generateModelCodeFMU;
 
@@ -266,7 +272,7 @@ protected
   list<tuple<String, String>> program;
   Integer numCheckpoints;
   String fmuVersion;
- 
+
 algorithm
   numCheckpoints:=ErrorExt.getNumCheckpoints();
   try
@@ -280,13 +286,14 @@ algorithm
   fileDir := CevalScriptBackend.getFileDir(a_cref, p);
 
   (libs, libPaths, includes, includeDirs, recordDecls, functions, literals) := SimCodeUtil.createFunctions(p, inBackendDAE.shared.functionTree);
+   /*Temporary disabled omsicpp
    if Config.simCodeTarget() ==  "omsicpp" then
      fmuVersion:="2.0";
      simCode := createSimCode(inBackendDAE, inInitDAE, inInitDAE_lambda0, inInlineData, inRemovedInitialEquationLst, className, filenamePrefix, fileDir, functions, includes, includeDirs, libs,libPaths, p, simSettingsOpt, recordDecls, literals, args,isFMU=true, FMUVersion=fmuVersion,
     fmuTargetName=listHead(AbsynUtil.pathToStringList(className)), inFMIDer=inFMIDer);
-   else
+   else*/
     simCode := createSimCode(inBackendDAE, inInitDAE, inInitDAE_lambda0, inInlineData, inRemovedInitialEquationLst, className, filenamePrefix, fileDir, functions, includes, includeDirs, libs,libPaths, p, simSettingsOpt, recordDecls, literals, args,inFMIDer=inFMIDer);
-   end if;
+   /*end if;*/
   timeSimCode := System.realtimeTock(ClockIndexes.RT_CLOCK_SIMCODE);
   ExecStat.execStat("SimCode");
 
@@ -336,7 +343,8 @@ protected function createSimCode "
   input BackendDAE.SymbolicJacobians inFMIDer = {};
   output SimCode.SimCode simCode;
 algorithm
-  simCode := matchcontinue(inBackendDAE, inClassName, filenamePrefix, inString11, functions, externalFunctionIncludes, includeDirs, libs, libPaths, program,simSettingsOpt, recordDecls, literals, args)
+  // FIXME This matchcontinue is extremely horrible! Please remove it
+  simCode := matchcontinue(inBackendDAE, inClassName, filenamePrefix, inString11, functions, externalFunctionIncludes, includeDirs, libs, libPaths, program, simSettingsOpt, recordDecls, literals, args)
     local
       Integer numProc;
       SimCode.SimCode tmpSimCode;
@@ -376,6 +384,56 @@ algorithm
     then tmpSimCode;
   end matchcontinue;
 end createSimCode;
+
+function generateModelCodeNewBackend
+  input NBackendDAE.BackendDAE bdae;
+  input Absyn.Path className;
+  input String fileNamePrefix;
+  input Option<SimCode.SimulationSettings> simSettingsOpt;
+  output list<String> libs;
+  output String fileDir;
+  output Real timeSimCode = 0.0;
+  output Real timeTemplates = 0.0;
+protected
+  Integer numCheckpoints;
+  NSimCode.SimCode simCode;
+  SimCode.SimCode oldSimCode;
+algorithm
+  numCheckpoints := ErrorExt.getNumCheckpoints();
+  StackOverflow.clearStacktraceMessages();
+  try
+    System.realtimeTick(ClockIndexes.RT_CLOCK_SIMCODE);
+    simCode := NSimCode.SimCode.create(bdae, className, fileNamePrefix, simSettingsOpt);
+    if Flags.isSet(Flags.DUMP_SIMCODE) then
+      print(NSimCode.SimCode.toString(simCode));
+    end if;
+    (fileDir, libs) := NSimCode.SimCode.getDirectoryAndLibs(simCode);
+    oldSimCode := NSimCode.SimCode.convert(simCode);
+    if Flags.isSet(Flags.DUMP_SIMCODE) then
+      SimCodeUtil.dumpSimCodeDebug(oldSimCode);
+    end if;
+    timeSimCode := System.realtimeTock(ClockIndexes.RT_CLOCK_SIMCODE);
+
+    ExecStat.execStat("SimCode");
+
+    if Flags.isSet(Flags.SERIALIZED_SIZE) then
+      serializeNotify(oldSimCode, "SimCode");
+      ExecStat.execStat("Serialize simCode");
+    end if;
+
+    System.realtimeTick(ClockIndexes.RT_CLOCK_TEMPLATES);
+    callTargetTemplates(oldSimCode, Config.simCodeTarget());
+    timeTemplates := System.realtimeTock(ClockIndexes.RT_CLOCK_TEMPLATES);
+    ExecStat.execStat("Templates");
+  else
+    setGlobalRoot(Global.stackoverFlowIndex, NONE());
+    ErrorExt.rollbackNumCheckpoints(ErrorExt.getNumCheckpoints()-numCheckpoints);
+    Error.addInternalError("Stack overflow in "+getInstanceName()+"...\n"+stringDelimitList(StackOverflow.readableStacktraceMessages(), "\n"), sourceInfo());
+    /* Do not fail or we can loop too much */
+    StackOverflow.clearStacktraceMessages();
+    fail();
+  end try annotation(__OpenModelica_stackOverflowCheckpoint=true);
+end generateModelCodeNewBackend;
 
 protected
 partial function PartialRunTpl
@@ -499,12 +557,10 @@ algorithm
       String str, guid;
       list<PartialRunTpl> codegenFuncs;
       Integer numThreads, n;
-      list<tuple<Boolean,list<String>>> res;
+      list<tuple<Boolean,list<String>>> res = {};
+      tuple<Boolean,list<String>> res_i;
       list<String> strs, tmp, matches;
-
-    case "CSharp" equation
-      Tpl.tplNoret(CodegenCSharp.translateModel, simCode);
-    then ();
+      Integer i=0;
 
     case "Cpp"
       algorithm
@@ -514,16 +570,6 @@ algorithm
         end for;
       then ();
 
-   
-
-    case "Adevs" equation
-      Tpl.tplNoret(CodegenAdevs.translateModel, simCode);
-    then ();
-
-    case "sfmi" equation
-      Tpl.tplNoret(function CodegenSparseFMI.translateModel(in_a_FMUVersion="2.0", in_a_FMUType="me", in_a_sourceFiles={}), simCode);
-    then ();
-
     case "C"
       algorithm
         guid := System.getUUIDStr();
@@ -531,7 +577,6 @@ algorithm
         System.realtimeTick(ClockIndexes.RT_PROFILER0);
         codegenFuncs := {};
         codegenFuncs := (function runToBoolean(func=function SerializeInitXML.simulationInitFileReturnBool(simCode=simCode, guid=guid))) :: codegenFuncs;
-        dumpTaskSystemIfFlag(simCode);
         codegenFuncs := (function runTpl(func=function CodegenC.translateModel(in_a_simCode=simCode))) :: codegenFuncs;
         for f in {
           // external objects
@@ -555,6 +600,7 @@ algorithm
           (CodegenC.simulationFile_dae, "_16dae.c"),
           (CodegenC.simulationFile_dae_header, "_16dae.h"),
           (CodegenC.simulationFile_inl, "_17inl.c"),
+          (CodegenC.simulationFile_spd, "_18spd.c"),
           (CodegenC.simulationHeaderFile, "_model.h")
         } loop
           (func,str) := f;
@@ -570,13 +616,24 @@ algorithm
         end for;
         codegenFuncs := (function runTpl(func=function CodegenC.simulationFile_mixAndHeader(a_simCode=simCode, a_modelNamePrefix=simCode.fileNamePrefix))) :: codegenFuncs;
         codegenFuncs := (function runTplWriteFile(func=function CodegenC.simulationFile(in_a_simCode=simCode, in_a_guid=guid, in_a_isModelExchangeFMU=""), file=simCode.fileNamePrefix + ".c")) :: codegenFuncs;
-        codegenFuncs := (function runTplWriteFile(func=function CodegenC.simulationFunctionsFile(a_filePrefix=simCode.fileNamePrefix, a_functions=simCode.modelInfo.functions), file=simCode.fileNamePrefix + "_functions.c")) :: codegenFuncs;
+        codegenFuncs := (function runTplWriteFile(func=function CodegenC.simulationFunctionsFile(a_filePrefix=simCode.fileNamePrefix, a_functions=simCode.modelInfo.functions, a_genericCalls=simCode.generic_loop_calls), file=simCode.fileNamePrefix + "_functions.c")) :: codegenFuncs;
 
+        codegenFuncs := (function runToStr(func=function SerializeSparsityPattern.serialize(code=simCode))) :: codegenFuncs;
         codegenFuncs := (function runToStr(func=function SerializeModelInfo.serialize(code=simCode, withOperations=Flags.isSet(Flags.INFO_XML_OPERATIONS)))) :: codegenFuncs;
+
+        if Flags.getConfigBool(Flags.PARMODAUTO) then
+          codegenFuncs := (function runToStr(func=function SerializeTaskSystemInfo.serializeParMod(code=simCode, withOperations=Flags.isSet(Flags.INFO_XML_OPERATIONS)))) :: codegenFuncs;
+          generatedObjects := AvlSetString.add(generatedObjects, simCode.fileNamePrefix + "_ode.json\n");
+        end if;
+
+        if Autoconf.os == "Windows_NT" then
+          codegenFuncs := (function runToStr(func=function SimCodeUtil.generateRunnerBatScript(code=simCode))) :: codegenFuncs;
+        end if;
+
         // Test the parallel code generator in the test suite. Should give decent results given that the task is disk-intensive.
         numThreads := max(1, if Testsuite.isRunning() then min(2, System.numProcessors()) else Config.noProc());
         if (not Flags.isSet(Flags.PARALLEL_CODEGEN)) or numThreads==1 then
-          res := list(func() for func in codegenFuncs);
+          res := list(codegen_func() for codegen_func in codegenFuncs);
         else
           res := System.launchParallelTasks(numThreads, codegenFuncs, runCodegenFunc);
         end if;
@@ -632,16 +689,13 @@ algorithm
       Tpl.tplNoret(CodegenC.translateModel, simCode);
       SerializeInitXML.simulationInitFile(simCode, guid);
       System.covertTextFileToCLiteral(simCode.fileNamePrefix+"_init.xml",simCode.fileNamePrefix+"_init.c", Config.simulationCodeTarget());
+      SerializeSparsityPattern.serialize(simCode);
       SerializeModelInfo.serialize(simCode, Flags.isSet(Flags.INFO_XML_OPERATIONS));
       Tpl.tplNoret(CodegenJS.markdownFile, simCode);
     then ();
 
     case "XML" equation
       Tpl.tplNoret(CodegenXML.translateModel, simCode);
-    then ();
-
-    case "Java" equation
-      Tpl.tplNoret(CodegenJava.translateModel, simCode);
     then ();
 
     case "None"
@@ -658,14 +712,6 @@ algorithm
   setGlobalRoot(Global.optionSimCode, NONE());
 end callTargetTemplates;
 
-protected function dumpTaskSystemIfFlag
-  input SimCode.SimCode simCode;
-algorithm
-  if Flags.isSet(Flags.PARMODAUTO) then
-    Tpl.tplNoret2(TaskSystemDump.dumpTaskSystem, simCode, Flags.isSet(Flags.INFO_XML_OPERATIONS));
-  end if;
-end dumpTaskSystemIfFlag;
-
 protected function callTargetTemplatesCPP
   input SimCode.SimCode iSimCode;
 algorithm
@@ -681,12 +727,12 @@ protected function callTargetTemplatesOMSICpp
   protected
   String fmuVersion;
   String fmuType;
- 
+
 algorithm
     fmuVersion:="2.0";
     fmuType:="me";
    Tpl.tplNoret3(CodegenOMSICpp.translateModel, iSimCode, fmuVersion, fmuType);
-   callTargetTemplatesFMU(iSimCode,"omsic",fmuVersion,fmuType);
+   callTargetTemplatesFMU(iSimCode,"C",fmuVersion,fmuType);
 end callTargetTemplatesOMSICpp;
 
 protected function callTargetTemplatesFMU
@@ -696,6 +742,7 @@ protected function callTargetTemplatesFMU
   input String FMUVersion;
   input String FMUType;
 algorithm
+
   setGlobalRoot(Global.optionSimCode, SOME(simCode));
   _ := match (simCode,target)
     local
@@ -703,8 +750,13 @@ algorithm
       String fmutmp;
       String guid;
       Boolean b;
+      Boolean needSundials = false;
       String fileprefix;
-      list<String> allFiles, sourceFiles, defaultFiles, extraFiles, runtimeFiles, dgesvFiles;
+      String install_include_omc_dir, install_include_omc_c_dir, install_share_buildproject_dir, install_fmu_sources_dir, fmu_tmp_sources_dir;
+      String cmakelistsStr, needCvode, cvodeDirectory;
+      list<String> sourceFiles, model_desc_src_files;
+      list<String> dgesv_sources, cminpack_sources, simrt_c_sundials_sources, simrt_linear_solver_sources, simrt_non_linear_solver_sources;
+      list<String> simrt_mixed_solver_sources, fmi_export_files, model_gen_files, model_all_gen_files, shared_source_files;
       SimCode.VarInfo varInfo;
     case (SimCode.SIMCODE(),"C")
       algorithm
@@ -716,8 +768,8 @@ algorithm
           end if;
         end if;
         Util.createDirectoryTree(fmutmp + "/sources/include/");
-        Util.createDirectoryTree(fmutmp + "/resources/");
         resourcesDir := fmutmp + "/resources/";
+        Util.createDirectoryTree(resourcesDir);
         for path in simCode.modelInfo.resourcePaths loop
           dirname := System.dirname(path);
           // on windows, remove ":" from the path!
@@ -733,50 +785,196 @@ algorithm
           Util.createDirectoryTree(newdir);
           // copy the file or directory
           if 0 <> System.systemCall("cp -rf \"" + path + "\" \"" + newdir + "/\"") then
-            Error.addInternalError("Failed to copy path " + path + " to " + fmutmp + "/resources/" + dirname, sourceInfo());
+            Error.addInternalError("Failed to copy path " + path + " to " + resourcesDir + dirname, sourceInfo());
           end if;
         end for;
+
+        // Add optional _flags.json to resources
+        _ := match simCode.fmiSimulationFlags
+          local
+            SimCode.FmiSimulationFlags fmiSimFlags;
+            String pathToFlagsJson;
+          case SOME(fmiSimFlags as SimCode.FMI_SIMULATION_FLAGS_FILE(path=pathToFlagsJson))
+            algorithm
+            needSundials := true;
+            if 0 <> System.systemCall("cp -rf \"" + pathToFlagsJson + "\" \"" + resourcesDir + simCode.fileNamePrefix+"_flags.json\"") then
+              Error.addInternalError("Failed to copy " + pathToFlagsJson + " to " + resourcesDir + simCode.fileNamePrefix + "_flags.json", sourceInfo());
+            end if;
+            then();
+          else
+            then();
+          end match;
+
+        SerializeSparsityPattern.serialize(simCode);
+        for jac in simCode.jacobianMatrices loop
+          if not listEmpty(jac.sparsity) then
+            if 0 <> System.systemCall("mv '" + simCode.fileNamePrefix + "_Jac" + jac.matrixName + ".bin" + "' '" + resourcesDir + "'") then
+              Error.addInternalError("Failed to move " + simCode.fileNamePrefix + "_Jac" + jac.matrixName + ".bin file", sourceInfo());
+            end if;
+          end if;
+        end for;
+
         SerializeModelInfo.serialize(simCode, Flags.isSet(Flags.INFO_XML_OPERATIONS));
         str := fmutmp + "/sources/" + simCode.fileNamePrefix;
         if FMUVersion == "1.0" then
-          b := System.covertTextFileToCLiteral(simCode.fileNamePrefix+"_info.json", str+"_info.c", Flags.getConfigString(Flags.TARGET));
+          b := System.covertTextFileToCLiteral(simCode.fileNamePrefix + "_info.json", str + "_info.c", Flags.getConfigString(Flags.TARGET));
           if not b then
-            Error.addMessage(Error.INTERNAL_ERROR, {"System.covertTextFileToCLiteral failed. Could not write "+str+"_info.c\n"});
+            Error.addMessage(Error.INTERNAL_ERROR, {"System.covertTextFileToCLiteral failed. Could not write " + str + "_info.c\n"});
             fail();
           end if;
         else
-          if 0 <> System.systemCall("mv '"+simCode.fileNamePrefix+"_info.json"+"' '" + fmutmp+"/resources/" + "'") then
-            Error.addInternalError("Failed to info.json file", sourceInfo());
+          // Add _info.json file to resources/ directory if neither --fmiFilter=blackBox nor --fmiFilter=protected are used
+          if Flags.getConfigEnum(Flags.FMI_FILTER) <> Flags.FMI_BLACKBOX and Flags.getConfigEnum(Flags.FMI_FILTER) <> Flags.FMI_PROTECTED then
+            if 0 <> System.systemCall("mv '" + simCode.fileNamePrefix + "_info.json" + "' '" + resourcesDir + "'") then
+              Error.addInternalError("Failed to move " + simCode.fileNamePrefix + "_info.json file", sourceInfo());
+            end if;
           end if;
         end if;
         SimCodeUtil.resetFunctionIndex();
         varInfo := simCode.modelInfo.varInfo;
-        allFiles := {};
-        allFiles := listAppend(RuntimeSources.commonHeaders, listAppend(RuntimeSources.commonFiles, allFiles));
-        allFiles := listAppend(if FMUVersion=="1.0" then RuntimeSources.fmi1Files else RuntimeSources.fmi2Files, allFiles);
-        if varInfo.numLinearSystems > 0 then
-          allFiles := listAppend(RuntimeSources.lsFiles, allFiles);
+
+
+        install_include_omc_dir := Settings.getInstallationDirectoryPath() + "/include/omc/";
+        install_include_omc_c_dir := install_include_omc_dir + "c/";
+        install_share_buildproject_dir :=  Settings.getInstallationDirectoryPath() + "/share/omc/runtime/c/fmi/buildproject/";
+        install_fmu_sources_dir := Settings.getInstallationDirectoryPath() + RuntimeSources.fmu_sources_dir;
+        fmu_tmp_sources_dir := fmutmp + "/sources/";
+
+        // The simrt c headers are in the include/omc/c directory.
+        copyFiles(RuntimeSources.simrt_c_headers, source=install_include_omc_c_dir, destination=fmu_tmp_sources_dir);
+        // The simrt C source files are installed to the folder specified by RuntimeSources.fmu_sources_dir. Copy them from there.
+        copyFiles(RuntimeSources.simrt_c_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+
+        if varInfo.numLinearSystems > 0 or varInfo.numNonLinearSystems > 0 then
+          // The dgesv headers are in the RuntimeSources.fmu_sources_dir for now since they are not properly installed in the include folder
+          copyFiles(RuntimeSources.dgesv_headers, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+          copyFiles(RuntimeSources.dgesv_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+          dgesv_sources := RuntimeSources.dgesv_sources;
+        else
+          dgesv_sources := {};
         end if;
+
+        // Add CMinpack sources to FMU
         if varInfo.numNonLinearSystems > 0 then
-          allFiles := listAppend(RuntimeSources.nlsFiles, allFiles);
+          copyFiles(RuntimeSources.cminpack_headers, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+          copyFiles(RuntimeSources.cminpack_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+          cminpack_sources := RuntimeSources.cminpack_sources;
+        else
+          cminpack_sources := {};
         end if;
-        if varInfo.numMixedSystems > 0 then
-          allFiles := listAppend(RuntimeSources.mixedFiles, allFiles);
+
+        // Check if the sundials files are needed
+        if SimCodeUtil.cvodeFmiFlagIsSet(simCode.fmiSimulationFlags) then
+          // The sundials headers are in the include directory.
+          copyFiles(RuntimeSources.sundials_headers, source=install_include_omc_dir, destination=fmu_tmp_sources_dir);
+          copyFiles(RuntimeSources.simrt_c_sundials_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+          simrt_c_sundials_sources := RuntimeSources.simrt_c_sundials_sources;
+        else
+          simrt_c_sundials_sources := {};
         end if;
+
+
+        simrt_linear_solver_sources := if varInfo.numLinearSystems > 0 then RuntimeSources.simrt_linear_solver_sources else {};
+        copyFiles(simrt_linear_solver_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+
+        simrt_non_linear_solver_sources := if varInfo.numNonLinearSystems > 0 then RuntimeSources.simrt_non_linear_solver_sources else {};
+        copyFiles(simrt_non_linear_solver_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+
+        simrt_mixed_solver_sources := if varInfo.numMixedSystems > 0 then RuntimeSources.simrt_mixed_solver_sources else {};
+        copyFiles(simrt_mixed_solver_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+
+        // This fmu export files of OMC are located in a very unexpected place. Right now they are in SimulationRuntime/fmi/export/openmodelica
+        // and then then they are installed to include/omc/c/fmi-export for some reason. The source, install, and source fmu location
+        // for these files should be made consistent. For now to avoid modifing things a lot they are left as they are and copied here.
+        fmi_export_files := if FMUVersion == "1.0" then RuntimeSources.fmi1Files else RuntimeSources.fmi2Files;
+        copyFiles(fmi_export_files, source=install_include_omc_c_dir, destination=fmu_tmp_sources_dir);
 
         System.writeFile(fmutmp+"/sources/isfmi" + (if FMUVersion=="1.0" then "1" else "2"), "");
 
-        dgesvFiles :=  if varInfo.numLinearSystems > 0 or varInfo.numNonLinearSystems > 0 then RuntimeSources.dgesvFiles else {};
-        defaultFiles := list(simCode.fileNamePrefix + f for f in RuntimeSources.defaultFileSuffixes);
-        runtimeFiles := list(f for f guard Util.endsWith(f, ".c") in allFiles);
-        sourceFiles := listAppend(defaultFiles, runtimeFiles);
-        Tpl.tplNoret(function CodegenFMU.translateModel(in_a_FMUVersion=FMUVersion, in_a_FMUType=FMUType, in_a_sourceFiles=sourceFiles), simCode);
-        extraFiles := SimCodeUtil.getFunctionIndex();
-        copyFiles(listAppend(dgesvFiles, allFiles), source=Settings.getInstallationDirectoryPath() + "/include/omc/c/", destination=fmutmp+"/sources/");
-        Tpl.closeFile(Tpl.tplCallWithFailErrorNoArg(function CodegenFMU.fmuMakefile(a_target=Config.simulationCodeTarget(), a_simCode=simCode, a_FMUVersion=FMUVersion, a_sourceFiles=listAppend(extraFiles, defaultFiles), a_dgesvObjectFiles=list(System.stringReplace(f,".c",".o") for f guard Util.endsWith(f, ".c") in dgesvFiles), a_runtimeObjectFiles=list(System.stringReplace(f,".c",".o") for f in runtimeFiles)),
+        model_gen_files := list(simCode.fileNamePrefix + f for f in RuntimeSources.defaultFileSuffixes);
+
+        // I need to see some tests failing or something not working to make sense of what to add here
+        shared_source_files := List.flatten({RuntimeSources.simrt_c_sources,
+                                             // dgesv_sources, // listed separately
+                                             // simrt_c_sundials_sources, // listed separately
+                                             simrt_linear_solver_sources,
+                                             simrt_non_linear_solver_sources,
+                                             simrt_mixed_solver_sources
+                                            });
+
+        // check for fmiSource=false or --fmiFilter=blackBox
+        if not Flags.getConfigBool(Flags.FMI_SOURCES) or Flags.getConfigEnum(Flags.FMI_FILTER) == Flags.FMI_BLACKBOX then
+          model_desc_src_files := {}; // set the sourceFiles to empty, to remove the sources in modeldescription.xml
+        else
+          model_desc_src_files := listAppend(model_gen_files, shared_source_files);
+        end if;
+
+        Tpl.tplNoret(function CodegenFMU.translateModel(in_a_FMUVersion=FMUVersion, in_a_FMUType=FMUType, in_a_sourceFiles=model_desc_src_files), simCode);
+
+        // Add the _part*.c files to the list of source files. We do not know how many of them there are until
+        // we have called CodegenFMU.translateModel. Which means the list of source files passed to
+        // CodegenFMU.translateModel above does not include them. Which means they are not listed in the
+        // modelDescription.xml file. The way to fix that is to separate the generation of modelDescrition.xml
+        // from CodegenFMU.translateModel. However, modelDescrition.xml wants to use the same GUID as the model code.
+        // Which means the transateModel call should make its created GUID available outside of it. We can not simply
+        // return the GUID from it (?) so there needs to be some more restructure needed. However, modelDescrition.xml
+        // at the moment does does not list all the extra files anyway. So for now we leave it like this and make sure
+        // the makefile gets them properly at least.
+        model_all_gen_files := listAppend(model_gen_files, SimCodeUtil.getFunctionIndex());
+
+        // Copy CMakeLists.txt.in and replace @FMU_NAME_IN@ with fmu name
+        System.copyFile(source = install_share_buildproject_dir + "CMakeLists.txt.in",
+                        destination = fmu_tmp_sources_dir + "CMakeLists.txt");
+        cmakelistsStr := System.readFile(fmu_tmp_sources_dir + "CMakeLists.txt");
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_NAME_IN@", simCode.fileNamePrefix);     // Name with underscored instead of dots
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_TARGET_NAME@", simCode.fmuTargetName);  // Name with dots
+
+        // Set CMake runtime dependencies level
+        _ := match (Flags.getConfigString(Flags.FMU_RUNTIME_DEPENDS))
+          local
+            SemanticVersion.Version cmakeVersion;
+            SemanticVersion.Version minimumVersion;
+          case("default") algorithm
+            cmakeVersion := SimCodeUtil.getCMakeVersion();
+            minimumVersion := SemanticVersion.SEMVER(3, 21, 0, {}, {}); // v3.21.0
+            if SemanticVersion.compare(minimumVersion, cmakeVersion) <= 0 /* minimumVersion <= cmakeVersion */ then
+              cmakelistsStr := System.stringReplace(cmakelistsStr, "@RUNTIME_DEPENDENCIES_LEVEL@", "\"modelica\"");
+            else
+              cmakelistsStr := System.stringReplace(cmakelistsStr, "@RUNTIME_DEPENDENCIES_LEVEL@", "\"none\"");
+            end if;
+            then();
+          case("none") algorithm
+            cmakelistsStr := System.stringReplace(cmakelistsStr, "@RUNTIME_DEPENDENCIES_LEVEL@", "\"none\"");
+            then();
+          case("modelica") algorithm
+            cmakelistsStr := System.stringReplace(cmakelistsStr, "@RUNTIME_DEPENDENCIES_LEVEL@", "\"modelica\"");
+            then();
+          case("all") algorithm
+            cmakelistsStr := System.stringReplace(cmakelistsStr, "@RUNTIME_DEPENDENCIES_LEVEL@", "\"all\"");
+            then();
+          else algorithm
+            Error.addCompilerError("Unsupported value " + Flags.getConfigString(Flags.FMU_RUNTIME_DEPENDS) + "for compiler flag 'fmuRuntimeDepends'.");
+            then();
+        end match;
+
+        // Add external libraries and includes
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMI_INTERFACE_HEADER_FILES_DIRECTORY@", "\"" + Settings.getInstallationDirectoryPath() + "/include/omc/c/fmi" + "\"");
+        (needCvode, cvodeDirectory) := SimCodeUtil.getCmakeSundialsLinkCode(simCode.fmiSimulationFlags);
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@NEED_CVODE@", needCvode);
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@CVODE_DIRECTORY@", cvodeDirectory);
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_ADDITIONAL_LIBS@", SimCodeUtil.getCmakeLinkLibrariesCode(simCode.makefileParams.libs));
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_ADDITIONAL_INCLUDES@", SimCodeUtil.make2CMakeInclude(simCode.makefileParams.includes));
+
+        System.writeFile(fmu_tmp_sources_dir + "CMakeLists.txt", cmakelistsStr);
+
+        Tpl.closeFile(Tpl.tplCallWithFailErrorNoArg(function CodegenFMU.fmuMakefile(a_target=Config.simulationCodeTarget(), a_simCode=simCode, a_FMUVersion=FMUVersion, a_sourceFiles=model_all_gen_files, a_runtimeObjectFiles=list(System.stringReplace(f,".c",".o") for f in shared_source_files), a_dgesvObjectFiles=list(System.stringReplace(f,".c",".o") for f in dgesv_sources), a_cminpackObjectFiles=list(System.stringReplace(f,".c",".o") for f in cminpack_sources), a_sundialsObjectFiles=list(System.stringReplace(f,".c",".o") for f in simrt_c_sundials_sources)),
                       txt=Tpl.redirectToFile(Tpl.emptyTxt, simCode.fileNamePrefix+".fmutmp/sources/Makefile.in")));
         Tpl.closeFile(Tpl.tplCallWithFailError(CodegenFMU.settingsfile, simCode,
                       txt=Tpl.redirectToFile(Tpl.emptyTxt, simCode.fileNamePrefix+".fmutmp/sources/omc_simulation_settings.h")));
+        /*Temporary generate extra files for omsicpp simcodetarget, additionaly to C-fmu code*/
+        if Config.simCodeTarget() ==  "omsicpp" then
+         runTpl(func = function CodegenOMSICpp.translateModel(a_simCode=simCode, a_FMUVersion=FMUVersion, a_FMUType=FMUType));
+         end if;
       then ();
     case (_,"omsic")
        algorithm
@@ -797,9 +995,9 @@ algorithm
         end if;
 
         SerializeInitXML.simulationInitFileReturnBool(simCode=simCode, guid=guid);
+        SerializeSparsityPattern.serialize(simCode);
         SerializeModelInfo.serialize(simCode, Flags.isSet(Flags.INFO_XML_OPERATIONS));
 
-        //runTplWriteFile(func = function CodegenFMU.fmuModelDescriptionFile(in_a_simCode=simCode, in_a_guid=guid, in_a_FMUVersion=FMUVersion, in_a_FMUType=FMUType, in_a_sourceFiles={}), file=simCode.fullPathPrefix+"/"+"modelDescription.xml");
         runTpl(func = function CodegenOMSI_common.generateFMUModelDescriptionFile(a_simCode=simCode, a_guid=guid, a_FMUVersion=FMUVersion, a_FMUType=FMUType, a_sourceFiles={}, a_fileName=simCode.fullPathPrefix+"/"+"modelDescription.xml"));
         runTplWriteFile(func = function CodegenOMSIC.createMakefile(a_simCode=simCode, a_target=Config.simulationCodeTarget(), a_makeflieName=fileprefix+"_FMU.makefile"), file=simCode.fullPathPrefix+"/"+fileprefix+"_FMU.makefile");
 
@@ -807,38 +1005,6 @@ algorithm
 
         runTpl(func = function CodegenOMSI_common.generateEquationsCode(a_simCode=simCode, a_FileNamePrefix=fileprefix));
       then ();
-      case (_,"omsicpp")
-       algorithm
-        guid := System.getUUIDStr();
-        fileprefix := simCode.fileNamePrefix;
-
-        // create tmp directory for generated files, but first remove the old one!
-        if System.directoryExists(simCode.fullPathPrefix) then
-          if not System.removeDirectory(simCode.fullPathPrefix) then
-            Error.addInternalError("Failed to remove directory: " + simCode.fullPathPrefix, sourceInfo());
-            fail();
-          end if;
-        end if;
-        if not System.createDirectory(simCode.fullPathPrefix) then
-          Error.addInternalError("Failed to create tmp folder "+simCode.fullPathPrefix, sourceInfo());
-          System.fflush();
-          fail();
-        end if;
-
-        SerializeInitXML.simulationInitFileReturnBool(simCode=simCode, guid=guid);
-        SerializeModelInfo.serialize(simCode, Flags.isSet(Flags.INFO_XML_OPERATIONS));
-
-        //runTplWriteFile(func = function CodegenFMU.fmuModelDescriptionFile(in_a_simCode=simCode, in_a_guid=guid, in_a_FMUVersion=FMUVersion, in_a_FMUType=FMUType, in_a_sourceFiles={}), file=simCode.fullPathPrefix+"/"+"modelDescription.xml");
-        runTpl(func = function CodegenOMSI_common.generateFMUModelDescriptionFile(a_simCode=simCode, a_guid=guid, a_FMUVersion=FMUVersion, a_FMUType=FMUType, a_sourceFiles={}, a_fileName=simCode.fullPathPrefix+"/"+"modelDescription.xml"));
-        runTplWriteFile(func = function CodegenOMSIC.createMakefile(a_simCode=simCode, a_target=Config.simulationCodeTarget(), a_makeflieName=fileprefix+"_FMU.makefile"), file=simCode.fullPathPrefix+"/"+fileprefix+"_FMU.makefile");
-
-        runTplWriteFile(func = function CodegenOMSIC.generateOMSIC(a_simCode=simCode), file=simCode.fullPathPrefix+"/"+fileprefix+"_omsic.c");
-
-        runTpl(func = function CodegenOMSI_common.generateEquationsCode(a_simCode=simCode, a_FileNamePrefix=fileprefix));
-        
-           runTpl(func = function CodegenOMSICpp.translateModel(a_simCode=simCode, a_FMUVersion=FMUVersion, a_FMUType=FMUType));
-      then ();
-    
     case (_,"Cpp")
       equation
         if(Flags.isSet(Flags.HPCOM)) then
@@ -874,80 +1040,162 @@ public function translateModel "
   input FCore.Graph inEnv;
   input Absyn.Path className "path for the model";
   input String inFileNamePrefix;
-  input Boolean addDummy "if true, add a dummy state";
+  input Boolean runBackend "if true, run the backend as well. This will run SimCode and Codegen as well.";
+  input Boolean useDAEMode "if true, run the backend in DAEMode.";
+  input Boolean runSilent "if true, flat modelica code will not be dumped to out stream";
   input Option<SimCode.SimulationSettings> inSimSettingsOpt;
   input Absyn.FunctionArgs args=Absyn.emptyFunctionArgs "labels for remove terms";
-  output list<String> outStringLst;
+  output list<String> outLibs;
   output String outFileDir;
   output list<tuple<String, Values.Value>> resultValues;
 protected
   FCore.Cache inCache = cache;
-  Boolean generateFunctions = false;
-  Real timeSimCode=0.0, timeTemplates=0.0, timeBackend=0.0, timeFrontend=0.0;
-  type State = enumeration(frontend, backend, templates, simcode);
-  State state = State.frontend;
+  Real timeFrontend=0.0;
+  DAE.DAElist dae;
+  FCore.Graph env;
+  Option<DAE.DAElist> odae;
+  DAE.FunctionTree funcs;
+  list<Option<Integer>> allRoots;
+  FlatModel flatModel;
+  FunctionTree funcTree;
+  NBackendDAE bdae;
+  Boolean dumpValidFlatModelicaNF;
+  String flatString = "", NFFlatString = "";
+
 algorithm
   FlagsUtil.setConfigBool(Flags.BUILDING_MODEL, true);
-  (success, outStringLst, outFileDir) :=
-  matchcontinue (inEnv, className, inFileNamePrefix, addDummy, inSimSettingsOpt, args)
+
+  outLibs := {};
+  outFileDir := "";
+  resultValues := {};
+
+  dumpValidFlatModelicaNF := not runSilent and Config.flatModelica();
+
+  // new backend - also activates new frontend by default
+  if Flags.getConfigBool(Flags.NEW_BACKEND) then
+    // ToDo: set permanently matching -> SBGraphs
+    System.realtimeTick(ClockIndexes.RT_CLOCK_FRONTEND);
+    ExecStat.execStatReset();
+
+    (flatModel, funcTree, NFFlatString) := CevalScriptBackend.runFrontEndWorkNF(className, false, dumpValidFlatModelicaNF);
+    timeFrontend := System.realtimeTock(ClockIndexes.RT_CLOCK_FRONTEND);
+    ExecStat.execStat("FrontEnd");
+
+    if dumpValidFlatModelicaNF then
+      flatString := NFFlatString;
+    elseif not runSilent then
+      (dae, funcs) := NFConvertDAE.convert(flatModel, funcTree);
+      flatString := DAEDump.dumpStr(dae, funcs);
+    end if;
+
+    if runBackend then
+      (outLibs, outFileDir, resultValues) := translateModelCallBackendNB(flatModel, funcTree, className, inFileNamePrefix, inSimSettingsOpt);
+    end if;
+
+  // old backend
+  else
+    // calculate stuff that we need to create SimCode data structure
+    System.realtimeTick(ClockIndexes.RT_CLOCK_FRONTEND);
+    ExecStat.execStatReset();
+    (cache, env, odae, NFFlatString) := CevalScriptBackend.runFrontEnd(cache, inEnv, className, false, dumpValidFlatModelicaNF);
+    ExecStat.execStat("FrontEnd");
+    SOME(dae) := odae;
+
+    if dumpValidFlatModelicaNF then
+      flatString := NFFlatString;
+    elseif not runSilent then
+      funcs := FCore.getFunctionTree(cache);
+      flatString := DAEDump.dumpStr(dae, funcs);
+    end if;
+
+
+    if Flags.isSet(Flags.SERIALIZED_SIZE) then
+      allRoots := {};
+      for i in 1:300 loop
+        try
+          allRoots := getGlobalRoot(i)::allRoots;
+        else
+        end try;
+      end for;
+      serializeNotify(allRoots, "All local+global roots (1:300)");
+      serializeNotify(dae, "FrontEnd DAE");
+      serializeNotify((env,inEnv,cache,inCache), "FCore.Graph + Cache + Old graph + Old cache");
+      serializeNotify((SymbolTable.get(),dae,env,inEnv,cache,inCache), "Symbol Table, DAE, Graph, OldGraph, Cache, OldCache");
+      ExecStat.execStat("Serialize FrontEnd");
+    end if;
+
+    timeFrontend := System.realtimeTock(ClockIndexes.RT_CLOCK_FRONTEND);
+
+    if runBackend then
+      if useDAEMode then
+        (cache, outLibs, outFileDir, resultValues) := translateModelCallBackendOBDAEMode(cache, env, dae, className, inFileNamePrefix, inSimSettingsOpt, args);
+      else
+        (cache, outLibs, outFileDir, resultValues) := translateModelCallBackendOB(kind, cache, env, dae, className, inFileNamePrefix, inSimSettingsOpt, args);
+      end if;
+    end if;
+
+  end if;
+
+  resultValues := List.appendElt(("timeFrontend", Values.REAL(timeFrontend)), resultValues);
+  FlagsUtil.setConfigBool(Flags.BUILDING_MODEL, false);
+
+  if not stringEmpty(flatString) and runSilent then
+    Error.addInternalError("Flat model string generated but is not being dumped. Please make sure it is not generated if it is not shown."
+            , sourceInfo());
+  elseif stringEmpty(flatString) and not runSilent then
+    Error.addInternalError("Flat model string generated but is empty.", sourceInfo());
+  else
+    print(flatString);
+  end if;
+
+  success := true;
+end translateModel;
+
+protected function translateModelCallBackendOB
+  input TranslateModelKind kind;
+  input output FCore.Cache cache;
+  input FCore.Graph inEnv;
+  input DAE.DAElist inDae;
+  input Absyn.Path className "path for the model";
+  input String inFileNamePrefix;
+  input Option<SimCode.SimulationSettings> inSimSettingsOpt;
+  input Absyn.FunctionArgs args = Absyn.emptyFunctionArgs "labels for remove terms";
+  output list<String> outLibs;
+  output String outFileDir;
+  output list<tuple<String, Values.Value>> resultValues;
+protected
+  Boolean generateFunctions = false;
+  Real timeSimCode=0.0, timeTemplates=0.0, timeBackend=0.0;
+algorithm
+  FlagsUtil.setConfigBool(Flags.BUILDING_MODEL, true);
+  (outLibs, outFileDir) := match (inEnv)
     local
-      String filenameprefix, file_dir, resstr, description;
-      DAE.DAElist dae, dae1;
-      FCore.Graph graph;
-      BackendDAE.BackendDAE dlow, dlow_1;
-      BackendDAE.Shared shared;
+      String file_dir, description, fmuType;
       list<String> libs;
-      BackendDAE.BackendDAE initDAE;
+      DAE.DAElist dae;
+      FCore.Graph graph;
+      BackendDAE.BackendDAE dlow, initDAE;
       Option<BackendDAE.BackendDAE> initDAE_lambda0;
       Option<BackendDAE.InlineData> inlineData;
       list<BackendDAE.Equation> removedInitialEquationLst;
-      Real fsize;
-      Option<DAE.DAElist> odae;
       Option<list<String>> strPreOptModules;
       Boolean isFMI2;
       BackendDAE.SymbolicJacobians fmiDer;
       DAE.FunctionTree funcs;
-      list<Option<Integer>> allRoots;
 
-    case (graph, _, filenameprefix, _, _, _) algorithm
-      // calculate stuff that we need to create SimCode data structure
-      System.realtimeTick(ClockIndexes.RT_CLOCK_FRONTEND);
-      ExecStat.execStatReset();
-      (cache, graph, odae) := CevalScriptBackend.runFrontEnd(cache, graph, className, false);
-      ExecStat.execStat("FrontEnd");
-      SOME(dae1) := odae;
-
-      if Flags.isSet(Flags.SERIALIZED_SIZE) then
-        allRoots := {};
-        for i in 1:300 loop
-          try
-            allRoots := getGlobalRoot(i)::allRoots;
-          else
-          end try;
-        end for;
-        serializeNotify(allRoots, "All local+global roots (1:300)");
-        serializeNotify(dae1, "FrontEnd DAE");
-        serializeNotify((graph,inEnv,cache,inCache), "FCore.Graph + Cache + Old graph + Old cache");
-        serializeNotify((SymbolTable.get(),dae1,graph,inEnv,cache,inCache), "Symbol Table, DAE, Graph, OldGraph, Cache, OldCache");
-        ExecStat.execStat("Serialize FrontEnd");
-      end if;
-
-      timeFrontend := System.realtimeTock(ClockIndexes.RT_CLOCK_FRONTEND);
-
+    // old backend
+    case (graph) algorithm
       System.realtimeTick(ClockIndexes.RT_CLOCK_BACKEND);
-      state := State.backend;
-      dae := DAEUtil.transformationsBeforeBackend(cache, graph, dae1);
+      dae := DAEUtil.transformationsBeforeBackend(cache, graph, inDae);
       ExecStat.execStat("Transformations before backend");
 
       if Flags.isSet(Flags.SERIALIZED_SIZE) then
         serializeNotify(dae, "FrontEnd DAE after transformations");
-        serializeNotify((dae,dae1), "FrontEnd DAE before+after transformations");
+        serializeNotify((dae,inDae), "FrontEnd DAE before+after transformations");
         ExecStat.execStat("Serialize DAE (2)");
       end if;
-      GC.free(dae1);
-      GC.free(odae);
-      odae := NONE();
-      dae1 := DAE.emptyDae;
+      GCExt.free(inDae);
+      // inDae := DAE.emptyDae;
 
       generateFunctions := FlagsUtil.set(Flags.GEN, false);
       // We should not need to lookup constants and classes in the backend,
@@ -957,9 +1205,9 @@ algorithm
       end if;
 
       description := DAEUtil.daeDescription(dae);
-      dlow := BackendDAECreate.lower(dae, cache, graph, BackendDAE.EXTRA_INFO(description,filenameprefix));
+      dlow := BackendDAECreate.lower(dae, cache, graph, BackendDAE.EXTRA_INFO(description, inFileNamePrefix));
 
-      GC.free(dae);
+      GCExt.free(dae);
       dae := DAE.emptyDae;
 
       if Flags.isSet(Flags.SERIALIZED_SIZE) then
@@ -968,11 +1216,16 @@ algorithm
       end if;
 
       isFMI2 := match kind
-        case TranslateModelKind.FMU() then FMI.isFMIVersion20();
+        case TranslateModelKind.FMU(fmuType) then FMI.isFMIVersion20();
         else false;
       end match;
       // FMI 2.0: enable postOptModule to create alias variables for output states
       strPreOptModules := if (isFMI2) then SOME("introduceOutputAliases"::BackendDAEUtil.getPreOptModulesString()) else NONE();
+
+      // FMI 2.0: enable postOptModule "introduceOutputRealDerivatives" to set maxOutputDerivativeOrder = 1
+      if (isFMI2 and fmuType == "cs") then
+        strPreOptModules := SOME("introduceOutputRealDerivatives":: Util.getOption(strPreOptModules));
+      end if;
 
       //BackendDump.printBackendDAE(dlow);
       (dlow, initDAE, initDAE_lambda0, inlineData, removedInitialEquationLst) := BackendDAEUtil.getSolvedSystem(dlow,inFileNamePrefix,strPreOptModules=strPreOptModules);
@@ -987,7 +1240,6 @@ algorithm
         fmiDer := {};
       end if;
       timeBackend := System.realtimeTock(ClockIndexes.RT_CLOCK_BACKEND);
-      state := State.simcode;
 
       if Flags.isSet(Flags.SERIALIZED_SIZE) then
         serializeNotify(dlow, "BackendDAE (simulation)");
@@ -1000,130 +1252,86 @@ algorithm
       (libs, file_dir, timeSimCode, timeTemplates) := match kind
         case TranslateModelKind.NORMAL()
           algorithm
-            (libs, file_dir, timeSimCode, timeTemplates) := generateModelCode(dlow, initDAE, initDAE_lambda0, inlineData, removedInitialEquationLst, SymbolTable.getAbsyn(), className, filenameprefix, inSimSettingsOpt, args,fmiDer);
+            (libs, file_dir, timeSimCode, timeTemplates) := generateModelCode(dlow, initDAE, initDAE_lambda0, inlineData, removedInitialEquationLst, SymbolTable.getAbsyn(), className, inFileNamePrefix, inSimSettingsOpt, args,fmiDer);
           then (libs, file_dir, timeSimCode, timeTemplates);
         case TranslateModelKind.FMU()
           algorithm
-            (libs,file_dir,timeSimCode,timeTemplates) := generateModelCodeFMU(dlow, initDAE, initDAE_lambda0, fmiDer, removedInitialEquationLst, SymbolTable.getAbsyn(), className, FMI.getFMIVersionString(), kind.kind, filenameprefix, kind.targetName, inSimSettingsOpt);
+
+            (libs,file_dir,timeSimCode,timeTemplates) := generateModelCodeFMU(dlow, initDAE, initDAE_lambda0, fmiDer, removedInitialEquationLst, SymbolTable.getAbsyn(), className, FMI.getFMIVersionString(), kind.kind, inFileNamePrefix, kind.targetName, inSimSettingsOpt);
           then (libs, file_dir, timeSimCode, timeTemplates);
         case TranslateModelKind.XML()
           algorithm
-            (libs, file_dir, timeSimCode, timeTemplates) := generateModelCodeXML(dlow, initDAE, initDAE_lambda0, removedInitialEquationLst, SymbolTable.getAbsyn(), className, filenameprefix, inSimSettingsOpt);
+            (libs, file_dir, timeSimCode, timeTemplates) := generateModelCodeXML(dlow, initDAE, initDAE_lambda0, removedInitialEquationLst, SymbolTable.getAbsyn(), className, inFileNamePrefix, inSimSettingsOpt);
           then (libs, file_dir, timeSimCode, timeTemplates);
         else
           algorithm
             Error.addInternalError("Unknown translateModel kind: " + anyString(kind), sourceInfo());
           then fail();
       end match;
-    then (true, libs, file_dir);
+    then (libs, file_dir);
 
-    else
-      algorithm
-        _ := match kind
-          case TranslateModelKind.NORMAL()
-            algorithm
-              if Flags.isSet(Flags.FAILTRACE) then
-                resstr := AbsynUtil.pathStringNoQual(className);
-                resstr := stringAppendList({"SimCode: The model ", resstr, " could not be translated"});
-                Error.addMessage(Error.INTERNAL_ERROR, {resstr});
-              end if;
-            then ();
-          case TranslateModelKind.XML()
-            algorithm
-              Error.addMessage(Error.INTERNAL_ERROR, {getInstanceName() + ": The model ",AbsynUtil.pathStringNoQual(className)," could not be translated to XML"});
-            then ();
-        end match;
-        if state==State.frontend then
-          timeFrontend := System.realtimeTock(ClockIndexes.RT_CLOCK_FRONTEND);
-        elseif state==State.backend then
-          timeBackend := System.realtimeTock(ClockIndexes.RT_CLOCK_BACKEND);
-        elseif state==State.backend then
-          timeSimCode := System.realtimeTock(ClockIndexes.RT_CLOCK_SIMCODE);
-        else
-          timeTemplates := System.realtimeTock(ClockIndexes.RT_CLOCK_TEMPLATES);
-        end if;
-      then (false, {}, "");
-  end matchcontinue;
+  end match;
+
   if generateFunctions then
     FlagsUtil.set(Flags.GEN, true);
   end if;
+
   resultValues := {("timeTemplates", Values.REAL(timeTemplates)),
                   ("timeSimCode", Values.REAL(timeSimCode)),
-                  ("timeBackend", Values.REAL(timeBackend)),
-                  ("timeFrontend", Values.REAL(timeFrontend))};
-  FlagsUtil.setConfigBool(Flags.BUILDING_MODEL, false);
-end translateModel;
+                  ("timeBackend", Values.REAL(timeBackend))};
+end translateModelCallBackendOB;
 
-public function translateModelDAEMode
+public function translateModelCallBackendOBDAEMode
 " Entry point to translate a Modelica model for simulation in DAE mode
   Called from CevalScriptBackend"
-  input FCore.Cache inCache;
+  input output FCore.Cache cache;
   input FCore.Graph inEnv;
+  input DAE.DAElist inDae;
   input Absyn.Path className "path for the model";
   input String inFileNamePrefix;
   input Option<SimCode.SimulationSettings> inSimSettingsOpt;
   input Absyn.FunctionArgs args "labels for remove terms";
-  output FCore.Cache outCache;
-  output list<String> outStringLst;
+  output list<String> outLibs;
   output String outFileDir;
   output list<tuple<String, Values.Value>> resultValues;
 protected
   Boolean generateFunctions = false;
+  Real timeSimCode=0.0, timeTemplates=0.0, timeBackend=0.0;
 algorithm
-  (outStringLst, outFileDir, resultValues) :=
-  matchcontinue (inCache, inEnv, className, inFileNamePrefix, inSimSettingsOpt, args)
+  (outLibs, outFileDir) :=
+  matchcontinue (inEnv)
     local
-      String filenameprefix = inFileNamePrefix;
       String file_dir, resstr, description;
+      list<String> libs;
       DAE.DAElist dae;
       FCore.Graph graph;
-      BackendDAE.BackendDAE dlow, bdae;
-      list<String> libs;
-      Absyn.Program p;
-      //DAE.Exp fileprefix;
-      FCore.Cache cache;
-      Real timeSimCode, timeTemplates, timeBackend, timeFrontend;
-      BackendDAE.BackendDAE initDAE;
+      BackendDAE.BackendDAE dlow, initDAE;
+      Option<BackendDAE.BackendDAE> initDAE_lambda0_option;
       list<BackendDAE.Equation> removedInitialEquationLst;
-      Real fsize;
-      Absyn.ComponentRef classNameCref;
 
-    case (_, _, _, _, _, _) algorithm
-      // calculate stuff that we need to create SimCode data structure
-      System.realtimeTick(ClockIndexes.RT_CLOCK_FRONTEND);
-      ExecStat.execStatReset();
-      (outCache, graph, SOME(dae)) := CevalScriptBackend.runFrontEnd(inCache, inEnv, className, false);
-      ExecStat.execStat("FrontEnd");
-
-      if Flags.isSet(Flags.SERIALIZED_SIZE) then
-        serializeNotify(dae, "dae");
-        serializeNotify(graph, "graph");
-        serializeNotify(outCache, "cache");
-        ExecStat.execStat("Serialize FrontEnd");
-      end if;
-
-      timeFrontend := System.realtimeTock(ClockIndexes.RT_CLOCK_FRONTEND);
-
+    case (graph) algorithm
       System.realtimeTick(ClockIndexes.RT_CLOCK_BACKEND);
-      dae := DAEUtil.transformationsBeforeBackend(outCache, graph, dae);
+      dae := DAEUtil.transformationsBeforeBackend(cache, graph, inDae);
       ExecStat.execStat("Transformations before backend");
 
       if Flags.isSet(Flags.SERIALIZED_SIZE) then
         serializeNotify(dae, "dae2");
         ExecStat.execStat("Serialize DAE (2)");
       end if;
+      GCExt.free(inDae);
 
       generateFunctions := FlagsUtil.set(Flags.GEN, false);
       // We should not need to lookup constants and classes in the backend,
       // so let's free up the old graph and just make it the initial environment.
       if not Flags.isSet(Flags.BACKEND_KEEP_ENV_GRAPH) then
-        (outCache,graph) := Builtin.initialGraph(outCache);
+        (cache,graph) := Builtin.initialGraph(cache);
       end if;
 
       description := DAEUtil.daeDescription(dae);
-      dlow := BackendDAECreate.lower(dae, outCache, graph, BackendDAE.EXTRA_INFO(description,filenameprefix));
+      dlow := BackendDAECreate.lower(dae, cache, graph, BackendDAE.EXTRA_INFO(description,inFileNamePrefix));
 
-      GC.free(dae);
+      GCExt.free(dae);
+      dae := DAE.emptyDae;
 
       if Flags.isSet(Flags.SERIALIZED_SIZE) then
         serializeNotify(dlow, "dlow");
@@ -1131,51 +1339,81 @@ algorithm
       end if;
 
       //BackendDump.printBackendDAE(dlow);
-      (bdae, initDAE, removedInitialEquationLst) := DAEMode.getEqSystemDAEmode(dlow,inFileNamePrefix);
+      (dlow, initDAE, initDAE_lambda0_option, removedInitialEquationLst) := DAEMode.getEqSystemDAEmode(dlow, inFileNamePrefix);
       ExecStat.execStat("Backend");
 
       timeBackend := System.realtimeTock(ClockIndexes.RT_CLOCK_BACKEND);
 
       if Flags.isSet(Flags.SERIALIZED_SIZE) then
-        serializeNotify(bdae, "simDAE");
+        serializeNotify(dlow, "simDAE");
         serializeNotify(initDAE, "initDAE");
         serializeNotify(removedInitialEquationLst, "removedInitialEquationLst");
         ExecStat.execStat("Serialize solved system");
       end if;
 
-      (libs, file_dir, timeSimCode, timeTemplates) := generateModelCodeDAE(bdae, initDAE, removedInitialEquationLst, SymbolTable.getAbsyn(), className, filenameprefix, inSimSettingsOpt, args);
+      (libs, file_dir, timeSimCode, timeTemplates) := generateModelCodeDAE(dlow, initDAE, initDAE_lambda0_option, removedInitialEquationLst, SymbolTable.getAbsyn(), className, inFileNamePrefix, inSimSettingsOpt, args);
       timeSimCode := System.realtimeTock(ClockIndexes.RT_CLOCK_SIMCODE);
       timeTemplates := System.realtimeTock(ClockIndexes.RT_CLOCK_TEMPLATES);
 
-      resultValues := {("timeTemplates", Values.REAL(timeTemplates)),
-                      ("timeSimCode", Values.REAL(timeSimCode)),
-                      ("timeBackend", Values.REAL(timeBackend)),
-                      ("timeFrontend", Values.REAL(timeFrontend))};
-
-
-
-    then (libs, file_dir, resultValues);
+    then (libs, file_dir);
 
     else equation
-      if generateFunctions then
-        FlagsUtil.set(Flags.GEN, true);
-      end if;
-      true = Flags.isSet(Flags.FAILTRACE);
       resstr = AbsynUtil.pathStringNoQual(className);
       resstr = stringAppendList({"SimCode DAEmode: The model ", resstr, " could not be translated"});
       Error.addMessage(Error.INTERNAL_ERROR, {resstr});
     then fail();
+
   end matchcontinue;
+
   if generateFunctions then
     FlagsUtil.set(Flags.GEN, true);
   end if;
-end translateModelDAEMode;
+
+  resultValues := {("timeTemplates", Values.REAL(timeTemplates)),
+                  ("timeSimCode", Values.REAL(timeSimCode)),
+                  ("timeBackend", Values.REAL(timeBackend))};
+
+end translateModelCallBackendOBDAEMode;
+
+protected function translateModelCallBackendNB
+  input FlatModel inFlatModel;
+  input FunctionTree inFuncTree;
+  input Absyn.Path inClassName "path for the model";
+  input String inFileNamePrefix;
+  input Option<SimCode.SimulationSettings> inSimSettingsOpt;
+  output list<String> outLibs;
+  output String outFileDir;
+  output list<tuple<String, Values.Value>> resultValues;
+protected
+  Real timeSimCode=0.0, timeTemplates=0.0, timeBackend=0.0;
+  NBackendDAE bdae;
+algorithm
+  FlagsUtil.setConfigBool(Flags.BUILDING_MODEL, true);
+
+  // ToDo: set permanently matching -> SBGraphs
+
+  System.realtimeTick(ClockIndexes.RT_CLOCK_BACKEND);
+  bdae := NBackendDAE.lower(inFlatModel, inFuncTree);
+  if Flags.isSet(Flags.OPT_DAE_DUMP) then
+    print(NBackendDAE.toString(bdae, "(After Lowering)"));
+  end if;
+  bdae := NBackendDAE.main(bdae);
+  timeBackend := System.realtimeTock(ClockIndexes.RT_CLOCK_BACKEND);
+  ExecStat.execStat("backend");
+
+  (outLibs, outFileDir, timeSimCode, timeTemplates) := generateModelCodeNewBackend(bdae, inClassName, inFileNamePrefix, inSimSettingsOpt);
+
+  resultValues := {("timeTemplates", Values.REAL(timeTemplates)),
+                  ("timeSimCode", Values.REAL(timeSimCode)),
+                  ("timeBackend", Values.REAL(timeBackend))};
+end translateModelCallBackendNB;
 
 protected function generateModelCodeDAE
 " Generates code for a model by creating a SimCode structure for the DAEmode
   and call the template target generator. "
   input BackendDAE.BackendDAE inBackendDAE;
   input BackendDAE.BackendDAE inInitDAE;
+  input Option<BackendDAE.BackendDAE> initDAE_lambda0_option;
   input list<BackendDAE.Equation> inRemovedInitialEquationLst;
   input Absyn.Program p;
   input Absyn.Path className;
@@ -1199,11 +1437,13 @@ protected
   Integer numCheckpoints;
   list<SimCodeVar.SimVar> tempVars = {};
   BackendDAE.BackendDAE emptyBDAE;
+  BackendDAE.BackendDAE initDAE_lambda0;
 
   SimCode.ModelInfo modelInfo;
   SimCode.ExtObjInfo extObjInfo;
   SimCode.HashTableCrefToSimVar crefToSimVarHT;
   SimCodeFunction.MakefileParams makefileParams;
+  SimCode.SpatialDistributionInfo spatialInfo;
   list<tuple<Integer, tuple<DAE.Exp, DAE.Exp, DAE.Exp>>> delayedExps;
   Integer maxDelayedExpIndex;
   Integer uniqueEqIndex = 1;
@@ -1211,6 +1451,10 @@ protected
   Integer numberofEqns, numberofLinearSys, numberofNonLinearSys,
   numberofMixedSys, numberOfJacobians, numberofFixedParameters;
   Boolean tmpB;
+
+  HashTableCrIListArray.HashTable varToArrayIndexMapping "maps each array-variable to a array of positions";
+  HashTableCrILst.HashTable varToIndexMapping "maps each variable to an array position";
+  HashTable.HashTable crefToClockIndexHT;
 
   list<DAE.ComponentRef> discreteModelVars;
   list<BackendDAE.TimeEvent> timeEvents;
@@ -1230,16 +1474,25 @@ protected
   list<list<SimCode.SimEqSystem>> daeEquations;
   list<SimCodeVar.SimVar> residualVars, algebraicStateVars, auxiliaryVars;
 
-  tuple<Option<BackendDAE.SymbolicJacobian>, BackendDAE.SparsePattern, BackendDAE.SparseColoring> daeModeJac;
+  tuple<Option<BackendDAE.SymbolicJacobian>, BackendDAE.SparsePattern, BackendDAE.SparseColoring, BackendDAE.NonlinearPattern> daeModeJacobian;
+  Option<BackendDAE.SymbolicJacobian> daeModeJac;
+  Option<BackendDAE.Jacobian> jacH;
+  BackendDAE.SparsePattern daeModeSparsity;
+  BackendDAE.SparseColoring daeModeColoring;
+  BackendDAE.NonlinearPattern nonlinearPattern;
+
   SimCode.JacobianMatrix symDAESparsPattern;
   list<SimCode.JacobianMatrix> symJacs, SymbolicJacs, SymbolicJacsNLS, SymbolicJacsTemp, SymbolicJacsStateSelect;
-  list<SimCode.SimEqSystem> initialEquations, removedInitialEquations, jacobianEquations;
+  list<SimCode.SimEqSystem> initialEquations;
+  list<SimCode.SimEqSystem> initialEquations_lambda0;
+  list<SimCode.SimEqSystem> removedInitialEquations;
   list<SimCodeVar.SimVar> jacobianSimvars, seedVars;
-  list<SimCode.SimEqSystem> startValueEquations;        // --> updateBoundStartValues
-  list<SimCode.SimEqSystem> maxValueEquations;          // --> updateBoundMaxValues
-  list<SimCode.SimEqSystem> minValueEquations;          // --> updateBoundMinValues
-  list<SimCode.SimEqSystem> nominalValueEquations;      // --> updateBoundNominalValues
-  list<SimCode.SimEqSystem> parameterEquations;         // --> updateBoundParameters
+  list<SimCode.SimEqSystem> startValueEquations = {};        // --> updateBoundStartValues
+  list<SimCode.SimEqSystem> maxValueEquations = {};          // --> updateBoundMaxValues
+  list<SimCode.SimEqSystem> minValueEquations = {};          // --> updateBoundMinValues
+  list<SimCode.SimEqSystem> nominalValueEquations = {};      // --> updateBoundNominalValues
+  list<SimCode.SimEqSystem> parameterEquations = {};         // --> updateBoundParameters
+  list<SimCode.SimEqSystem> jacobianEquations = {};
 algorithm
   numCheckpoints:=ErrorExt.getNumCheckpoints();
   try
@@ -1258,6 +1511,7 @@ algorithm
     makefileParams := SimCodeFunctionUtil.createMakefileParams(includeDirs, libs, libPaths, false, false);
     //create delay exps
     (delayedExps, maxDelayedExpIndex) := SimCodeUtil.extractDelayedExpressions(inBackendDAE);
+    spatialInfo := SimCodeUtil.extractSpatialDistributionInfo(inBackendDAE);
 
     // created event suff e.g. zeroCrossings, samples, ...
     timeEvents := inBackendDAE.shared.eventInfo.timeEvents;
@@ -1271,10 +1525,17 @@ algorithm
 
     // generate equations for initDAE
     (initialEquations, uniqueEqIndex, tempVars) := SimCodeUtil.createInitialEquations(inInitDAE, uniqueEqIndex, tempVars);
-    //initialEquations := listReverse(initialEquations);
+
+    // generate equations for initDAE_lambda0
+    if isSome(initDAE_lambda0_option) then
+      SOME(initDAE_lambda0) := initDAE_lambda0_option;
+      (initialEquations_lambda0, uniqueEqIndex, tempVars) := SimCodeUtil.createInitialEquations_lambda0(initDAE_lambda0, uniqueEqIndex, tempVars);
+    else
+      initialEquations_lambda0 := {};
+    end if;
 
     // generate equations for removed initial equations
-    (removedInitialEquations, uniqueEqIndex, tempVars) := SimCodeUtil.createNonlinearResidualEquations(inRemovedInitialEquationLst, uniqueEqIndex, tempVars, inBackendDAE.shared.functionTree);
+    (removedInitialEquations, (uniqueEqIndex, _), tempVars) := SimCodeUtil.createNonlinearResidualEquations(inRemovedInitialEquationLst, (uniqueEqIndex, 0), tempVars, inBackendDAE.shared.functionTree);
     //removedInitialEquations := listReverse(removedInitialEquations);
 
     ExecStat.execStat("simCode: created initialization part");
@@ -1282,14 +1543,22 @@ algorithm
     // create parameter equations
     ((uniqueEqIndex, startValueEquations, _)) := BackendDAEUtil.foldEqSystem(inInitDAE, SimCodeUtil.createStartValueEquations, (uniqueEqIndex, {}, inBackendDAE.shared.globalKnownVars));
     if debug then ExecStat.execStat("simCode: createStartValueEquations"); end if;
-    ((uniqueEqIndex, nominalValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createNominalValueEquations, (uniqueEqIndex, {}));
+
+    ((uniqueEqIndex, nominalValueEquations)) := SimCodeUtil.createValueEquationsShared(inBackendDAE.shared, SimCodeUtil.createInitialAssignmentsFromNominal, (uniqueEqIndex, nominalValueEquations));
+    if debug then ExecStat.execStat("simCode: createNominalValueEquationsShared"); end if;
+    ((uniqueEqIndex, nominalValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createNominalValueEquations, (uniqueEqIndex, nominalValueEquations));
     if debug then ExecStat.execStat("simCode: createNominalValueEquations"); end if;
-    ((uniqueEqIndex, minValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createMinValueEquations, (uniqueEqIndex, {}));
+
+    ((uniqueEqIndex, minValueEquations)) := SimCodeUtil.createValueEquationsShared(inBackendDAE.shared, SimCodeUtil.createInitialAssignmentsFromMin, (uniqueEqIndex, minValueEquations));
+    if debug then ExecStat.execStat("simCode: createMinValueEquationsShared"); end if;
+    ((uniqueEqIndex, minValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createMinValueEquations, (uniqueEqIndex, minValueEquations));
     if debug then ExecStat.execStat("simCode: createMinValueEquations"); end if;
-    ((uniqueEqIndex, maxValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createMaxValueEquations, (uniqueEqIndex, {}));
+
+    ((uniqueEqIndex, maxValueEquations)) := SimCodeUtil.createValueEquationsShared(inBackendDAE.shared, SimCodeUtil.createInitialAssignmentsFromMax, (uniqueEqIndex, maxValueEquations));
+    if debug then ExecStat.execStat("simCode: createMaxValueEquationsShared"); end if;
+    ((uniqueEqIndex, maxValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createMaxValueEquations, (uniqueEqIndex, maxValueEquations));
     if debug then ExecStat.execStat("simCode: createMaxValueEquations"); end if;
-    ((uniqueEqIndex, parameterEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createVarNominalAssertFromVars, (uniqueEqIndex, {}));
-    if debug then ExecStat.execStat("simCode: createVarNominalAssertFromVars"); end if;
+
     (uniqueEqIndex, parameterEquations, _) := SimCodeUtil.createParameterEquations(uniqueEqIndex, parameterEquations, inBackendDAE.shared.globalKnownVars);
     if debug then ExecStat.execStat("simCode: createParameterEquations"); end if;
 
@@ -1305,38 +1574,76 @@ algorithm
                                 inBackendDAE.shared);
     // disable start value calculation, it's only helpful in case of algebraic loops
     // and they are not present in DAEmode
-    tmpB := FlagsUtil.set(Flags.NO_START_CALC, true);
-    modelInfo := SimCodeUtil.createModelInfo(className, p, emptyBDAE, inInitDAE, functions, {}, 0, fileDir, 0, tempVars);
-    FlagsUtil.set(Flags.NO_START_CALC, tmpB);
 
-    //create hash table
-    crefToSimVarHT := SimCodeUtil.createCrefToSimVarHT(modelInfo);
+    // create DAE mode Sparse pattern and TODO: Jacobians
+    // sparsity pattern generation
+    if Flags.getConfigBool(Flags.GENERATE_SYMBOLIC_JACOBIAN) then
+      // create symbolic jacobian (like nls systems!)
+      (daeModeJac, daeModeSparsity, daeModeColoring, nonlinearPattern) := listGet(inBackendDAE.shared.symjacs, BackendDAE.SymbolicJacobianAIndex);
+      if Util.isSome(inBackendDAE.shared.dataReconciliationData) then
+        BackendDAE.DATA_RECON(_, _, _, _, jacH) := Util.getOption(inBackendDAE.shared.dataReconciliationData);
+        if isSome(jacH) then
+          matrixnames := {"B", "C", "D"};
+        else
+          matrixnames := {"B", "C", "D", "H"};
+        end if;
+      else
+        matrixnames := {"B", "C", "D", "F", "H"};
+      end if;
+      (daeModeSP, uniqueEqIndex, tempVars) := SimCodeUtil.createSymbolicSimulationJacobian(
+        inJacobian      = BackendDAE.GENERIC_JACOBIAN(daeModeJac, daeModeSparsity, daeModeColoring, nonlinearPattern),
+        iuniqueEqIndex  = uniqueEqIndex,
+        itempvars       = tempVars);
+      tmpB := FlagsUtil.set(Flags.NO_START_CALC, true);
+      modelInfo := SimCodeUtil.createModelInfo(className, p, emptyBDAE, inInitDAE, functions, {}, 0, spatialInfo.maxIndex, fileDir, 0, tempVars);
+      FlagsUtil.set(Flags.NO_START_CALC, tmpB);
+      //create hash table
+      crefToSimVarHT := SimCodeUtil.createCrefToSimVarHT(modelInfo);
+      (symJacs, uniqueEqIndex) := SimCodeUtil.createSymbolicJacobianssSimCode({}, crefToSimVarHT, uniqueEqIndex, matrixnames, {});
+      symJacs := listReverse(Util.getOption(daeModeSP) :: symJacs);
+    else
+      tmpB := FlagsUtil.set(Flags.NO_START_CALC, true);
+      modelInfo := SimCodeUtil.createModelInfo(className, p, emptyBDAE, inInitDAE, functions, {}, 0, spatialInfo.maxIndex, fileDir, 0, tempVars);
+      FlagsUtil.set(Flags.NO_START_CALC, tmpB);
+      crefToSimVarHT := SimCodeUtil.createCrefToSimVarHT(modelInfo);
+
+      if Util.isSome(inBackendDAE.shared.dataReconciliationData) then
+        BackendDAE.DATA_RECON(_, _, _, _, jacH) := Util.getOption(inBackendDAE.shared.dataReconciliationData);
+        if isSome(jacH) then
+          matrixnames := {"A", "B", "C", "D"};
+        else
+          matrixnames := {"A", "B", "C", "D", "H"};
+        end if;
+      else
+        matrixnames := {"A", "B", "C", "D", "F", "H"};
+      end if;
+      (symJacs, uniqueEqIndex) := SimCodeUtil.createSymbolicJacobianssSimCode({}, crefToSimVarHT, uniqueEqIndex, matrixnames, {});
+    end if;
 
     // collect symbolic jacobians in initialization loops of the overall jacobians
     SymbolicJacsNLS := {};
     (initialEquations, modelInfo, SymbolicJacsTemp) := SimCodeUtil.addAlgebraicLoopsModelInfo(initialEquations, modelInfo);
     SymbolicJacsNLS := listAppend(SymbolicJacsTemp, SymbolicJacsNLS);
+    (initialEquations_lambda0, modelInfo, SymbolicJacsTemp) := SimCodeUtil.addAlgebraicLoopsModelInfo(initialEquations_lambda0, modelInfo);
+    SymbolicJacsNLS := listAppend(SymbolicJacsTemp, SymbolicJacsNLS);
     (parameterEquations, modelInfo, SymbolicJacsTemp) := SimCodeUtil.addAlgebraicLoopsModelInfo(parameterEquations, modelInfo);
     SymbolicJacsNLS := listAppend(SymbolicJacsTemp, SymbolicJacsNLS);
     // check for datareconciliation is present and pass the matrixnames
-    if Util.isSome(inBackendDAE.shared.dataReconciliationData) then
-      matrixnames := {"A", "B", "C", "D"};
-    else
-      matrixnames := {"A", "B", "C", "D", "F"};
-    end if;
-    (symJacs, uniqueEqIndex) := SimCodeUtil.createSymbolicJacobianssSimCode({}, crefToSimVarHT, uniqueEqIndex, matrixnames, {});
+
+    //(_, modelInfo, symJacs) := SimCodeUtil.addAlgebraicLoopsModelInfoSymJacs(inBackendDAE.shared.symjacs, modelInfo);
     (SymbolicJacs, modelInfo, SymbolicJacsTemp) := SimCodeUtil.addAlgebraicLoopsModelInfoSymJacs(symJacs, modelInfo);
 
     // collect jacobian equation only for equantion info file
     jacobianEquations := SimCodeUtil.collectAllJacobianEquations(SymbolicJacs);
     if debug then ExecStat.execStat("simCode: create Jacobian linear code"); end if;
 
-    SymbolicJacs := listAppend(listReverse(SymbolicJacsNLS), SymbolicJacs);
-    SymbolicJacs := listAppend(SymbolicJacs, SymbolicJacsTemp);
+    SymbolicJacs := listAppend(listReverse(SymbolicJacsNLS), listAppend(SymbolicJacs, SymbolicJacsTemp));
     jacobianSimvars := SimCodeUtil.collectAllJacobianVars(SymbolicJacs);
     modelInfo := SimCodeUtil.setJacobianVars(jacobianSimvars, modelInfo);
+    crefToSimVarHT:= List.fold(jacobianSimvars, HashTableCrefSimVar.addSimVarToHashTable, crefToSimVarHT);
     seedVars := SimCodeUtil.collectAllSeedVars(SymbolicJacs);
     modelInfo := SimCodeUtil.setSeedVars(seedVars, modelInfo);
+    crefToSimVarHT := List.fold(seedVars, HashTableCrefSimVar.addSimVarToHashTable, crefToSimVarHT);
 
     // create dae SimVars: residual and algebraic
     varsLst := BackendVariable.equationSystemsVarsLst(inBackendDAE.eqs);
@@ -1363,82 +1670,91 @@ algorithm
 
     algebraicStateVars := SimCodeUtil.sortSimVarsAndWriteIndex(algebraicStateVars, crefToSimVarHT);
 
-    /* This lines seem to be not neccsary and actually problematic.
-       The algebraicStateVars are already in the simvars. Which means they are already addded
-       to the hastable somewhere above. Here we try to add them again but with wrong indexs because
-       setVariableIndexHelper does not actually update the indices we want. If you want to enable this
-      for some reason use rewriteIndex.
-    */
-    // SimCode.VARINFO(numStateVars=nStates) := modelInfo.varInfo;
-    // // (algebraicStateVars, _) := SimCodeUtil.setVariableIndexHelper(algebraicStateVars, 2*nStates);
-    // (algebraicStateVars, _) := SimCodeUtil.rewriteIndex(algebraicStateVars, 2*nStates);
-    // crefToSimVarHT:= List.fold(algebraicStateVars,HashTableCrefSimVar.addSimVarToHashTable,crefToSimVarHT);
-
-    // create DAE mode Sparse pattern and TODO: Jacobians
-    // sparsity pattern generation
-    daeModeJac := listGet(inBackendDAE.shared.symjacs, BackendDAE.SymbolicJacobianAIndex);
-    ({symDAESparsPattern}, uniqueEqIndex) := SimCodeUtil.createSymbolicJacobianssSimCode({daeModeJac}, crefToSimVarHT, uniqueEqIndex, {"daeMode"}, {});
+    // only create sparsity pattern for dae mode data even if it is created with --generateSymbolicJacobian
+    // the A matrix will be used symbolically
+    // (also the A matrix sparsity pattern seems to be faulty so we use this one instead)
+    daeModeJacobian := listGet(inBackendDAE.shared.symjacs, BackendDAE.SymbolicJacobianAIndex);
+    ({symDAESparsPattern}, uniqueEqIndex) := SimCodeUtil.createSymbolicJacobianssSimCode({daeModeJacobian}, crefToSimVarHT, uniqueEqIndex, {"daeMode"}, {});
     daeModeSP := SOME(symDAESparsPattern);
+
+    // copy the sparsity pattern to the A jacobian
+    if Flags.getConfigBool(Flags.GENERATE_SYMBOLIC_JACOBIAN) then
+     SymbolicJacs := list(SimCodeUtil.syncDAEandSimJac(symjac, symDAESparsPattern) for symjac in SymbolicJacs);
+    end if;
+
     daeModeConf := SimCode.ALL_EQUATIONS();
     daeModeData := SOME(SimCode.DAEMODEDATA(daeEquations, daeModeSP, residualVars, algebraicStateVars, auxiliaryVars, daeModeConf));
 
     /* This is a *much* better estimate than the guessed number of equations */
-    modelInfo := SimCodeUtil.addNumEqns(modelInfo, uniqueEqIndex-listLength(jacobianEquations));
+    modelInfo := SimCodeUtil.addNumEqns(modelInfo, uniqueEqIndex - listLength(jacobianEquations));
 
     // update hash table
     // mahge: This creates a new crefToSimVarHT discarding everything added upto here
     // The updated variable 'numEquations' (by SimCodeUtil.addNumEqns) is not even used in createCrefToSimVarHT :/
     // crefToSimVarHT := SimCodeUtil.createCrefToSimVarHT(modelInfo);
 
-    simCode := SimCode.SIMCODE(modelInfo,
-                              {}, // Set by the traversal below...
-                              recordDecls,
-                              includes,
-                              {},
-                              {},
-                              {},
-                              {},
-                              {},
-                              initialEquations,
-                              {},
-                              removedInitialEquations,
-                              startValueEquations,
-                              nominalValueEquations,
-                              minValueEquations,
-                              maxValueEquations,
-                              parameterEquations,
-                              {},
-                              {},
-                              {},
-                              {},
-                              {},
-                              {},
-                              {},
-                              zeroCrossings,
-                              relations,
-                              timeEvents,
-                              discreteModelVars,
-                              extObjInfo,
-                              makefileParams,
-                              SimCode.DELAYED_EXPRESSIONS(delayedExps, maxDelayedExpIndex),
-                              SymbolicJacs,
-                              simSettingsOpt,
-                              filenamePrefix,
-                              "",
-                              "",
-                              HpcOmSimCode.emptyHpcomData,
-                              AvlTreeCRToInt.EMPTY(),
-                              HashTableCrIListArray.emptyHashTable(),
-                              HashTableCrILst.emptyHashTable(),
-                              crefToSimVarHT,
-                              HashTable.emptyHashTable(),
-                              NONE(),
-                              NONE(),
-                              SimCode.emptyPartitionData,
-                              daeModeData,
-                              {},
-                              NONE()
-                              );
+    if stringEqual(Config.simCodeTarget(), "Cpp") then
+      (varToArrayIndexMapping, varToIndexMapping) := SimCodeUtil.createVarToArrayIndexMapping(modelInfo);
+      (crefToClockIndexHT, _) := List.fold(listReverse(inBackendDAE.eqs), SimCodeUtil.collectClockedVars, (HashTable.emptyHashTable(), 1));
+    else
+      varToArrayIndexMapping := HashTableCrIListArray.emptyHashTable();
+      varToIndexMapping := HashTableCrILst.emptyHashTable();
+      crefToClockIndexHT := HashTable.emptyHashTable();
+    end if;
+
+    simCode := SimCode.SIMCODE(
+      modelInfo                   = modelInfo,
+      literals                    = {},               // Set by the traversal below...
+      recordDecls                 = recordDecls,
+      externalFunctionIncludes    = includes,
+      generic_loop_calls          = {}, // only used in new backend
+      localKnownVars              = {},
+      allEquations                = {},
+      odeEquations                = {},
+      algebraicEquations          = {},
+      clockedPartitions           = {},
+      initialEquations            = initialEquations,
+      initialEquations_lambda0    = initialEquations_lambda0,
+      removedInitialEquations     = removedInitialEquations,
+      startValueEquations         = startValueEquations,
+      nominalValueEquations       = nominalValueEquations,
+      minValueEquations           = minValueEquations,
+      maxValueEquations           = maxValueEquations,
+      parameterEquations          = parameterEquations,
+      removedEquations            = {},
+      algorithmAndEquationAsserts = {},
+      equationsForZeroCrossings   = {},
+      jacobianEquations           = jacobianEquations,
+      stateSets                   = {},
+      constraints                 = {},
+      classAttributes             = {},
+      zeroCrossings               = ZeroCrossings.updateIndices(zeroCrossings),
+      relations                   = ZeroCrossings.updateIndices(relations),
+      timeEvents                  = timeEvents,
+      discreteModelVars           = discreteModelVars,
+      extObjInfo                  = extObjInfo,
+      makefileParams              = makefileParams,
+      delayedExps                 = SimCode.DELAYED_EXPRESSIONS(delayedExps, maxDelayedExpIndex),
+      spatialInfo                 = spatialInfo,
+      jacobianMatrices            = SymbolicJacs,
+      simulationSettingsOpt       = simSettingsOpt,
+      fileNamePrefix              = filenamePrefix,
+      fullPathPrefix              = "",
+      fmuTargetName               = "",
+      hpcomData                   = HpcOmSimCode.emptyHpcomData,
+      valueReferences             = AvlTreeCRToInt.EMPTY(),
+      varToArrayIndexMapping      = varToArrayIndexMapping,
+      varToIndexMapping           = varToIndexMapping,
+      crefToSimVarHT              = crefToSimVarHT,
+      crefToClockIndexHT          = crefToClockIndexHT,
+      backendMapping              = NONE(),
+      modelStructure              = NONE(),
+      fmiSimulationFlags          = NONE(),
+      partitionData               = SimCode.emptyPartitionData,
+      daeModeData                 = daeModeData,
+      inlineEquations             = {},
+      omsiData                    = NONE()
+    );
 
     (simCode, (_, _, lits)) := SimCodeUtil.traverseExpsSimCode(simCode, SimCodeFunctionUtil.findLiteralsHelper, literals);
     simCode.literals := listReverse(lits);

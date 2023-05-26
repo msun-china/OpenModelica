@@ -453,7 +453,7 @@ algorithm
   case(fname::fnc_hdl_idents1,cref1) //drop first ident because its a function name and rest of ident is declared as a function arguments
     equation
       mod_lst = ident_lst(fnc_hdl_idents1);
-      out = Absyn.CALL(Absyn.CREF_IDENT(cref1,{}),Absyn.FUNCTIONARGS(mod_lst,{}));
+      out = Absyn.CALL(Absyn.CREF_IDENT(cref1,{}),Absyn.FUNCTIONARGS(mod_lst,{}),{});
         then out; 
   end matchcontinue;
 end rpl_arg_fnc_hdl;
@@ -475,17 +475,17 @@ algorithm
     case(arg_lst1,cref1,true,true)
       equation
         mod_lst = argument_lst(arg_lst1,false);
-        out1 = Absyn.CALL(Absyn.CREF_IDENT(cref1,{}),Absyn.FUNCTIONARGS(mod_lst,{}));
+        out1 = Absyn.CALL(Absyn.CREF_IDENT(cref1,{}),Absyn.FUNCTIONARGS(mod_lst,{}),{});
         then out1; 
     case(arg_lst1,cref1,true,false)
       equation
         mod_lst = argument_lst(arg_lst1,false);
-        out1 = Absyn.CALL(Absyn.CREF_IDENT(cref1,{}),Absyn.FUNCTIONARGS(mod_lst,{}));
+        out1 = Absyn.CALL(Absyn.CREF_IDENT(cref1,{}),Absyn.FUNCTIONARGS(mod_lst,{}),{});
         then out1;
     case(arg_lst1,cref1,false,true)
       equation
           mod_lst = argument_lst(arg_lst1,false);
-          out1 = Absyn.CALL(Absyn.CREF_IDENT(cref1,{}),Absyn.FUNCTIONARGS(mod_lst,{}));
+          out1 = Absyn.CALL(Absyn.CREF_IDENT(cref1,{}),Absyn.FUNCTIONARGS(mod_lst,{}),{});
         then out1;
     case(arg_lst1,cref1,false,false)
       equation
@@ -522,7 +522,7 @@ algorithm
       equation
         {mod_exp4} = mod_exp_lst1;
         fnc_args = Absyn.FUNCTIONARGS(mod_exp4,{});       
-        out = Absyn.CALL(Absyn.CREF_IDENT("array",{}),fnc_args);      
+        out = Absyn.CALL(Absyn.CREF_IDENT("array",{}),fnc_args,{});
       then out;
   end matchcontinue;
 end tslat_vec_mtx;      
@@ -3017,7 +3017,7 @@ algorithm
     f_call2 = listAppend(f_call1,fname::{});
     cd = Absyn.PARTS({},{},cp,{},NONE());                
     info=SOURCEINFO("",false,0,0,0,0,0.0);
-    class1 = Absyn.CLASS(fname,false,false,false,Absyn.R_FUNCTION(Absyn.FR_NORMAL_FUNCTION(Absyn.NO_PURITY())),cd,info); 
+    class1 = Absyn.CLASS(fname,false,false,false,Absyn.R_FUNCTION(Absyn.FR_NORMAL_FUNCTION(Absyn.NO_PURITY())),cd,{},{},info);
     class2 = listAppend(class1::{},mod_class2);  
     then (class2,f_call2);  
     case({},f_call4,fnc_hdl_ident1)
@@ -4948,10 +4948,10 @@ algorithm
         (sub_class1,f_call1,fnc_hdl_ident) = Fnc_Handle.fnc_hdl_to_sub_fnc_lst(exp3);  // converting anonymous function to sub function        
         (sub_class,f_call) = sub_function(stmt_lst,f_call1,fnc_hdl_ident); // sub function         
         f_call2 = listAppend(f_call,f_call1);        
-        (fname, cp, no_ident) = user_function({},uf,{},f_call2,fnc_hdl_ident,all_idents);          
-        cd = Absyn.PARTS({},{},cp,{},NONE());                        
-        info=SOURCEINFO("",false,0,0,0,0,0.0);        
-        class1 = Absyn.CLASS(fname,false,false,false,Absyn.R_FUNCTION(Absyn.FR_NORMAL_FUNCTION(Absyn.NO_PURITY())),cd,info);             
+        (fname, cp, no_ident) = user_function({},uf,{},f_call2,fnc_hdl_ident,all_idents);
+        cd = Absyn.PARTS({},{},cp,{},NONE());
+        info=SOURCEINFO("",false,0,0,0,0,0.0);
+        class1 = Absyn.CLASS(fname,false,false,false,Absyn.R_FUNCTION(Absyn.FR_NORMAL_FUNCTION(Absyn.NO_PURITY())),cd,{},{},info);
         class2 = listAppend(class1::{},sub_class);          
         class3 = listAppend(class2,sub_class1);                  
       then

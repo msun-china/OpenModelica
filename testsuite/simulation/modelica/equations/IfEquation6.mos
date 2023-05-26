@@ -2,10 +2,11 @@
 // keywords: equation
 // status: correct
 // teardown_command: rm -rf testIfEqn6* _testIfEqn6.h output.log
+// cflags: -d=-newInst
 // 
 // 
 
-loadModel(Modelica); getErrorString();
+loadModel(Modelica, {"3.2.3"}); getErrorString();
 
 loadFile("IfEquation6.mo"); getErrorString();
 

@@ -35,24 +35,6 @@
 /*!
  * \mainpage OMEdit - OpenModelica Connection Editor Documentation
  * Source code documentation. Provides brief information about the classes used.
- * \section contributors_section Contributors
- * - Adeel Asghar - <a href="mailto:adeel.asghar@liu.se">adeel.asghar@liu.se</a>
- * - Sonia Tariq
- * - Martin Sjölund - <a href="mailto:martin.sjolund@liu.se">martin.sjolund@liu.se</a>
- * - Alachew Shitahun - <a href="mailto:alachew.mengist@liu.se">alachew.mengist@liu.se</a>
- * - Jan Kokert - <a href="mailto:jan.kokert@imtek.uni-freiburg.de">jan.kokert@imtek.uni-freiburg.de</a>
- * - Dr. Henning Kiel - <a href="mailto:henning.kiel@w-hs.de">henning.kiel@w-hs.de</a>
- * - Haris Kapidzic
- * - Abhinn Kothari
- * - Lennart Ochel - <a href="mailto:lennart.ochel@liu.se">lennart.ochel@liu.se</a>
- * - Volker Waurich - <a href="mailto:volker.waurich@tu-dresden.de">volker.waurich@tu-dresden.de</a>
- * - Rüdiger Franke
- * - Martin Flehmig
- * - Robert Braun - <a href=\"mailto:robert.braun@liu.se\">robert.braun@liu.se</a>
- * - Per Östlund - <a href=\"mailto:per.ostlund@liu.se\">per.ostlund@liu.se</a>
- * - Dietmar Winkler
- * - Anatoly Severin
- * - Adrian Pop - <a href="mailto:adrian.pop@liu.se">adrian.pop@liu.se</a>
  */
 
 #include "OMEditApplication.h"
@@ -66,7 +48,7 @@ extern "C" {
 #include <QMessageBox>
 
 #ifdef QT_NO_DEBUG
-#ifdef WIN32
+#if defined(_WIN32)
 #include "CrashReport/backtrace.h"
 
 static char *g_output = NULL;
@@ -144,13 +126,15 @@ void signalHandler(int signalNumber)
   pCrashReportDialog->exec();
   exit(signalNumber);
 }
-#endif // #ifdef WIN32
+#endif // #if defined(_WIN32)
 #endif // #ifdef QT_NO_DEBUG
 
 void printOMEditUsage()
 {
   printf("Usage: OMEdit --Debug=true|false] [files]\n");
-  printf("    --Debug=[true|false]        Enables the debugging features like QUndoView, diffModelicaFileListings view. Default is false.\n");
+  printf("    --Debug=[true|false]            Enables the debugging features like QUndoView, diffModelicaFileListings view. Default is false.\n");
+  printf("    --NAPI=[true|false]             Enables the use of new json based api.\n");
+  printf("    --NAPIProfiling=[true|false]    Enables the profiling of new json based api.\n");
   printf("    files                       List of Modelica files(*.mo) to open.\n");
 }
 
@@ -168,7 +152,7 @@ int main(int argc, char *argv[])
   MMC_TRY_TOP()
   /* Do not use the signal handler OR exception filter if user is building a debug version. Perhaps the user wants to use gdb. */
 #ifdef QT_NO_DEBUG
-#ifdef WIN32
+#if defined(_WIN32)
   SetUnhandledExceptionFilter(exceptionFilter);
 #else
   /* Abnormal termination (abort) */
@@ -189,6 +173,9 @@ int main(int argc, char *argv[])
     }
   }
   Q_INIT_RESOURCE(resource_omedit);
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+  QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+#endif
   OMEditApplication a(argc, argv, threadData);
   return a.exec();
 

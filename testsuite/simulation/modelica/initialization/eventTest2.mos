@@ -3,6 +3,7 @@
 // status: correct
 // cflags:
 // teardown_command: rm -rf initializationTests.eventTest2* _initializationTests.eventTest2* output.log
+// cflags: -d=-newInst
 //
 //  case for events during initialization
 //
@@ -15,9 +16,9 @@ package initializationTests
   model eventTest2
     Real a(start=2);
     Real d;
-  initial equation 
+  initial equation
     a + d = 0;
-  equation 
+  equation
     (der(a)-1-d) * (der(a)-3) = 0;
     d = if a > 1 then 1 else 2;
   end eventTest2;

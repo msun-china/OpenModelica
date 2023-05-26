@@ -1,5 +1,6 @@
 // status: correct
 // teardown_command: rm -f TestSine_*.o
+// cflags: -d=-newInst
 
 loadFile("TestSine.mo");getErrorString();
 buildModel(TestSine);getErrorString();
@@ -8,6 +9,6 @@ buildModel(TestSine);getErrorString();
 // true
 // ""
 // {"TestSine","TestSine_init.xml"}
-// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
+// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions(\"-d=initialization\").
 // "
 // endResult

@@ -1,7 +1,7 @@
 // name: UriLookup
 // status: correct
-// cflags: +d=nogen
-// partest-link: UriLookup
+// cflags: +d=nogen -d=-newInst
+// depends: UriLookup
 
 setModelicaPath("./UriLookup");getErrorString();
 loadModel(A);getErrorString();

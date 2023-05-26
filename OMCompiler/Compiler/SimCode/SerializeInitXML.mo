@@ -78,13 +78,14 @@ algorithm
   try
   _ := match Config.simCodeTarget()
     case "omsic"
-	algorithm
+  algorithm
       File.open(file, simCode.fullPathPrefix+"/"+simCode.fileNamePrefix + "_init.xml", File.Mode.Write);
       then();
-	case "omsicpp"
-	algorithm
+  /*Temporary disabled omsicpp
+    case "omsicpp"
+  algorithm
       File.open(file, simCode.fullPathPrefix+"/"+simCode.fileNamePrefix + "_init.xml", File.Mode.Write);
-      then();
+      then();*/
     else algorithm
       File.open(file, simCode.fileNamePrefix + "_init.xml", File.Mode.Write);
       then();
@@ -348,6 +349,7 @@ protected
   Integer inputIndex = SimCodeUtil.getInputIndex(simVar);
   DAE.ElementSource source;
   SourceInfo info;
+  String hideResult;
 algorithm
   source := simVar.source;
   info := source.info;
@@ -397,7 +399,15 @@ algorithm
   File.write(file, "    isProtected = \"");
   File.write(file, String(simVar.isProtected));
   File.write(file, "\" hideResult = \"");
-  File.write(file, String(simVar.hideResult));
+  hideResult := match (simVar.hideResult)
+    local
+      Boolean bval;
+    case SOME(bval) then String(bval);
+    else "";
+  end match;
+  File.write(file, hideResult);
+  File.write(file, "\" initNonlinear = \"");
+  File.write(file, boolString(simVar.initNonlinear));
   File.write(file, "\"\n");
 
   File.write(file, "    fileName = \"");
@@ -591,15 +601,17 @@ algorithm
       File.write(file, "\"alias\" aliasVariable=\"");
       CR.writeCref(file, aliasvar.varName, XML);
       File.write(file, "\" aliasVariableId=\"");
-      File.write(file, SimCodeUtil.getValueReference(simVar, SimCodeUtil.getSimCode(), true)+"\"");
+      File.write(file, SimCodeUtil.getValueReference(simVar, SimCodeUtil.getSimCode(), true));
+      File.write(file, "\"");
     then ();
   case SimCodeVar.SIMVAR(aliasvar = aliasvar as AliasVariable.NEGATEDALIAS())
     algorithm
       File.write(file, "\"negatedAlias\" aliasVariable=\"");
       CR.writeCref(file, aliasvar.varName, XML);
       File.write(file, "\" aliasVariableId=\"");
-      File.write(file, SimCodeUtil.getValueReference(simVar, SimCodeUtil.getSimCode(), true)+"\"");
-      then ();
+      File.write(file, SimCodeUtil.getValueReference(simVar, SimCodeUtil.getSimCode(), true));
+      File.write(file, "\"");
+    then ();
   else
     algorithm File.write(file, "\"noAlias\""); then ();
   end match;

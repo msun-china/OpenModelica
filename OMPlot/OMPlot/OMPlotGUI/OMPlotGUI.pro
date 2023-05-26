@@ -9,6 +9,9 @@ greaterThan(QT_MAJOR_VERSION, 4) {
     QT *= printsupport widgets
 }
 
+# Set the C++ standard.
+CONFIG += c++14
+
 TARGET = OMPlot
 TEMPLATE = app
 CONFIG += console
@@ -26,15 +29,23 @@ HEADERS += OMPlot.h \
     PlotApplication.h \
     PlotWindowContainer.h \
     PlotMainWindow.h \
-    ScaleDraw.h
+    ScaleDraw.h \
+    LinearScaleEngine.h
 
 win32 {
+  _cxx = $$(CXX)
+  contains(_cxx, clang++) {
+    message("Found clang++ on windows in $CXX, removing unknown flags: -fno-keep-inline-dllexport")
+    QMAKE_CFLAGS -= -fno-keep-inline-dllexport
+    QMAKE_CXXFLAGS -= -fno-keep-inline-dllexport
+  }
+
   QMAKE_LFLAGS += -Wl,--enable-auto-import
   CONFIG(debug, debug|release){
-    LIBS += -L$$(OMBUILDDIR)/lib/omc -lOMPlot -lomqwtd
+    LIBS += -L$$(OMBUILDDIR)/lib/omc -lOMPlot -lomqwtd -lOpenModelicaRuntimeC -lomcgc
   }
   else {
-    LIBS += -L$$(OMBUILDDIR)/lib/omc -lOMPlot -lomqwt
+    LIBS += -L$$(OMBUILDDIR)/lib/omc -lOMPlot -lomqwt -lOpenModelicaRuntimeC -lomcgc
   }
   INCLUDEPATH += $$(OMBUILDDIR)/include/omplot/qwt $$(OMBUILDDIR)/include/omc/c
 } else {
@@ -57,3 +68,4 @@ RCC_DIR = ../generatedfiles/rcc
 RESOURCES += resource_omplot.qrc
 
 RC_FILE = rc_omplot.rc
+

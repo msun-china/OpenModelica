@@ -2,9 +2,12 @@
 // keywords: FMI 2.0 export clocks
 // status: correct
 // teardown_command: rm -rf binaries sources modelDescription.xml modelDescription.tmp.xml *SIDTest* output.log
+// cflags: -d=-newInst
 //
 
 setCommandLineOptions("+simCodeTarget=Cpp"); getErrorString();
+setCommandLineOptions("--exportClocksInModeldescription=true"); getErrorString();
+
 loadString("
 model SIDTest
   parameter Real dt = 0.1 annotation(Evaluate = true);
@@ -30,6 +33,8 @@ system("unzip -cqq SIDTest.fmu modelDescription.xml | grep -v guid | grep -v gen
 readFile("modelDescription.tmp.xml");
 
 // Result:
+// true
+// ""
 // true
 // ""
 // true
@@ -68,7 +73,7 @@ readFile("modelDescription.tmp.xml");
 //     <Category name=\"logAll\" />
 //     <Category name=\"logFmi2Call\" />
 //   </LogCategories>
-//   <DefaultExperiment startTime=\"0.0\" stopTime=\"1.0\" tolerance=\"1e-006\"/>
+//   <DefaultExperiment startTime=\"0.0\" stopTime=\"1.0\" tolerance=\"1e-06\"/>
 //   <ModelVariables>
 //   <!-- Index of variable = \"1\" -->
 //   <ScalarVariable

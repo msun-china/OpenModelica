@@ -124,6 +124,8 @@ extern int OpenModelica_regexImpl(const char* str, const char* re, const int max
 extern int OpenModelica_regex(const char* str, const char* re, int maxn, int extended, int sensitive, const char **result);
 #endif
 
+extern void OpenModelica_decode_uri_inplace(char *uri);
+
 extern modelica_string OpenModelica_uriToFilename_impl(threadData_t *threadData, modelica_string uri, const char *resourcesDir);
 #define OpenModelica_uriToFilename(URI) OpenModelica_uriToFilename_impl(threadData, URI, NULL)
 #define OpenModelica__uriToFilename(URI) OpenModelica_uriToFilename(URI)
@@ -134,18 +136,11 @@ static inline modelica_real modelica_real_mod(modelica_real x, modelica_real y)
   return x-floor(x/y)*y;
 }
 
+/* Returns res such that 0 <= abs(res) < abs(y) and res has the same sign as y */
 static inline modelica_integer modelica_integer_mod(modelica_integer x, modelica_integer y)
 {
-  modelica_integer res = x%y;
-  return res < 0 ? res+y : res /* % returns the remainder, which might be negative */;
+  modelica_integer res = x % y;
+  return ((y > 0 && res < 0) || (y < 0 && res > 0)) ? (res + y) : res;
 }
-
-#if defined(OMC_BOOTSTRAPPING_STAGE_1) || defined(OMC_BOOTSTRAPPING_STAGE_2)
-#define modelica_mod_real modelica_real_mod
-static inline modelica_integer modelica_mod_integer(modelica_integer x, modelica_integer y)
-{
-  return x%y;
-}
-#endif
 
 #endif

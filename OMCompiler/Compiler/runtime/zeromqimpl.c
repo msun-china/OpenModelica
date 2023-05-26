@@ -30,31 +30,48 @@
 
 #include <zmq.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
 
-#include "modelica_string.h"
+#if defined(__MINGW32__) || defined(_MSC_VER)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
+#include "meta/meta_modelica.h"
+#include "util/modelica_string.h"
+#include "util/omc_file.h"
 
 #include "settingsimpl.h"
+#include "systemimpl.h"
 
 char* zeroMQFilePath = 0;
 
-void* ZeroMQ_initialize(const char *zeroMQFileSuffix)
+void* ZeroMQ_initialize(const char *zeroMQFileSuffix, int listenToAll, int port)
 {
   // Create a pointer for storing the ZeroMQ socket
   void *mmcZmqSocket = mmc_mk_some(0);
   // Create the ZeroMQ context
   void *context = zmq_ctx_new();
   void *zmqSocket = zmq_socket(context, ZMQ_REP);
-  int rc = zmq_bind(zmqSocket, "tcp://127.0.0.1:*");
+  const char *bindstr;
+  int rc;
+  if (port == 0) {
+    bindstr = listenToAll ? "tcp://*:*" : "tcp://127.0.0.1:*";
+  } else {
+    GC_asprintf(&bindstr, "tcp://%s:%d", listenToAll ? "*" : "127.0.0.1", port);
+  }
+  rc = zmq_bind(zmqSocket, bindstr);
   if (rc != 0) {
     printf("Error creating ZeroMQ Server. zmq_bind failed: %s\n", strerror(errno));
     return mmcZmqSocket;
   }
   // get the port number
-  const size_t endPointBufSize = 30;
-  char endPointBuf[endPointBufSize];
-  zmq_getsockopt(zmqSocket, ZMQ_LAST_ENDPOINT, &endPointBuf, (size_t *)&endPointBufSize);
+  char endPointBuf[30];
+  size_t endPointBufSize = sizeof(endPointBuf);
+  zmq_getsockopt(zmqSocket, ZMQ_LAST_ENDPOINT, endPointBuf, &endPointBufSize);
+  assert(endPointBufSize > 0);
+
   // create the file path
   const char* tempPath = SettingsImpl__getTempDirectoryPath();
 #if defined(__MINGW32__) || defined(_MSC_VER)
@@ -67,7 +84,7 @@ void* ZeroMQ_initialize(const char *zeroMQFileSuffix)
 #endif
   // Create the file with port number
   FILE *fp;
-  fp = fopen(zeroMQFilePath, "w");
+  fp = omc_fopen(zeroMQFilePath, "w");
   fputs(endPointBuf, fp);
   fclose(fp);
   printf("Created ZeroMQ Server.\nDumped server port in file: %s", zeroMQFilePath);fflush(NULL);
@@ -104,10 +121,11 @@ void ZeroMQ_sendReply(void *mmcZmqSocket, const char* reply)
   // send the reply
   //fprintf(stdout, "Sending message %s\n", reply);fflush(NULL);
   // Create an empty ZeroMQ message to hold the message part
+  const char *replyUnicode = SystemImpl__iconv(reply, "UTF-8", "UTF-8", 1);
   zmq_msg_t replyMsg;
-  zmq_msg_init_size(&replyMsg, strlen(reply));
+  zmq_msg_init_size(&replyMsg, strlen(replyUnicode));
   // copy the char* to zmq_msg_t
-  memcpy(zmq_msg_data(&replyMsg), reply, strlen(reply));
+  memcpy(zmq_msg_data(&replyMsg), replyUnicode, strlen(replyUnicode));
   // send the message
   zmq_msg_send(&replyMsg, (void*)zmqSocket, 0);
   // release the zmq_msg_t

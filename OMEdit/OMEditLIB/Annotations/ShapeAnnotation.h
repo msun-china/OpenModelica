@@ -36,7 +36,8 @@
 #define SHAPEANNOTATION_H
 
 #include "Util/StringHandler.h"
-#include "Component/Transformation.h"
+#include "Element/Transformation.h"
+#include "Modeling/Model.h"
 
 #include <QGraphicsItem>
 #include <QSettings>
@@ -53,6 +54,8 @@ class CornerItem;
 class OriginItem;
 class ShapeAnnotation;
 
+QString stripDynamicSelect(const QString &str);
+
 class GraphicItem
 {
 public:
@@ -60,6 +63,7 @@ public:
   void setDefaults();
   void setDefaults(ShapeAnnotation *pShapeAnnotation);
   void parseShapeAnnotation(QString annotation);
+  void parseShapeAnnotation(ModelInstance::Shape *pShape);
   QStringList getOMCShapeAnnotation();
   QStringList getShapeAnnotation();
   void setOrigin(QPointF origin) {mOrigin = origin;}
@@ -67,15 +71,9 @@ public:
   void setRotationAngle(qreal rotation) {mRotation = rotation;}
   qreal getRotation() {return mRotation;}
 protected:
-  bool mVisible;
-  QString mDynamicVisible; /* Dynamic variable for visible attribute */
-  bool mDynamicVisibleValue; /* Dynamic value for visible attribute */
-  QPointF mOrigin;
-  QString mDynamicOrigin; /* Dynamic variable for origin attribute */
-  QPointF mDynamicOriginValue; /* Dynamic value for origin attribute */
-  qreal mRotation;
-  QString mDynamicRotation; /* Dynamic variable for origin attribute */
-  qreal mDynamicRotationValue; /* Dynamic value for origin attribute */
+  BooleanAnnotation mVisible;
+  PointAnnotation mOrigin;
+  RealAnnotation mRotation;
 };
 
 class FilledShape
@@ -85,8 +83,10 @@ public:
   void setDefaults();
   void setDefaults(ShapeAnnotation *pShapeAnnotation);
   void parseShapeAnnotation(QString annotation);
+  void parseShapeAnnotation(ModelInstance::Shape *pShape);
   QStringList getOMCShapeAnnotation();
   QStringList getShapeAnnotation();
+  QStringList getTextShapeAnnotation();
   void setLineColor(QColor color) {mLineColor = color;}
   QColor getLineColor() {return mLineColor;}
   void setFillColor(QColor color) {mFillColor = color;}
@@ -94,15 +94,15 @@ public:
   void setLinePattern(StringHandler::LinePattern pattern) {mLinePattern = pattern;}
   StringHandler::LinePattern getLinePattern() {return mLinePattern;}
   void setFillPattern(StringHandler::FillPattern pattern) {mFillPattern = pattern;}
-  StringHandler::FillPattern getFillPattern() {return mFillPattern;}
+  const FillPatternAnnotation &getFillPattern() {return mFillPattern;}
   void setLineThickness(qreal thickness) {mLineThickness = thickness;}
   qreal getLineThickness() {return mLineThickness;}
 protected:
-  QColor mLineColor;
-  QColor mFillColor;
-  StringHandler::LinePattern mLinePattern;
-  StringHandler::FillPattern mFillPattern;
-  qreal mLineThickness;
+  ColorAnnotation mLineColor;
+  ColorAnnotation mFillColor;
+  LinePatternAnnotation mLinePattern;
+  FillPatternAnnotation mFillPattern;
+  RealAnnotation mLineThickness;
 };
 
 class ShapeAnnotation : public QObject, public QGraphicsItem, public GraphicItem, public FilledShape
@@ -119,7 +119,7 @@ private:
   QPointF mTransformationStartPosition;
   QPointF mPivotPoint;
   QPointF mOldOrigin;
-  QList<QPointF> mOldExtents;
+  QVector<QPointF> mOldExtents;
   QString mOldAnnotation;
   QAction *mpShapePropertiesAction;
   QAction *mpAlignInterfacesAction;
@@ -128,6 +128,7 @@ private:
 public:
   enum LineGeometryType {VerticalLine, HorizontalLine};
   Transformation mTransformation;
+  ShapeAnnotation(QGraphicsItem *pParent);
   ShapeAnnotation(ShapeAnnotation *pShapeAnnotation, QGraphicsItem *pParent);
   ShapeAnnotation(bool inheritedShape, GraphicsView *pGraphicsView, ShapeAnnotation *pShapeAnnotation, QGraphicsItem *pParent = 0);
   void setDefaults();
@@ -143,7 +144,7 @@ public:
   virtual QString getOMCShapeAnnotation() = 0;
   virtual QString getOMCShapeAnnotationWithShapeName() = 0;
   virtual QString getShapeAnnotation() = 0;
-  static QList<QPointF> getExtentsForInheritedShapeFromIconDiagramMap(GraphicsView *pGraphicsView, ShapeAnnotation *pReferenceShapeAnnotation);
+  QList<QPointF> getExtentsForInheritedShapeFromIconDiagramMap(GraphicsView *pGraphicsView, ShapeAnnotation *pReferenceShapeAnnotation);
   void applyTransformation();
   void drawCornerItems();
   void setCornerItemsActiveOrPassive();
@@ -163,8 +164,9 @@ public:
   void setOriginItemPos(const QPointF point);
   GraphicsView* getGraphicsView() {return mpGraphicsView;}
   OriginItem* getOriginItem() {return mpOriginItem;}
-  void setPoints(QList<QPointF> points) {mPoints = points;}
-  QList<QPointF> getPoints() {return mPoints;}
+  void setPoints(QVector<QPointF> points) {mPoints = points;}
+  const PointArrayAnnotation &getPoints() {return mPoints;}
+  const ArrowAnnotation &getArrow() {return mArrow;}
   void setStartArrow(StringHandler::Arrow startArrow) {mArrow.replace(0, startArrow);}
   StringHandler::Arrow getStartArrow() {return mArrow.at(0);}
   void setEndArrow(StringHandler::Arrow endArrow) {mArrow.replace(1, endArrow);}
@@ -173,8 +175,8 @@ public:
   qreal getArrowSize() {return mArrowSize;}
   void setSmooth(StringHandler::Smooth smooth) {mSmooth = smooth;}
   StringHandler::Smooth getSmooth() {return mSmooth;}
-  void setExtents(QList<QPointF> extents) {mExtents = extents;}
-  QList<QPointF> getExtents() {return mExtents;}
+  void setExtents(QVector<QPointF> extents) {mExtent = extents;}
+  const QVector<QPointF> &getExtents() {return mExtent;}
   void setBorderPattern(StringHandler::BorderPattern pattern) {mBorderPattern = pattern;}
   StringHandler::BorderPattern getBorderPattern() {return mBorderPattern;}
   void setRadius(qreal radius) {mRadius = radius;}
@@ -183,14 +185,16 @@ public:
   qreal getStartAngle() {return mStartAngle;}
   void setEndAngle(qreal endAngle) {mEndAngle = endAngle;}
   qreal getEndAngle() {return mEndAngle;}
+  void setClosure(StringHandler::EllipseClosure closure) {mClosure = closure;}
+  StringHandler::EllipseClosure getClosure() {return mClosure;}
   void setTextString(QString textString);
-  QString getTextString() {return mOriginalTextString;}
+  const QString &getTextString() {return mTextString;}
   void setFontName(QString fontName) {mFontName = fontName;}
-  QString getFontName() {return mFontName;}
+  const QString &getFontName() {return mFontName;}
   void setFontSize(qreal fontSize) {mFontSize = fontSize;}
   qreal getFontSize() {return mFontSize;}
-  void setTextStyles(QList<StringHandler::TextStyle> textStyles) {mTextStyles = textStyles;}
-  QList<StringHandler::TextStyle> getTextStyles() {return mTextStyles;}
+  void setTextStyles(QVector<StringHandler::TextStyle> textStyles) {mTextStyles = textStyles;}
+  const QVector<StringHandler::TextStyle> &getTextStyles() {return mTextStyles;}
   void setTextHorizontalAlignment(StringHandler::TextAlignment textAlignment) {mHorizontalAlignment = textAlignment;}
   StringHandler::TextAlignment getTextHorizontalAlignment() {return mHorizontalAlignment;}
   void setFileName(QString fileName);
@@ -211,11 +215,11 @@ public:
   void moveShape(const qreal dx, const qreal dy);
   virtual void setShapeFlags(bool enable);
   virtual void updateShape(ShapeAnnotation *pShapeAnnotation) = 0;
+  virtual ModelInstance::Extend* getExtend() const = 0;
   void emitAdded() {emit added();}
   void emitChanged() {emit changed();}
   void emitDeleted() {emit deleted();}
   void emitPrepareGeometryChange() {prepareGeometryChange();}
-  static int maxTextLengthToShowOnLibraryIcon;
 signals:
   void added();
   void changed();
@@ -255,33 +259,35 @@ public slots:
   void referenceShapeChanged();
   void referenceShapeDeleted();
   void updateDynamicSelect(double time);
+  void resetDynamicSelect();
 protected:
   GraphicsView *mpGraphicsView;
-  Component *mpParentComponent;
+  Element *mpParentComponent;
   OriginItem *mpOriginItem;
-  QList<QPointF> mPoints;
+  PointArrayAnnotation mPoints;
   QList<LineGeometryType> mGeometries;
-  QList<StringHandler::Arrow> mArrow;
-  qreal mArrowSize;
-  StringHandler::Smooth mSmooth;
-  QList<QPointF> mExtents;
-  StringHandler::BorderPattern mBorderPattern;
-  qreal mRadius;
-  qreal mStartAngle;
-  qreal mEndAngle;
-  QString mOriginalTextString;
-  QString mTextString;
-  qreal mFontSize;
-  QString mFontName;
-  QList<StringHandler::TextStyle> mTextStyles;
-  StringHandler::TextAlignment mHorizontalAlignment;
+  ArrowAnnotation mArrow;
+  RealAnnotation mArrowSize;
+  SmoothAnnotation mSmooth;
+  ExtentAnnotation mExtent;
+  BorderPatternAnnotation mBorderPattern;
+  RealAnnotation mRadius;
+  RealAnnotation mStartAngle;
+  RealAnnotation mEndAngle;
+  EllipseClosureAnnotation mClosure;
+  StringAnnotation mOriginalTextString;
+  StringAnnotation mTextString;
+  RealAnnotation mFontSize;
+  StringAnnotation mFontName;
+  TextStyleAnnotation mTextStyles;
+  TextAlignmentAnnotation mHorizontalAlignment;
   QString mOriginalFileName;
   QString mFileName;
   QString mClassFileName; /* Used to find the bitmap relative locations. */
   QString mImageSource;
   QImage mImage;
   QList<CornerItem*> mCornerItemsList;
-  QList<QVariant> mDynamicTextString; /* list of String() arguments */
+  FlatModelica::Expression mTextExpression;
   virtual QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 };
 

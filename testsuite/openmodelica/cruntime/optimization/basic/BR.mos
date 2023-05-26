@@ -3,6 +3,7 @@
 
 // optimal control example
 // tast: find temperature profile  0 <= u(t) <= 5, so x2(1) is maximized.
+// cflags: -d=-newInst
 // see: Biegler: Nonlinear Programming Concepts, Algorithms and
 //               Applications to Chemical Processes, MOS-SIAM 2010
 
@@ -48,9 +49,9 @@ getErrorString();
 // ******************************************************************************
 // This program contains Ipopt, a library for large-scale nonlinear optimization.
 //  Ipopt is released as open source code under the Eclipse Public License (EPL).
-//          For more information visit http://projects.coin-or.org/Ipopt
+//          For more information visit https://github.com/coin-or/Ipopt
 // ******************************************************************************
-// 
+//
 // "
 // end SimulationResult;
 // ""
@@ -81,7 +82,7 @@ getErrorString();
 // ******************************************************************************
 // This program contains Ipopt, a library for large-scale nonlinear optimization.
 //  Ipopt is released as open source code under the Eclipse Public License (EPL).
-//          For more information visit http://projects.coin-or.org/Ipopt
+//          For more information visit https://github.com/coin-or/Ipopt
 // ******************************************************************************
 //
 // LOG_SUCCESS       | info    | The simulation finished successfully.

@@ -35,6 +35,7 @@
 #include "Editors/BaseEditor.h"
 #include "Options/OptionsDialog.h"
 #include "Modeling/ModelWidgetContainer.h"
+#include "Modeling/DocumentationWidget.h"
 #include "Util/Helper.h"
 #include "Debugger/Breakpoints/BreakpointsWidget.h"
 #include "Util/ResourceCache.h"
@@ -43,6 +44,7 @@
 #include <QCompleter>
 #include <QMessageBox>
 #include <QTextDocumentFragment>
+#include <QDockWidget>
 
 /*!
  * \class TabSettings
@@ -466,7 +468,7 @@ namespace {
     const QString &commentType = ((definition).*(comment))();
     const int length = commentType.length();
 
-    Q_ASSERT(text.length() - index >= length);
+    assert(text.length() - index >= length);
 
     int i = 0;
     while (i < length) {
@@ -683,7 +685,7 @@ PlainTextEdit::PlainTextEdit(BaseEditor *pBaseEditor)
   pCompleterToolTipLayout->addWidget(mpCompleterToolTipLabel);
   mpCompleterToolTipWidget->setLayout(pCompleterToolTipLayout);
   // intialize the completer with QStandardItemModel
-  mpStandardItemModel = new QStandardItemModel();
+  mpStandardItemModel = new QStandardItemModel(this);
   // sort the StandardItemModel using QSortFilterProxy
   QSortFilterProxyModel *pSortFilterProxyModel = new QSortFilterProxyModel(this);
   pSortFilterProxyModel->setSourceModel(mpStandardItemModel);
@@ -697,6 +699,7 @@ PlainTextEdit::PlainTextEdit(BaseEditor *pBaseEditor)
   mpCompleter->setCompletionMode(QCompleter::PopupCompletion);
   connect(mpCompleter, SIGNAL(highlighted(QModelIndex)), this, SLOT(showCompletionItemToolTip(QModelIndex)));
   connect(mpCompleter, SIGNAL(activated(QModelIndex)), this, SLOT(insertCompletionItem(QModelIndex)));
+  setReadOnlyStyleSheet();
   updateLineNumberAreaWidth(0);
   updateHighlights();
   updateCursorPosition();
@@ -872,7 +875,11 @@ int PlainTextEdit::lineNumberAreaWidth()
     ++digits;
   }
   const QFontMetrics fm(document()->defaultFont());
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+  int space = fm.horizontalAdvance(QLatin1Char('9')) * digits;
+#else // QT_VERSION_CHECK
   int space = fm.width(QLatin1Char('9')) * digits;
+#endif // QT_VERSION_CHECK
   if (canHaveBreakpoints()) {
     space += fm.lineSpacing();
   } else {
@@ -1421,7 +1428,8 @@ void PlainTextEdit::updateCursorPosition()
     if (mpBaseEditor->isModelicaModelInPackageOneFile()) {
       line =  block.blockNumber() + mpBaseEditor->getModelWidget()->getLibraryTreeItem()->mClassInformation.lineNumberStart;
     }
-    const int column = textCursor().columnNumber();
+    // Issue #7753. textCursor().columnNumber() doesn't work when line wrapping is on.
+    const int column = textCursor().position() - block.position();
     Label *pPositionLabel = MainWindow::instance()->getPositionLabel();
     pPositionLabel->setText(QString("Ln: %1, Col: %2").arg(line).arg(column));
   }
@@ -1555,6 +1563,16 @@ void PlainTextEdit::resizeEvent(QResizeEvent *pEvent)
 QCompleter *PlainTextEdit::completer()
 {
   return mpCompleter;
+}
+
+/*!
+ * \brief PlainTextEdit::setReadOnlyStyleSheet
+ * Sets the stylesheet for read-only editor to make it look like disabled.
+ */
+void PlainTextEdit::setReadOnlyStyleSheet()
+{
+  // read-only PlainTextEdit with gray background
+  setStyleSheet(QString("QPlainTextEdit[readOnly=\"true\"] { background-color: #f0f0f0 }"));
 }
 
 /*!
@@ -1775,7 +1793,11 @@ QMimeData* PlainTextEdit::createMimeDataFromSelection() const
     const int selectionStart = cursor.selectionStart();
     const int endOfDocument = tempDocument->characterCount() - 1;
     for (QTextBlock current = start; current.isValid() && current != end; current = current.next()) {
-      foreach (const QTextLayout::FormatRange &range, current.layout()->additionalFormats()) {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+  foreach (const QTextLayout::FormatRange &range, current.layout()->formats()) {
+#else // QT_VERSION_CHECK
+  foreach (const QTextLayout::FormatRange &range, current.layout()->additionalFormats()) {
+#endif // QT_VERSION_CHECK
         const int startPosition = current.position() + range.start - selectionStart;
         const int endPosition = startPosition + range.length;
         if (endPosition <= 0 || startPosition >= endOfDocument) {
@@ -1876,6 +1898,13 @@ void PlainTextEdit::insertFromMimeData(const QMimeData *source)
 void PlainTextEdit::focusInEvent(QFocusEvent *event)
 {
   MainWindow::instance()->getAutoSaveTimer()->stop();
+  // Issue #8723. If we are editing the documentation then save and close the documentation editing when focus moves to text view.
+  if (dynamic_cast<ModelicaEditor*>(mpBaseEditor)
+      && mpBaseEditor->getModelWidget()->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica
+      && MainWindow::instance()->getDocumentationDockWidget()->isVisible()
+      && MainWindow::instance()->getDocumentationWidget()->isEditingDocumentation()) {
+    MainWindow::instance()->getDocumentationWidget()->showDocumentation(mpBaseEditor->getModelWidget()->getLibraryTreeItem());
+  }
   QPlainTextEdit::focusInEvent(event);
 }
 
@@ -1959,7 +1988,11 @@ void PlainTextEdit::paintEvent(QPaintEvent *e)
         QString rectReplacement = QLatin1String(" ") + replacement + QLatin1String("); ");
 
         const QFontMetrics fm(document()->defaultFont());
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+        QRectF collapseRect(lineRect.right() + 12, lineRect.top(), fm.horizontalAdvance(rectReplacement), lineRect.height());
+#else // QT_VERSION_CHECK
         QRectF collapseRect(lineRect.right() + 12, lineRect.top(), fm.width(rectReplacement), lineRect.height());
+#endif // QT_VERSION_CHECK
         painter.setRenderHint(QPainter::Antialiasing, true);
         painter.translate(.5, .5);
         painter.drawRoundedRect(collapseRect.adjusted(0, 0, 0, -1), 3, 3);
@@ -2003,7 +2036,11 @@ void PlainTextEdit::paintEvent(QPaintEvent *e)
 void PlainTextEdit::wheelEvent(QWheelEvent *event)
 {
   if (event->modifiers() & Qt::ControlModifier) {
-    if (event->delta() > 0) {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+  if (event->angleDelta().x() > 0 || event->angleDelta().y() > 0) {
+#else // QT_VERSION_CHECK
+  if (event->delta() > 0) {
+#endif // QT_VERSION_CHECK
       zoomIn();
     } else {
       zoomOut();
@@ -2043,7 +2080,7 @@ QString BaseEditor::wordUnderCursor()
 
 bool BaseEditor::isModelicaModelInPackageOneFile()
 {
-  return (mpModelWidget &&
+  return (mpModelWidget && mpModelWidget->getLibraryTreeItem() &&
           mpModelWidget->getLibraryTreeItem()->isInPackageOneFile() &&
           mpModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica);
 }
@@ -2242,6 +2279,17 @@ QMenu* BaseEditor::createStandardContextMenu()
     pMenu->addAction(MainWindow::instance()->getZoomOutAction());
   }
   return pMenu;
+}
+
+/*!
+ * \brief BaseEditor::contentsChanged
+ * Updates the ModelWidget title and mark the LibraryTreeItem as unsaved.
+ */
+void BaseEditor::contentsChanged()
+{
+  mpModelWidget->setWindowTitle(QString("%1*").arg(mpModelWidget->getLibraryTreeItem()->getName()));
+  mpModelWidget->getLibraryTreeItem()->setIsSaved(false);
+  MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->updateLibraryTreeItem(mpModelWidget->getLibraryTreeItem());
 }
 
 /*!

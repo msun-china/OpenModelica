@@ -1,5 +1,6 @@
 // name: static OP
 // status: correct
+// cflags: -d=-newInst
 
 setCommandLineOptions("+g=Optimica");
 
@@ -47,13 +48,13 @@ val(w, 1.0);
 // ******************************************************************************
 // This program contains Ipopt, a library for large-scale nonlinear optimization.
 //  Ipopt is released as open source code under the Eclipse Public License (EPL).
-//          For more information visit http://projects.coin-or.org/Ipopt
+//          For more information visit https://github.com/coin-or/Ipopt
 // ******************************************************************************
 //
 // LOG_SUCCESS       | info    | The simulation finished successfully.
 // "
 // end SimulationResult;
-// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
+// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions(\"-d=initialization\").
 // "
 // 3.0
 // 3.0

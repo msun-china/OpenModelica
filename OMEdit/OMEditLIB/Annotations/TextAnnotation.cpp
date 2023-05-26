@@ -32,8 +32,10 @@
  * @author Adeel Asghar <adeel.asghar@liu.se>
  */
 
+#include <iostream>
 #include "TextAnnotation.h"
 #include "Modeling/Commands.h"
+#include "Options/OptionsDialog.h"
 
 /*!
  * \class TextAnnotation
@@ -48,7 +50,7 @@
 TextAnnotation::TextAnnotation(QString annotation, GraphicsView *pGraphicsView)
   : ShapeAnnotation(false, pGraphicsView, 0, 0)
 {
-  mpComponent = 0;
+  mpElement = 0;
   mpOriginItem = new OriginItem(this);
   mpOriginItem->setPassive();
   // set the default values
@@ -61,20 +63,51 @@ TextAnnotation::TextAnnotation(QString annotation, GraphicsView *pGraphicsView)
   setShapeFlags(true);
 }
 
-TextAnnotation::TextAnnotation(ShapeAnnotation *pShapeAnnotation, Component *pParent)
-  : ShapeAnnotation(pShapeAnnotation, pParent), mpComponent(pParent)
+TextAnnotation::TextAnnotation(ModelInstance::Text *pText, bool inherited, GraphicsView *pGraphicsView)
+  : ShapeAnnotation(inherited, pGraphicsView, 0, 0)
+{
+  mpElement = 0;
+  mpOriginItem = new OriginItem(this);
+  mpOriginItem->setPassive();
+  mpText = pText;
+  // set the default values
+  GraphicItem::setDefaults();
+  FilledShape::setDefaults();
+  ShapeAnnotation::setDefaults();
+  // set users default value by reading the settings file.
+  ShapeAnnotation::setUserDefaults();
+  parseShapeAnnotation();
+  setShapeFlags(true);
+}
+
+TextAnnotation::TextAnnotation(ShapeAnnotation *pShapeAnnotation, Element *pParent)
+  : ShapeAnnotation(pShapeAnnotation, pParent), mpElement(pParent)
 {
   mpOriginItem = 0;
   updateShape(pShapeAnnotation);
   initUpdateTextString();
-  setPos(mOrigin);
-  setRotation(mRotation);
+  applyTransformation();
+}
+
+TextAnnotation::TextAnnotation(ModelInstance::Text *pText, Element *pParent)
+  : ShapeAnnotation(pParent), mpElement(pParent)
+{
+  mpOriginItem = 0;
+  mpText = pText;
+  // set the default values
+  GraphicItem::setDefaults();
+  FilledShape::setDefaults();
+  ShapeAnnotation::setDefaults();
+  // set users default value by reading the settings file.
+  ShapeAnnotation::setUserDefaults();
+  parseShapeAnnotation();
+  applyTransformation();
 }
 
 TextAnnotation::TextAnnotation(ShapeAnnotation *pShapeAnnotation, GraphicsView *pGraphicsView)
   : ShapeAnnotation(true, pGraphicsView, pShapeAnnotation, 0)
 {
-  mpComponent = 0;
+  mpElement = 0;
   mpOriginItem = new OriginItem(this);
   mpOriginItem->setPassive();
   updateShape(pShapeAnnotation);
@@ -83,17 +116,17 @@ TextAnnotation::TextAnnotation(ShapeAnnotation *pShapeAnnotation, GraphicsView *
   mpGraphicsView->addItem(mpOriginItem);
 }
 
-TextAnnotation::TextAnnotation(Component *pParent)
-  : ShapeAnnotation(0, pParent), mpComponent(pParent)
+TextAnnotation::TextAnnotation(Element *pParent)
+  : ShapeAnnotation(0, pParent), mpElement(pParent)
 {
   mpOriginItem = 0;
   // set the default values
   GraphicItem::setDefaults();
   FilledShape::setDefaults();
   ShapeAnnotation::setDefaults();
-  // give a reasonable size to default component text
-  mExtents.replace(0, QPointF(-100, -50));
-  mExtents.replace(1, QPointF(100, 50));
+  // give a reasonable size to default element text
+  mExtent.replace(0, QPointF(-100, -50));
+  mExtent.replace(1, QPointF(100, 50));
   setTextString("%name");
   initUpdateTextString();
   setPos(mOrigin);
@@ -103,7 +136,7 @@ TextAnnotation::TextAnnotation(Component *pParent)
 TextAnnotation::TextAnnotation(QString annotation, LineAnnotation *pLineAnnotation)
   : ShapeAnnotation(0, pLineAnnotation)
 {
-  mpComponent = 0;
+  mpElement = 0;
   mpOriginItem = 0;
   // set the default values
   GraphicItem::setDefaults();
@@ -117,9 +150,34 @@ TextAnnotation::TextAnnotation(QString annotation, LineAnnotation *pLineAnnotati
    */
   if (pLineAnnotation->getPoints().size() > 0) {
     if (pLineAnnotation->getImmediate()) {
-      setPos(pLineAnnotation->getPoints().last());
+      setPos(pLineAnnotation->getPoints().at(mPoints.size() - 1));
     } else {
-      setPos(pLineAnnotation->getPoints().first());
+      setPos(pLineAnnotation->getPoints().at(0));
+    }
+  }
+}
+
+TextAnnotation::TextAnnotation(ModelInstance::Text *pText, LineAnnotation *pLineAnnotation)
+  : ShapeAnnotation(pLineAnnotation)
+{
+  mpElement = 0;
+  mpOriginItem = 0;
+  mpText = pText;
+  // set the default values
+  GraphicItem::setDefaults();
+  FilledShape::setDefaults();
+  ShapeAnnotation::setDefaults();
+  parseShapeAnnotation();
+  updateTextString();
+  /* From Modelica Spec 33revision1,
+   * The extent of the Text is interpreted relative to either the first point of the Line, in the case of immediate=false,
+   * or the last point (immediate=true).
+   */
+  if (pLineAnnotation->getPoints().size() > 0) {
+    if (pLineAnnotation->getImmediate()) {
+      setPos(pLineAnnotation->getPoints().at(mPoints.size() - 1));
+    } else {
+      setPos(pLineAnnotation->getPoints().at(0));
     }
   }
 }
@@ -133,15 +191,15 @@ TextAnnotation::TextAnnotation(QString annotation, LineAnnotation *pLineAnnotati
 TextAnnotation::TextAnnotation(GraphicsView *pGraphicsView)
   : ShapeAnnotation(true, pGraphicsView, 0, 0)
 {
-  mpComponent = 0;
+  mpElement = 0;
   mpOriginItem = 0;
   // set the default values
   GraphicItem::setDefaults();
   FilledShape::setDefaults();
   ShapeAnnotation::setDefaults();
   // give a reasonable size
-  mExtents.replace(0, QPointF(-100, 20));
-  mExtents.replace(1, QPointF(100, -20));
+  mExtent.replace(0, QPointF(-100, 20));
+  mExtent.replace(1, QPointF(100, -20));
   setTextString("%name");
   initUpdateTextString();
   setPos(mOrigin);
@@ -164,50 +222,25 @@ void TextAnnotation::parseShapeAnnotation(QString annotation)
     return;
   }
   // 9th item of the list contains the extent points
-  QStringList extentsList = StringHandler::getStrings(StringHandler::removeFirstLastCurlBrackets(list.at(8)));
-  for (int i = 0 ; i < qMin(extentsList.size(), 2) ; i++) {
-    QStringList extentPoints = StringHandler::getStrings(StringHandler::removeFirstLastCurlBrackets(extentsList[i]));
-    if (extentPoints.size() >= 2)
-      mExtents.replace(i, QPointF(extentPoints.at(0).toFloat(), extentPoints.at(1).toFloat()));
-  }
+  mExtent.parse(list.at(8));
   // 10th item of the list contains the textString.
-  if (list.at(9).startsWith("{")) {
-    // DynamicSelect
-    QStringList args = StringHandler::getStrings(StringHandler::removeFirstLastCurlBrackets(list.at(9)));
-    if (args.count() > 0) {
-      mOriginalTextString = StringHandler::removeFirstLastQuotes(args.at(0));
-    }
-    if (args.count() > 1) {
-      mDynamicTextString << args.at(1);  // variable name
-    }
-    if (args.count() > 2) {
-      mDynamicTextString << args.at(2);  // significantDigits
-    }
-  } else {
-    mOriginalTextString = StringHandler::removeFirstLastQuotes(list.at(9));
-  }
-  mTextString = mOriginalTextString;
+  mTextString.parse(list.at(9));
+  mOriginalTextString = mTextString;
   initUpdateTextString();
+
   // 11th item of the list contains the fontSize.
-  mFontSize = list.at(10).toFloat();
+  mFontSize.parse(list.at(10));
   // 12th item of the list contains the optional textColor, {-1, -1, -1} if not set
-  QStringList textColorList = StringHandler::getStrings(StringHandler::removeFirstLastCurlBrackets(list.at(11)));
-  if (textColorList.size() >= 3) {
-    int red, green, blue = 0;
-    red = textColorList.at(0).toInt();
-    green = textColorList.at(1).toInt();
-    blue = textColorList.at(2).toInt();
-    if (red >= 0 && green >= 0 && blue >= 0) {
-      mLineColor = QColor (red, green, blue);
-    }
+  if (!list.at(11).contains("-1")) {
+    mLineColor.parse(list.at(11));
   }
   // 13th item of the list contains the font name.
-  QString fontName = StringHandler::removeFirstLastQuotes(list.at(12));
-  if (!fontName.isEmpty()) {
-    mFontName = fontName;
+  const QString fontName = list.at(12);
+  if (!StringHandler::removeFirstLastQuotes(fontName).isEmpty()) {
+    mFontName.parse(fontName);
   }
   // 14th item of the list contains the text styles.
-  QStringList textStyles = StringHandler::getStrings(StringHandler::removeFirstLastCurlBrackets(list.at(13)));
+  QStringList textStyles = StringHandler::getStrings(StringHandler::removeFirstLastCurlBrackets(stripDynamicSelect(list.at(13))));
   foreach (QString textStyle, textStyles) {
     if (textStyle == "TextStyle.Bold") {
       mTextStyles.append(StringHandler::TextStyleBold);
@@ -218,7 +251,7 @@ void TextAnnotation::parseShapeAnnotation(QString annotation)
     }
   }
   // 15th item of the list contains the text alignment.
-  QString horizontalAlignment = StringHandler::removeFirstLastQuotes(list.at(14));
+  QString horizontalAlignment = StringHandler::removeFirstLastQuotes(stripDynamicSelect(list.at(14)));
   if (horizontalAlignment == "TextAlignment.Left") {
     mHorizontalAlignment = StringHandler::TextAlignmentLeft;
   } else if (horizontalAlignment == "TextAlignment.Center") {
@@ -226,6 +259,33 @@ void TextAnnotation::parseShapeAnnotation(QString annotation)
   } else if (horizontalAlignment == "TextAlignment.Right") {
     mHorizontalAlignment = StringHandler::TextAlignmentRight;
   }
+}
+
+void TextAnnotation::parseShapeAnnotation()
+{
+  GraphicItem::parseShapeAnnotation(mpText);
+  FilledShape::parseShapeAnnotation(mpText);
+
+  mExtent = mpText->getExtent();
+  mExtent.evaluate(mpText->getParentModel());
+  mTextString = mpText->getTextString();
+  mOriginalTextString = mTextString;
+  initUpdateTextString();
+
+  mFontSize = mpText->getFontSize();
+  mFontSize.evaluate(mpText->getParentModel());
+  if (mpText->getTextColor().isValid()) {
+    mLineColor = mpText->getTextColor();
+    mLineColor.evaluate(mpText->getParentModel());
+  }
+  if (!mpText->getFontName().isEmpty()) {
+    mFontName = mpText->getFontName();
+    mFontName.evaluate(mpText->getParentModel());
+  }
+  mTextStyles = mpText->getTextStyle();
+  mTextStyles.evaluate(mpText->getParentModel());
+  mHorizontalAlignment = mpText->getHorizontalAlignment();
+  mHorizontalAlignment.evaluate(mpText->getParentModel());
 }
 
 /*!
@@ -263,18 +323,19 @@ void TextAnnotation::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
   Q_UNUSED(widget);
   //! @note We don't show text annotation that contains % for Library Icons or if it is too long.
   if (mpGraphicsView && mpGraphicsView->isRenderingLibraryPixmap()) {
-    if (mOriginalTextString.contains("%") || mOriginalTextString.length() > maxTextLengthToShowOnLibraryIcon) {
+    if (mOriginalTextString.contains("%") || mOriginalTextString.length() > OptionsDialog::instance()->getGeneralSettingsPage()->getLibraryIconTextLengthSpinBox()->value()) {
       return;
     }
-  } else if (mpComponent && mpComponent->getGraphicsView()->isRenderingLibraryPixmap()) {
+  } else if (mpElement && mpElement->getGraphicsView()->isRenderingLibraryPixmap()) {
     return;
   }
-  if (mVisible || !mDynamicVisible.isEmpty()) {
+  if (mVisible) {
     // state machine visualization
-    // text annotation on a component
-    if (mpComponent && mpComponent->getLibraryTreeItem() && mpComponent->getLibraryTreeItem()->isState()
-        && mpComponent->getGraphicsView()->isVisualizationView()) {
-      if (mpComponent->isActiveState()) {
+    // text annotation on a element
+    if (mpElement && mpElement->getGraphicsView()->isVisualizationView()
+        && ((mpElement->getGraphicsView()->getModelWidget()->isNewApi() && mpElement->getModel() && mpElement->getModel()->getAnnotation()->isState())
+            || (mpElement->getLibraryTreeItem() && mpElement->getLibraryTreeItem()->isState()))) {
+      if (mpElement->isActiveState()) {
         painter->setOpacity(1.0);
       } else {
         painter->setOpacity(0.2);
@@ -290,20 +351,16 @@ void TextAnnotation::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
         painter->setOpacity(0.2);
       }
     }
-    if (!mDynamicVisibleValue && ((mpGraphicsView && mpGraphicsView->isVisualizationView())
-                                  || (mpParentComponent && mpParentComponent->getGraphicsView()->isVisualizationView()))) {
-      return;
-    }
-    drawTextAnnotaion(painter);
+    drawTextAnnotation(painter);
   }
 }
 
 /*!
- * \brief TextAnnotation::drawTextAnnotaion
+ * \brief TextAnnotation::drawTextAnnotation
  * Draws the Text annotation
  * \param painter
  */
-void TextAnnotation::drawTextAnnotaion(QPainter *painter)
+void TextAnnotation::drawTextAnnotation(QPainter *painter)
 {
   applyLinePattern(painter);
   /* Don't apply the fill patterns on Text shapes. */
@@ -343,20 +400,18 @@ void TextAnnotation::drawTextAnnotaion(QPainter *painter)
   // map the existing bounding rect to new transformation but with positive width and height so that font metrics can work
   QRectF absMappedBoundingRect = QRectF(boundingRect().x() * sx, boundingRect().y() * sy, qAbs(boundingRect().width() * sx), qAbs(boundingRect().height() * sy));
   // normalize the text for drawing
-  mTextString = StringHandler::removeFirstLastQuotes(mTextString);
-  mTextString = StringHandler::unparse(QString("\"").append(mTextString).append("\""));
+  QString textString = StringHandler::removeFirstLastQuotes(mTextString);
+  textString = StringHandler::unparse(QString("\"").append(mTextString).append("\""));
   // Don't create new QFont instead get a font from painter and set the values on it and set it back.
   QFont font = painter->font();
   font.setFamily(mFontName);
   if (mFontSize > 0) {
     font.setPointSizeF(mFontSize);
   }
-  font.setWeight(StringHandler::getFontWeight(mTextStyles));
-  font.setItalic(StringHandler::getFontItalic(mTextStyles));
+  font.setWeight(mTextStyles.getWeight());
+  font.setItalic(mTextStyles.isItalic());
   // set font underline
-  if (StringHandler::getFontUnderline(mTextStyles)) {
-    font.setUnderline(true);
-  }
+  font.setUnderline(mTextStyles.isUnderLine());
   painter->setFont(font);
   /* From Modelica specification version 3.5-dev
    * "The style attribute fontSize specifies the font size. If the fontSize attribute is 0 the text is scaled to fit its extent. Otherwise, the size specifies the absolute size."
@@ -364,7 +419,7 @@ void TextAnnotation::drawTextAnnotaion(QPainter *painter)
   // if absolute font size is defined and is greater than 0 then we don't need to calculate the font size.
   if (mFontSize <= 0) {
     QFontMetrics fontMetrics(painter->font());
-    QRect fontBoundRect = fontMetrics.boundingRect(absMappedBoundingRect.toRect(), Qt::TextDontClip, mTextString);
+    QRect fontBoundRect = fontMetrics.boundingRect(absMappedBoundingRect.toRect(), Qt::TextDontClip, textString);
     const qreal xFactor = absMappedBoundingRect.width() / fontBoundRect.width();
     const qreal yFactor = absMappedBoundingRect.height() / fontBoundRect.height();
     /* Ticket:4256
@@ -380,22 +435,18 @@ void TextAnnotation::drawTextAnnotaion(QPainter *painter)
   /* Try to get the elided text if calculated font size <= Helper::minimumTextFontSize
    * OR if font size is absolute.
    */
-  QString textToDraw = mTextString;
+  QString textToDraw = textString;
   if (absMappedBoundingRect.width() > 1 && ((mFontSize <= 0 && painter->font().pointSizeF() <= Helper::minimumTextFontSize) || mFontSize > 0)) {
     QFontMetrics fontMetrics(painter->font());
-    textToDraw = fontMetrics.elidedText(mTextString, Qt::ElideRight, absMappedBoundingRect.width());
+    textToDraw = fontMetrics.elidedText(textString, Qt::ElideRight, absMappedBoundingRect.width());
     // if we get "..." i.e., QChar(0x2026) as textToDraw then don't draw anything
     if (textToDraw.compare(QChar(0x2026)) == 0) {
       textToDraw = "";
     }
   }
   // draw the font
-  if (mpComponent || mappedBoundingRect.width() != 0 || mappedBoundingRect.height() != 0) {
+  if (mpElement || mappedBoundingRect.width() != 0 || mappedBoundingRect.height() != 0) {
     painter->drawText(mappedBoundingRect, StringHandler::getTextAlignment(mHorizontalAlignment) | Qt::AlignVCenter | Qt::TextDontClip, textToDraw);
-    mExportBoundingRect = painter->boundingRect(mappedBoundingRect, StringHandler::getTextAlignment(mHorizontalAlignment) | Qt::AlignVCenter | Qt::TextDontClip, textToDraw);
-    if (mpComponent) {
-      mExportBoundingRect = sceneTransform().mapRect(mExportBoundingRect);
-    }
   }
 }
 
@@ -409,44 +460,19 @@ QString TextAnnotation::getOMCShapeAnnotation()
   annotationString.append(GraphicItem::getOMCShapeAnnotation());
   annotationString.append(FilledShape::getOMCShapeAnnotation());
   // get the extents
-  QString extentString;
-  extentString.append("{");
-  extentString.append("{").append(QString::number(mExtents.at(0).x())).append(",");
-  extentString.append(QString::number(mExtents.at(0).y())).append("},");
-  extentString.append("{").append(QString::number(mExtents.at(1).x())).append(",");
-  extentString.append(QString::number(mExtents.at(1).y())).append("}");
-  extentString.append("}");
-  annotationString.append(extentString);
+  annotationString.append(mExtent.toQString());
   // get the text string
-  annotationString.append(QString("\"").append(mOriginalTextString).append("\""));
+  annotationString.append(mOriginalTextString.toQString());
   // get the font size
-  annotationString.append(QString::number(mFontSize));
+  annotationString.append(mFontSize.toQString());
   // get the text color
-  QString textColorString;
-  textColorString.append("{");
-  textColorString.append(QString::number(mLineColor.red())).append(",");
-  textColorString.append(QString::number(mLineColor.green())).append(",");
-  textColorString.append(QString::number(mLineColor.blue()));
-  textColorString.append("}");
-  annotationString.append(textColorString);
-  // get the font name
-  if (!mFontName.isEmpty() && mFontName.compare(Helper::systemFontInfo.family()) != 0) {
-    annotationString.append(QString("\"").append(mFontName).append("\""));
-  } else {
-    annotationString.append(QString("\"\""));
-  }
-  // get the font styles
-  QString textStylesString;
-  QStringList stylesList;
-  textStylesString.append("{");
-  for (int i = 0 ; i < mTextStyles.size() ; i++) {
-    stylesList.append(StringHandler::getTextStyleString(mTextStyles[i]));
-  }
-  textStylesString.append(stylesList.join(","));
-  textStylesString.append("}");
-  annotationString.append(textStylesString);
-  // get the font horizontal alignment
-  annotationString.append(StringHandler::getTextAlignmentString(mHorizontalAlignment));
+  annotationString.append(mLineColor.toQString());
+  // font name
+  annotationString.append(mFontName.toQString());
+  // text style
+  annotationString.append(mTextStyles.toQString());
+  // horizontal alignment
+  annotationString.append(mHorizontalAlignment.toQString());
   return annotationString.join(",");
 }
 
@@ -467,48 +493,31 @@ QString TextAnnotation::getShapeAnnotation()
 {
   QStringList annotationString;
   annotationString.append(GraphicItem::getShapeAnnotation());
-  annotationString.append(FilledShape::getShapeAnnotation());
+  annotationString.append(FilledShape::getTextShapeAnnotation());
   // get the extents
-  if (mExtents.size() > 1) {
-    QString extentString;
-    extentString.append("extent={");
-    extentString.append("{").append(QString::number(mExtents.at(0).x())).append(",");
-    extentString.append(QString::number(mExtents.at(0).y())).append("},");
-    extentString.append("{").append(QString::number(mExtents.at(1).x())).append(",");
-    extentString.append(QString::number(mExtents.at(1).y())).append("}");
-    extentString.append("}");
-    annotationString.append(extentString);
+  if (mExtent.isDynamicSelectExpression() || mExtent.size() > 1) {
+    annotationString.append(QString("extent=%1").arg(mExtent.toQString()));
   }
   // get the text string
-  annotationString.append(QString("textString=\"").append(mOriginalTextString).append("\""));
+  annotationString.append(QString("textString=%1").arg(mOriginalTextString.toQString()));
   // get the font size
-  if (mFontSize != 0) {
-    annotationString.append(QString("fontSize=").append(QString::number(mFontSize)));
+  if (mFontSize.isDynamicSelectExpression() || mFontSize.toQString().compare(QStringLiteral("0")) != 0) {
+    annotationString.append(QString("fontSize=%1").arg(mFontSize.toQString()));
   }
   // get the font name
   /* Ticket:4204
    * Don't insert the default font name as it might be operating system specific.
    */
-  if (!mFontName.isEmpty() && mFontName.compare(Helper::systemFontInfo.family()) != 0) {
-    annotationString.append(QString("fontName=\"").append(mFontName).append("\""));
+  if (mFontName.isDynamicSelectExpression() || (!mFontName.isEmpty() && StringHandler::removeFirstLastQuotes(mFontName.toQString()).compare(Helper::systemFontInfo.family()) != 0)) {
+    annotationString.append(QString("fontName=%1").arg(mFontName.toQString()));
   }
   // get the font styles
-  QString textStylesString;
-  QStringList stylesList;
   if (mTextStyles.size() > 0) {
-    textStylesString.append("textStyle={");
-  }
-  for (int i = 0 ; i < mTextStyles.size() ; i++) {
-    stylesList.append(StringHandler::getTextStyleString(mTextStyles[i]));
-  }
-  if (mTextStyles.size() > 0) {
-    textStylesString.append(stylesList.join(","));
-    textStylesString.append("}");
-    annotationString.append(textStylesString);
+    annotationString.append(QString("textStyle=%1").arg(mTextStyles.toQString()));
   }
   // get the font horizontal alignment
-  if (mHorizontalAlignment != StringHandler::TextAlignmentCenter) {
-    annotationString.append(QString("horizontalAlignment=").append(StringHandler::getTextAlignmentString(mHorizontalAlignment)));
+  if (mHorizontalAlignment.isDynamicSelectExpression() || mHorizontalAlignment.toQString().compare(QStringLiteral("TextAlignment.Center")) != 0) {
+    annotationString.append(QString("horizontalAlignment=%1").arg(mHorizontalAlignment.toQString()));
   }
   return QString("Text(").append(annotationString.join(",")).append(")");
 }
@@ -521,12 +530,17 @@ void TextAnnotation::updateShape(ShapeAnnotation *pShapeAnnotation)
   ShapeAnnotation::setDefaults(pShapeAnnotation);
 }
 
+ModelInstance::Extend *TextAnnotation::getExtend() const
+{
+  return mpText->getParentExtend();
+}
+
 void TextAnnotation::initUpdateTextString()
 {
-  if (mpComponent) {
+  if (mpElement) {
     if (mOriginalTextString.contains("%")) {
       updateTextString();
-      connect(mpComponent, SIGNAL(displayTextChanged()), SLOT(updateTextString()), Qt::UniqueConnection);
+      connect(mpElement, SIGNAL(displayTextChanged()), SLOT(updateTextString()), Qt::UniqueConnection);
     }
   }
 }
@@ -543,31 +557,60 @@ void TextAnnotation::updateTextStringHelper(QRegExp regExp)
     QString variable = regExp.cap(0).trimmed();
     if ((!variable.isEmpty()) && (variable.compare("%%") != 0) && (variable.compare("%name") != 0) && (variable.compare("%class") != 0)) {
       variable.remove("%");
+      variable = StringHandler::removeFirstLastCurlBrackets(variable);
       if (!variable.isEmpty()) {
         QString textValue;
         /* Ticket:4204
-         * If we have extend component then call Component::getParameterDisplayString from root component.
+         * If we have extend element then call Element::getParameterDisplayString from root element.
          */
-        textValue = mpComponent->getRootParentComponent()->getParameterDisplayString(variable);
+        textValue = mpElement->getRootParentElement()->getParameterDisplayString(variable);
         if (!textValue.isEmpty()) {
-          QString unit = "";
-          QString displaytUnit = "";
-          Component *pComponent = mpComponent->getRootParentComponent()->getComponentByName(variable);
-          if (pComponent) {
-            displaytUnit = pComponent->getDerivedClassModifierValue("displaytUnit");
-            if (displaytUnit.isEmpty()) {
-              unit = pComponent->getDerivedClassModifierValue("unit");
-              displaytUnit = unit;
+          QString unit = mpElement->getRootParentElement()->getParameterModifierValue(variable, "unit");
+          QString displayUnit = mpElement->getRootParentElement()->getParameterModifierValue(variable, "displayUnit");
+          if (MainWindow::instance()->isNewApi()) {
+            ModelInstance::Component* pModelComponent = Element::getModelComponentByName(mpElement->getRootParentElement()->getModel(), variable);
+            if (pModelComponent) {
+              if (displayUnit.isEmpty()) {
+                displayUnit = pModelComponent->getModifierValueFromType(QStringList() << "displayUnit");
+              }
+              if (unit.isEmpty()) {
+                unit = pModelComponent->getModifierValueFromType(QStringList() << "unit");
+              }
+            }
+          } else {
+            Element *pElement = mpElement->getRootParentElement()->getElementByName(variable);
+            if (pElement) {
+              if (displayUnit.isEmpty()) {
+                displayUnit = pElement->getDerivedClassModifierValue("displayUnit");
+              }
+              if (unit.isEmpty()) {
+                unit = pElement->getDerivedClassModifierValue("unit");
+              }
             }
           }
-          if (displaytUnit.isEmpty()) {
-            mTextString.replace(pos, regExp.matchedLength(), textValue);
-            pos += textValue.length();
-          } else {
-            QString textValueWithDisplayUnit = QString("%1 %2").arg(textValue, displaytUnit);
-            mTextString.replace(pos, regExp.matchedLength(), textValueWithDisplayUnit);
-            pos += textValueWithDisplayUnit.length();
+          // if display unit is still empty then use unit
+          if (displayUnit.isEmpty()) {
+            displayUnit = unit;
           }
+          QString textValueWithDisplayUnit;
+          // Do not show displayUnit if value is not a literal constant or if displayUnit is empty or if unit and displayUnit are 1!
+          if (!Utilities::isValueLiteralConstant(textValue) || displayUnit.isEmpty() || (displayUnit.compare("1") == 0 && unit.compare("1") == 0)) {
+            textValueWithDisplayUnit = textValue;
+          } else if (unit.compare(displayUnit) == 0) {  // Do not do any conversion if unit and displayUnit are same.
+            textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(displayUnit));
+          } else {
+            OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
+            OMCInterface::convertUnits_res convertUnit = pOMCProxy->convertUnits(unit, displayUnit);
+            if (convertUnit.unitsCompatible) {
+              qreal convertedValue = Utilities::convertUnit(textValue.toDouble(), convertUnit.offset, convertUnit.scaleFactor);
+              textValue = StringHandler::number(convertedValue, textValue);
+              textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(displayUnit));
+            } else {
+              textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(unit));
+            }
+          }
+          mTextString.replace(pos, regExp.matchedLength(), textValueWithDisplayUnit);
+          pos += textValueWithDisplayUnit.length();
         } else { /* if the value of %\\W* is empty then remove the % sign. */
           mTextString.replace(pos, 1, "");
         }
@@ -593,12 +636,13 @@ void TextAnnotation::updateTextString()
    * of an enumeration type, replace %par by the item name, not by the full name.
    * [Example: if par="Modelica.Blocks.Types.Enumeration.Periodic", then %par should be displayed as "Periodic"]
    * - %% replaced by %
-   * - %name replaced by the name of the component (i.e. the identifier for it in in the enclosing class).
+   * - %name replaced by the name of the element (i.e. the identifier for it in in the enclosing class).
    * - %class replaced by the name of the class.
    */
+  mTextString = mOriginalTextString;
   LineAnnotation *pLineAnnotation = dynamic_cast<LineAnnotation*>(parentItem());
   if (pLineAnnotation) {
-    if (mOriginalTextString.toLower().contains("%condition")) {
+    if (mTextString.toLower().contains("%condition")) {
       if (!pLineAnnotation->getCondition().isEmpty()) {
         mTextString.replace(QRegExp("%condition"), pLineAnnotation->getCondition());
       }
@@ -606,26 +650,25 @@ void TextAnnotation::updateTextString()
         mTextString.prepend(QString("%1: ").arg(pLineAnnotation->getPriority()));
       }
     }
-  } else if (mpComponent) {
-    mTextString = mOriginalTextString;
+  } else if (mpElement) {
     if (!mTextString.contains("%")) {
       return;
     }
-    if (mOriginalTextString.toLower().contains("%name")) {
-      mTextString.replace(QRegExp("%name"), mpComponent->getName());
+    if (mTextString.toLower().contains("%name")) {
+      mTextString.replace(QRegExp("%name"), mpElement->getName());
     }
-    if (mOriginalTextString.toLower().contains("%class") && mpComponent->getLibraryTreeItem()) {
-      mTextString.replace(QRegExp("%class"), mpComponent->getLibraryTreeItem()->getNameStructure());
+    if (mTextString.toLower().contains("%class")) {
+      mTextString.replace(QRegExp("%class"), mpElement->getClassName());
     }
     if (!mTextString.contains("%")) {
       return;
     }
     /* handle variables now */
-    updateTextStringHelper(QRegExp("(%%|%\\w*)"));
+    updateTextStringHelper(QRegExp("(%%|%\\{?\\w+(\\.\\w+)*\\}?)"));
     /* call again with non-word characters so invalid % can be removed. */
-    updateTextStringHelper(QRegExp("(%%|%\\W*)"));
+    updateTextStringHelper(QRegExp("(%%|%\\{?\\W+(\\.\\W+)*\\}?)"));
     /* handle %% */
-    if (mOriginalTextString.toLower().contains("%%")) {
+    if (mTextString.toLower().contains("%%")) {
       mTextString.replace(QRegExp("%%"), "%");
     }
   }

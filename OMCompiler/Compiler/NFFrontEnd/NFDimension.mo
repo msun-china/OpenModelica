@@ -35,19 +35,23 @@ protected
   import Operator = NFOperator;
   import Prefixes = NFPrefixes;
   import List;
+  import SimplifyExp = NFSimplifyExp;
+  import Ceval = NFCeval;
 
 public
   import Absyn.{Exp, Path, Subscript};
-  import NFClass.Class;
+  import Class = NFClass;
   import Expression = NFExpression;
   import NFInstNode.InstNode;
   import Type = NFType;
   import ComponentRef = NFComponentRef;
   import NFPrefixes.Variability;
   import Inst = NFInst;
+  import NFCeval.EvalTarget;
 
   record RAW_DIM
     Absyn.Subscript dim;
+    InstNode scope;
   end RAW_DIM;
 
   record UNTYPED
@@ -100,9 +104,40 @@ public
                 fail();
           end match;
 
+      case Expression.ARRAY()
+        guard Expression.arrayAllEqual(exp)
+        then fromExp(Expression.arrayFirstScalar(exp), var);
+
+      case Expression.SUBSCRIPTED_EXP(split = true)
+        guard Expression.isArray(exp.exp) and Expression.arrayAllEqual(exp.exp)
+        then fromExp(Expression.arrayFirstScalar(exp.exp), var);
+
       else EXP(exp, var);
     end match;
   end fromExp;
+
+  function fromRange
+    input Expression range "needs to be RANGE()";
+    output Dimension dim;
+  protected
+    Integer start, step, stop;
+  algorithm
+    (start, step, stop) := match range
+      case Expression.RANGE(start = Expression.INTEGER(start),
+                            step  = NONE(),
+                            stop  = Expression.INTEGER(stop))
+      then (start, 1, stop);
+      case Expression.RANGE(start = Expression.INTEGER(start),
+                            step  = SOME(Expression.INTEGER(step)),
+                            stop  = Expression.INTEGER(stop))
+      then (start, step, stop);
+      else algorithm
+        Error.assertion(false, getInstanceName() + " got non-range expression: " + Expression.toString(range), sourceInfo());
+      then fail();
+    end match;
+
+    dim := INTEGER(realInt((stop-start)/step + 1), NFPrefixes.Variability.CONSTANT);
+  end fromRange;
 
   function fromInteger
     input Integer n;
@@ -110,10 +145,23 @@ public
     output Dimension dim = INTEGER(n, var);
   end fromInteger;
 
+  function fromExpArray
+    input array<Expression> expl;
+    output Dimension dim = INTEGER(arrayLength(expl), Variability.CONSTANT);
+  end fromExpArray;
+
   function fromExpList
     input list<Expression> expl;
     output Dimension dim = INTEGER(listLength(expl), Variability.CONSTANT);
   end fromExpList;
+
+  function toRange
+    input Dimension dim;
+    output Expression range;
+  algorithm
+    range := Expression.RANGE(Type.liftArrayLeft(typeOf(dim), dim),
+      lowerBoundExp(dim), NONE(), upperBoundExp(dim));
+  end toRange;
 
   function toDAE
     input Dimension dim;
@@ -161,6 +209,16 @@ public
     end match;
   end size;
 
+  function sizesProduct
+    "Returns the product of the given dimension sizes."
+    input list<Dimension> dims;
+    output Integer outSize = 1;
+  algorithm
+    for dim in dims loop
+      outSize := outSize * Dimension.size(dim);
+    end for;
+  end sizesProduct;
+
   function isEqual
     input Dimension dim1;
     input Dimension dim2;
@@ -169,7 +227,6 @@ public
     isEqual := match (dim1, dim2)
       case (UNKNOWN(), _) then true;
       case (_, UNKNOWN()) then true;
-      case (EXP(), EXP()) then Expression.isEqual(dim1.exp, dim2.exp);
       case (EXP(), _) then true;
       case (_, EXP()) then true;
       else Dimension.size(dim1) == Dimension.size(dim2);
@@ -276,9 +333,29 @@ public
 
   function toStringList
     input list<Dimension> dims;
-    output String str = "[" + stringDelimitList(List.map(dims, toString), ", ") + "]";
+    input Boolean brackets = true;
+    output String str;
   algorithm
+    str := stringDelimitList(list(toString(d) for d in dims), ", ");
+
+    if brackets then
+      str := "[" + str + "]";
+    end if;
   end toStringList;
+
+  function toFlatString
+    input Dimension dim;
+    output String str;
+  algorithm
+    str := match dim
+      case INTEGER() then String(dim.size);
+      case BOOLEAN() then "Boolean";
+      case ENUM() then Type.toFlatString(dim.enumType);
+      case EXP() then Expression.toFlatString(dim.exp);
+      case UNKNOWN() then ":";
+      case UNTYPED() then Expression.toFlatString(dim.dimension);
+    end match;
+  end toFlatString;
 
   function endExp
     "Returns an expression for the last index in a dimension."
@@ -297,7 +374,7 @@ public
         then Expression.makeEnumLiteral(ty, listLength(ty.literals));
       case EXP() then dim.exp;
       case UNKNOWN()
-        then Expression.SIZE(Expression.CREF(Type.UNKNOWN(), ComponentRef.stripSubscripts(cref)),
+        then Expression.SIZE(Expression.fromCref(ComponentRef.stripSubscripts(cref)),
                              SOME(Expression.INTEGER(index)));
     end match;
   end endExp;
@@ -318,6 +395,64 @@ public
       case EXP() then dim.exp;
     end match;
   end sizeExp;
+
+  function lowerBoundExp
+    input Dimension dim;
+    output Expression exp;
+  algorithm
+    exp := match dim
+      case BOOLEAN() then Expression.BOOLEAN(false);
+      case ENUM() then Expression.makeEnumLiteral(dim.enumType, 1);
+      else Expression.INTEGER(1);
+    end match;
+  end lowerBoundExp;
+
+  function expIsLowerBound
+    "Returns true if the expression represents the lower bound of a dimension."
+    input Expression exp;
+    output Boolean isStart;
+  algorithm
+    isStart := match exp
+      case Expression.INTEGER() then exp.value == 1;
+      case Expression.BOOLEAN() then exp.value == false;
+      case Expression.ENUM_LITERAL() then exp.index == 1;
+      else false;
+    end match;
+  end expIsLowerBound;
+
+  function upperBoundExp
+    input Dimension dim;
+    output Expression exp;
+  algorithm
+    exp := match dim
+      local
+        Type ty;
+
+      case INTEGER() then Expression.INTEGER(dim.size);
+      case BOOLEAN() then Expression.BOOLEAN(true);
+      case ENUM(enumType = ty as Type.ENUMERATION())
+        then Expression.makeEnumLiteral(ty, listLength(ty.literals));
+      case EXP() then dim.exp;
+    end match;
+  end upperBoundExp;
+
+  function expIsUpperBound
+    "Returns true if the expression represents the upper bound of the given dimension."
+    input Expression exp;
+    input Dimension dim;
+    output Boolean isEnd;
+  algorithm
+    isEnd := match (exp, dim)
+      local
+        Type ty;
+
+      case (Expression.INTEGER(), INTEGER()) then exp.value == dim.size;
+      case (Expression.BOOLEAN(), _) then exp.value == true;
+      case (Expression.ENUM_LITERAL(), ENUM(enumType = ty as Type.ENUMERATION()))
+        then exp.index == listLength(ty.literals);
+      else false;
+    end match;
+  end expIsUpperBound;
 
   function variability
     input Dimension dim;
@@ -355,7 +490,7 @@ public
         algorithm
           e2 := Expression.map(e1, func);
         then
-          if referenceEq(e1, e2) then dim else EXP(e2, dim.var);
+          if referenceEq(e1, e2) then dim else fromExp(e2, dim.var);
 
       else dim;
     end match;
@@ -393,6 +528,44 @@ public
       arg := foldExp(dim, func, arg);
     end for;
   end foldExpList;
+
+  function eval
+    input Dimension dim;
+    input EvalTarget target = EvalTarget.IGNORE_ERRORS();
+    output Dimension outDim;
+  algorithm
+    outDim := match dim
+      case EXP() then fromExp(Ceval.evalExp(dim.exp, target), dim.var);
+      else dim;
+    end match;
+  end eval;
+
+  function simplify
+    input output Dimension dim;
+  algorithm
+    () := match dim
+      case EXP()
+        algorithm
+          dim.exp := SimplifyExp.simplify(dim.exp);
+        then
+          ();
+
+      else ();
+    end match;
+  end simplify;
+
+  function typeOf
+    input Dimension dim;
+    output Type ty;
+  algorithm
+    ty := match dim
+      case INTEGER() then Type.INTEGER();
+      case BOOLEAN() then Type.BOOLEAN();
+      case ENUM() then dim.enumType;
+      case EXP() then Expression.typeOf(dim.exp);
+      else Type.UNKNOWN();
+    end match;
+  end typeOf;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFDimension;

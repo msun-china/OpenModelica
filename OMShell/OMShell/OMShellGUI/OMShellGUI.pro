@@ -3,6 +3,9 @@ greaterThan(QT_MAJOR_VERSION, 4) {
     QT *= printsupport widgets webkitwidgets
 }
 
+# Set the C++ standard.
+CONFIG += c++14
+
 TRANSLATIONS = \
   OMShell_de.ts \
   OMShell_sv.ts
@@ -20,6 +23,14 @@ HEADERS += commandcompletion.h \
     oms.h
 
 win32 {
+
+  _cxx = $$(CXX)
+  contains(_cxx, clang++) {
+    message("Found clang++ on windows in $CXX, removing unknown flags: -fno-keep-inline-dllexport")
+    QMAKE_CFLAGS -= -fno-keep-inline-dllexport
+    QMAKE_CXXFLAGS -= -fno-keep-inline-dllexport
+  }
+
   # define used for OpenModelica C-API
   DEFINES += IMPORT_INTO=1
   # win32 vs. win64
@@ -28,7 +39,7 @@ win32 {
   } else { # 64-bit
     QMAKE_LFLAGS += -Wl,--stack,33554432,--enable-auto-import
   }
-  OMCLIBS = -L$$(OMBUILDDIR)/lib/omc -lOpenModelicaCompiler -lOpenModelicaRuntimeC -lfmilib -lModelicaExternalC -lomcgc -lpthread
+  OMCLIBS = -L$$(OMBUILDDIR)/lib/omc -lOpenModelicaCompiler -lOpenModelicaRuntimeC -lfmilib -lomcgc -lpthread
   OMCINC = $$(OMBUILDDIR)/include/omc/c
 } else {
   include(OMShell.config)

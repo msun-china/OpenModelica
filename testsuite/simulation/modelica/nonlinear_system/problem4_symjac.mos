@@ -1,6 +1,7 @@
 // name: problem4 [symjac]
 // status: correct
 // teardown_command: rm -f nonlinear_system.problem4* _nonlinear_system.problem4* output.log
+// cflags: -d=-newInst
 
 loadFile("nlsTestPackage.mo"); getErrorString();
 OpenModelica.Scripting.setCommandLineOptions("+tearingMethod=noTearing"); getErrorString();
@@ -25,6 +26,6 @@ val(x2,{0.0});
 // "
 // end SimulationResult;
 // ""
-// {1.098159329699769e-05}
-// {9.106146739866926}
+// {9.106146739866842}
+// {1.098159329699779e-05}
 // endResult

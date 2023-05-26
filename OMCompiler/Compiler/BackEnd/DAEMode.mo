@@ -80,6 +80,7 @@ public function getEqSystemDAEmode "Run the equation system pipeline."
   input Option<list<String>> strPostOptModules = NONE();
   output BackendDAE.BackendDAE outDAEmode;
   output BackendDAE.BackendDAE outInitDAE;
+  output Option<BackendDAE.BackendDAE> outInitDAE_lambda0_option;
   output list<BackendDAE.Equation> outRemovedInitialEquationLst;
  protected
   BackendDAE.BackendDAE dae, simDAE;
@@ -88,7 +89,7 @@ public function getEqSystemDAEmode "Run the equation system pipeline."
   tuple<BackendDAEFunc.StructurallySingularSystemHandlerFunc, String, BackendDAEFunc.stateDeselectionFunc, String> daeHandler;
   tuple<BackendDAEFunc.matchingAlgorithmFunc, String> matchingAlgorithm;
   BackendDAE.Variables globalKnownVars;
-  Integer numCheckpoints;
+  Integer numCheckpoints, oldSize;
   BackendDAE.EqSystem eqSyst;
 algorithm
   numCheckpoints:=ErrorExt.getNumCheckpoints();
@@ -119,12 +120,18 @@ algorithm
       BackendDump.dumpBipartiteGraphDAE(dae, fileNamePrefix);
     end if;
 
+    if Flags.isSet(Flags.EVAL_OUTPUT_ONLY) then
+      oldSize := BackendDAEUtil.daeSize(dae);
+      dae := BackendDAEOptimize.evaluateOutputsOnly(dae);
+      execStat("evaluateOutputsOnly (n=" + intString(oldSize) + " -> n=" + intString(BackendDAEUtil.daeSize(dae)) + ")");
+    end if;
+
     if Flags.isSet(Flags.BLT_DUMP) then
       BackendDump.bltdump("bltdump", dae);
     end if;
 
     // generate system for initialization
-    (outInitDAE, _, outRemovedInitialEquationLst, globalKnownVars, dae) := Initialization.solveInitialSystem(dae);
+    (outInitDAE, outInitDAE_lambda0_option, outRemovedInitialEquationLst, globalKnownVars, dae) := Initialization.solveInitialSystem(dae);
 
     // use function tree from initDAE further for simDAE
     simDAE := BackendDAEUtil.setFunctionTree(dae, BackendDAEUtil.getFunctions(outInitDAE.shared));
@@ -552,7 +559,7 @@ algorithm
     if debug then BackendDump.printEqSystem(syst); end if;
     (adjMatrix, _, _, mapEqnScalarArray) := BackendDAEUtil.adjacencyMatrixScalar(syst, BackendDAE.NORMAL(), SOME(functionTree), isInitial);
     if debug then BackendDump.dumpAdjacencyMatrix(adjMatrix); end if;
-    (assignVarEqn, assignEqnVar, true) := Matching.RegularMatching(adjMatrix, BackendDAEUtil.systemSize(syst), BackendDAEUtil.systemSize(syst));
+    (assignVarEqn, assignEqnVar, true, _, _) := Matching.RegularMatching(adjMatrix, BackendDAEUtil.systemSize(syst), BackendDAEUtil.systemSize(syst));
     if debug then BackendDump.dumpMatching(assignVarEqn); end if;
 
     // get discrete vars indexes and then the equations

@@ -41,14 +41,18 @@ protected
   import Prefixes = NFPrefixes;
   import Ceval = NFCeval;
   import MetaModelica.Dangerous.listReverseInPlace;
+  import Util;
+  import JSON;
 
 public
   import Expression = NFExpression;
   import Absyn;
   import AbsynUtil;
   import Dimension = NFDimension;
-  import NFPrefixes.Variability;
+  import NFPrefixes.{Variability, Purity};
   import NFCeval.EvalTarget;
+  import NFInstNode.InstNode;
+  import ComponentRef = NFComponentRef;
 
   import Subscript = NFSubscript;
 
@@ -74,6 +78,20 @@ public
 
   record WHOLE end WHOLE;
 
+  // Split proxy and index subscripts are added to modifier array expressions to
+  // indicate where they are split when propagating them down to the array
+  // elements. Proxies are added during the instantiation and then replaced with
+  // split indices during typing once the number of dimensions on elements are known.
+  record SPLIT_PROXY
+    InstNode origin;
+    InstNode parent;
+  end SPLIT_PROXY;
+
+  record SPLIT_INDEX
+    InstNode node;
+    Integer dimIndex;
+  end SPLIT_INDEX;
+
   function fromExp
     input Expression exp;
     output Subscript subscript;
@@ -85,6 +103,13 @@ public
       else UNTYPED(exp);
     end match;
   end fromExp;
+
+  function fromTypedExp
+    input Expression exp;
+    output Subscript subscript;
+  algorithm
+    subscript := if Type.isArray(Expression.typeOf(exp)) then SLICE(exp) else INDEX(exp);
+  end fromTypedExp;
 
   function toExp
     input Subscript subscript;
@@ -105,6 +130,44 @@ public
       case INDEX() then Expression.toInteger(subscript.index);
     end match;
   end toInteger;
+
+  function toIndexList
+    input Subscript subscript;
+    input Integer length;
+    input Boolean baseZero = true;
+    output list<Integer> indices;
+  protected
+    Integer shift = if baseZero then 1 else 0;
+  algorithm
+    indices := match subscript
+      local
+        array<Expression> elems;
+        Integer start, step, stop;
+
+      case INDEX() then {toInteger(subscript)-shift};
+
+      case WHOLE() then List.intRange2(1-shift,length-shift);
+
+      case SLICE(slice = Expression.ARRAY(elements = elems))
+      then list(Expression.toInteger(e) for e in elems);
+
+      case SLICE(slice = Expression.RANGE(
+        start = Expression.INTEGER(start),
+        step  = SOME(Expression.INTEGER(step)),
+        stop  = Expression.INTEGER(stop)))
+      then List.intRange3(start-shift, step, stop-shift);
+
+      case SLICE(slice = Expression.RANGE(
+        start = Expression.INTEGER(start),
+        step  = NONE(),
+        stop  = Expression.INTEGER(stop)))
+      then List.intRange2(start-shift, stop-shift);
+
+      else algorithm
+        Error.assertion(false, getInstanceName() + " got an incorrect subscript type " + toString(subscript) + ".", sourceInfo());
+      then fail();
+    end match;
+  end toIndexList;
 
   protected function isValidIndexType
     input Type ty;
@@ -127,6 +190,16 @@ public
     end if;
   end makeIndex;
 
+  function makeSplitIndex
+    input InstNode node;
+    input Integer dimIndex;
+    output Subscript subscript = SPLIT_INDEX(node, dimIndex);
+  algorithm
+    if dimIndex < 1 then
+      Error.assertion(false, getInstanceName() + " got invalid index " + String(dimIndex), sourceInfo());
+    end if;
+  end makeSplitIndex;
+
   function isIndex
     input Subscript sub;
     output Boolean isIndex;
@@ -147,6 +220,17 @@ public
     end match;
   end isWhole;
 
+  function isSliced
+    input Subscript sub;
+    output Boolean sliced;
+  algorithm
+    sliced := match sub
+      case SLICE() then true;
+      case WHOLE() then true;
+      else false;
+    end match;
+  end isSliced;
+
   function isScalar
     input Subscript sub;
     output Boolean isScalar;
@@ -159,6 +243,8 @@ public
         ty := Expression.typeOf(sub.index);
         then
           isValidIndexType(ty);
+
+      case SPLIT_INDEX() then true;
 
       else false;
     end match;
@@ -173,6 +259,70 @@ public
       else false;
     end match;
   end isScalarLiteral;
+
+  function equalsIterator
+    input Subscript sub;
+    input InstNode iterator;
+    output Boolean res;
+  protected
+    ComponentRef cref;
+  algorithm
+    res := match sub
+      case UNTYPED(exp = Expression.CREF(cref = cref))
+        then InstNode.refEqual(iterator, ComponentRef.node(cref));
+
+      case INDEX(index = Expression.CREF(cref = cref))
+        then InstNode.refEqual(iterator, ComponentRef.node(cref));
+
+      else false;
+    end match;
+  end equalsIterator;
+
+  function isIterator
+    input Subscript sub;
+    output Boolean res;
+  protected
+    ComponentRef cref;
+  algorithm
+    res := match sub
+      case UNTYPED() then Expression.isIterator(sub.exp);
+      case INDEX() then Expression.isIterator(sub.index);
+      else false;
+    end match;
+  end isIterator;
+
+  function toIterator
+    input Subscript sub;
+    output InstNode iterator;
+  protected
+    ComponentRef cref;
+  algorithm
+    iterator := match sub
+      case UNTYPED(exp = Expression.CREF(cref = cref))
+        guard ComponentRef.isIterator(cref)
+        then ComponentRef.node(cref);
+
+      case INDEX(index = Expression.CREF(cref = cref))
+        guard ComponentRef.isIterator(cref)
+        then ComponentRef.node(cref);
+
+      else InstNode.EMPTY_NODE();
+    end match;
+  end toIterator;
+
+  function isBackendIterator
+    input Subscript sub;
+    output Boolean res;
+  protected
+    ComponentRef cref;
+  algorithm
+    res := match sub
+      case INDEX(index = Expression.CREF(cref = cref))
+        then ComponentRef.isIterator(cref);
+
+      else false;
+    end match;
+  end isBackendIterator;
 
   function isEqual
     input Subscript subscript1;
@@ -193,6 +343,11 @@ public
         then Expression.isEqual(subscript1.slice, subscript2.slice);
 
       case (WHOLE(), WHOLE()) then true;
+
+      case (SPLIT_INDEX(), SPLIT_INDEX())
+        then subscript1.dimIndex == subscript2.dimIndex and
+             InstNode.refEqual(subscript1.node, subscript2.node);
+
       else false;
     end match;
   end isEqual;
@@ -240,6 +395,8 @@ public
     comp := match subscript1
       local
         Expression e;
+        InstNode node;
+        Integer index;
 
       case UNTYPED()
         algorithm
@@ -260,6 +417,14 @@ public
           Expression.compare(subscript1.slice, e);
 
       case WHOLE() then 0;
+
+      case SPLIT_INDEX()
+        algorithm
+          SPLIT_INDEX(node = node, dimIndex = index) := subscript2;
+          comp := InstNode.refCompare(subscript1.node, node);
+        then
+          if comp == 0 then Util.intCompare(subscript1.dimIndex, index) else comp;
+
     end match;
   end compare;
 
@@ -291,8 +456,13 @@ public
 
   function containsExp
     input Subscript subscript;
-    input Expression.ContainsPred func;
+    input ContainsPred func;
     output Boolean res;
+
+    partial function ContainsPred
+      input Expression exp;
+      output Boolean res;
+    end ContainsPred;
   algorithm
     res := match subscript
       case UNTYPED() then Expression.contains(subscript.exp, func);
@@ -304,8 +474,13 @@ public
 
   function listContainsExp
     input list<Subscript> subscripts;
-    input Expression.ContainsPred func;
+    input ContainsPred func;
     output Boolean res;
+
+    partial function ContainsPred
+      input Expression exp;
+      output Boolean res;
+    end ContainsPred;
   algorithm
     for s in subscripts loop
       if containsExp(s, func) then
@@ -319,8 +494,13 @@ public
 
   function containsExpShallow
     input Subscript subscript;
-    input Expression.ContainsPred func;
+    input ContainsPred func;
     output Boolean res;
+
+    partial function ContainsPred
+      input Expression exp;
+      output Boolean res;
+    end ContainsPred;
   algorithm
     res := match subscript
       case UNTYPED() then func(subscript.exp);
@@ -332,8 +512,13 @@ public
 
   function listContainsExpShallow
     input list<Subscript> subscripts;
-    input Expression.ContainsPred func;
+    input ContainsPred func;
     output Boolean res;
+
+    partial function ContainsPred
+      input Expression exp;
+      output Boolean res;
+    end ContainsPred;
   algorithm
     for s in subscripts loop
       if containsExpShallow(s, func) then
@@ -361,6 +546,22 @@ public
     end match;
   end applyExp;
 
+  function applyExpShallow
+    input Subscript subscript;
+    input ApplyFunc func;
+
+    partial function ApplyFunc
+      input Expression exp;
+    end ApplyFunc;
+  algorithm
+    () := match subscript
+      case UNTYPED() algorithm func(subscript.exp); then ();
+      case INDEX() algorithm func(subscript.index); then ();
+      case SLICE() algorithm func(subscript.slice); then ();
+      else ();
+    end match;
+  end applyExpShallow;
+
   function mapExp
     input Subscript subscript;
     input MapFunc func;
@@ -384,13 +585,13 @@ public
         algorithm
           e2 := Expression.map(e1, func);
         then
-          if referenceEq(e1, e2) then subscript else INDEX(e2);
+          if referenceEq(e1, e2) then subscript else fromTypedExp(e2);
 
       case SLICE(slice = e1)
         algorithm
           e2 := Expression.map(e1, func);
         then
-          if referenceEq(e1, e2) then subscript else SLICE(e2);
+          if referenceEq(e1, e2) then subscript else fromTypedExp(e2);
 
       else subscript;
     end match;
@@ -419,13 +620,13 @@ public
         algorithm
           e2 := func(e1);
         then
-          if referenceEq(e1, e2) then subscript else INDEX(e2);
+          if referenceEq(e1, e2) then subscript else fromTypedExp(e2);
 
       case SLICE(slice = e1)
         algorithm
           e2 := func(e1);
         then
-          if referenceEq(e1, e2) then subscript else SLICE(e2);
+          if referenceEq(e1, e2) then subscript else fromTypedExp(e2);
 
       else subscript;
     end match;
@@ -475,13 +676,13 @@ public
         algorithm
           (exp, arg) := Expression.mapFold(subscript.index, func, arg);
         then
-          if referenceEq(subscript.index, exp) then subscript else INDEX(exp);
+          if referenceEq(subscript.index, exp) then subscript else fromTypedExp(exp);
 
       case SLICE()
         algorithm
           (exp, arg) := Expression.mapFold(subscript.slice, func, arg);
         then
-          if referenceEq(subscript.slice, exp) then subscript else SLICE(exp);
+          if referenceEq(subscript.slice, exp) then subscript else fromTypedExp(exp);
 
       else subscript;
     end match;
@@ -512,17 +713,35 @@ public
         algorithm
           (exp, arg) := func(subscript.index, arg);
         then
-          if referenceEq(subscript.index, exp) then subscript else INDEX(exp);
+          if referenceEq(subscript.index, exp) then subscript else fromTypedExp(exp);
 
       case SLICE()
         algorithm
           (exp, arg) := func(subscript.slice, arg);
         then
-          if referenceEq(subscript.slice, exp) then subscript else SLICE(exp);
+          if referenceEq(subscript.slice, exp) then subscript else fromTypedExp(exp);
 
       else subscript;
     end match;
   end mapFoldExpShallow;
+
+  function toAbsyn
+    input Subscript subscript;
+    output Absyn.Subscript asubscript;
+  algorithm
+    asubscript := match subscript
+      case RAW_SUBSCRIPT() then subscript.subscript;
+      case UNTYPED() then Absyn.Subscript.SUBSCRIPT(Expression.toAbsyn(subscript.exp));
+      case INDEX() then Absyn.Subscript.SUBSCRIPT(Expression.toAbsyn(subscript.index));
+      case SLICE() then Absyn.Subscript.SUBSCRIPT(Expression.toAbsyn(subscript.slice));
+      case WHOLE() then Absyn.Subscript.NOSUB();
+      else
+        algorithm
+          Error.assertion(false, getInstanceName() + " failed on unknown subscript", sourceInfo());
+        then
+          fail();
+    end match;
+  end toAbsyn;
 
   function toDAE
     input Subscript subscript;
@@ -534,7 +753,7 @@ public
       case WHOLE() then DAE.WHOLEDIM();
       else
         algorithm
-          Error.assertion(false, getInstanceName() + " failed on unknown subscript", sourceInfo());
+          Error.assertion(false, getInstanceName() + " failed on unknown subscript " + toString(subscript), sourceInfo());
         then
           fail();
     end match;
@@ -568,6 +787,10 @@ public
       case EXPANDED_SLICE()
         then List.toString(subscript.indices, toString, "", "{", ", ", "}", false);
       case WHOLE() then ":";
+      case SPLIT_PROXY()
+        then "<" + InstNode.name(subscript.origin) + ", " + InstNode.name(subscript.parent) + ">";
+      case SPLIT_INDEX()
+        then "<" + InstNode.name(subscript.node) + ", " + String(subscript.dimIndex) + ">";
     end match;
   end toString;
 
@@ -590,6 +813,8 @@ public
       case EXPANDED_SLICE()
         then List.toString(subscript.indices, toString, "", "{", ", ", "}", false);
       case WHOLE() then ":";
+      case SPLIT_INDEX()
+        then "<" + InstNode.name(subscript.node) + ", " + String(subscript.dimIndex) + ">";
     end match;
   end toFlatString;
 
@@ -599,6 +824,27 @@ public
   algorithm
     string := List.toString(subscripts, toFlatString, "", "[", ",", "]", false);
   end toFlatStringList;
+
+  function toJSON
+    input Subscript subscript;
+    output JSON json;
+  algorithm
+    json := match subscript
+      case UNTYPED() then Expression.toJSON(subscript.exp);
+      case INDEX() then Expression.toJSON(subscript.index);
+      case SLICE() then Expression.toJSON(subscript.slice);
+      else JSON.makeString(toString(subscript));
+    end match;
+  end toJSON;
+
+  function toJSONList
+    input list<Subscript> subscripts;
+    output JSON json = JSON.makeNull();
+  algorithm
+    for s in subscripts loop
+      json := JSON.addElement(toJSON(s), json);
+    end for;
+  end toJSONList;
 
   function eval
     input Subscript subscript;
@@ -614,14 +860,66 @@ public
 
   function simplify
     input Subscript subscript;
+    input Dimension dimension;
     output Subscript outSubscript;
   algorithm
     outSubscript := match subscript
       case INDEX() then INDEX(SimplifyExp.simplify(subscript.index));
-      case SLICE() then SLICE(SimplifyExp.simplify(subscript.slice));
+      case SLICE() then simplifySlice(subscript.slice, dimension);
       else subscript;
     end match;
   end simplify;
+
+  function simplifySlice
+    input Expression slice;
+    input Dimension dimension;
+    output Subscript outSubscript;
+  protected
+    Expression exp;
+  algorithm
+    exp := SimplifyExp.simplify(slice);
+
+    outSubscript := match exp
+      // If the slice is equivalent to 1:size(dim), replace it with :
+      case Expression.RANGE()
+        guard (isNone(exp.step) or Expression.isOne(Util.getOption(exp.step))) and
+              Dimension.expIsLowerBound(exp.start) and
+              Dimension.expIsUpperBound(exp.stop, dimension)
+        then WHOLE();
+
+      // Otherwise return a new slice with the simplified expression.
+      else SLICE(exp);
+    end match;
+  end simplifySlice;
+
+  function simplifyList
+    input list<Subscript> subscripts;
+    input list<Dimension> dimensions;
+    input Boolean trim = false;
+    output list<Subscript> outSubscripts = {};
+  protected
+    Dimension d;
+    list<Dimension> rest_d = dimensions;
+  algorithm
+    if listEmpty(dimensions) then
+      // If the type of the subscript owner isn't known, for example when dealing
+      // with expandable connector elements, treat the dimensions as unknown.
+      outSubscripts := list(simplify(s, Dimension.UNKNOWN()) for s in subscripts);
+    else
+      rest_d := List.lastN(dimensions, listLength(subscripts));
+
+      for s in subscripts loop
+        d :: rest_d := rest_d;
+        outSubscripts := simplify(s, d) :: outSubscripts;
+      end for;
+
+      if trim then
+        outSubscripts := listReverseInPlace(List.trim(outSubscripts, isWhole));
+      else
+        outSubscripts := listReverseInPlace(outSubscripts);
+      end if;
+    end if;
+  end simplifyList;
 
   function toDimension
     "Returns a dimension representing the size of the given subscript."
@@ -632,8 +930,30 @@ public
       case INDEX() then Dimension.fromInteger(1);
       case SLICE() then listHead(Type.arrayDims(Expression.typeOf(subscript.slice)));
       case WHOLE() then Dimension.UNKNOWN();
+      case SPLIT_INDEX() then Dimension.fromInteger(1);
     end match;
   end toDimension;
+
+  function fromDimension
+    "Returns a slice subscripts that covers the given dimension.
+     Will fail for untyped or unknown dimensions."
+    input Dimension dimension;
+    output Subscript subscript;
+  algorithm
+    subscript := match dimension
+      case Dimension.INTEGER()
+        then Subscript.SLICE(Expression.makeIntegerRange(1, 1, dimension.size));
+      case Dimension.BOOLEAN()
+        then Subscript.SLICE(Expression.makeRange(Expression.BOOLEAN(false), NONE(), Expression.BOOLEAN(true)));
+      case Dimension.ENUM()
+        then Subscript.SLICE(Expression.makeRange(
+          Expression.makeEnumLiteral(dimension.enumType, 1),
+          NONE(),
+          Expression.makeEnumLiteral(dimension.enumType, Type.enumSize(dimension.enumType))));
+      case Dimension.EXP()
+        then Subscript.SLICE(Expression.makeRange(Expression.INTEGER(1), NONE(), dimension.exp));
+    end match;
+  end fromDimension;
 
   function scalarize
     input Subscript subscript;
@@ -646,6 +966,7 @@ public
         then list(INDEX(e) for e in Expression.arrayElements(ExpandExp.expand(subscript.slice)));
       case WHOLE()
         then RangeIterator.map(RangeIterator.fromDim(dimension), makeIndex);
+      else {subscript};
     end match;
   end scalarize;
 
@@ -773,7 +1094,7 @@ public
       case UNTYPED() then Expression.variability(subscript.exp);
       case INDEX() then Expression.variability(subscript.index);
       case SLICE() then Expression.variability(subscript.slice);
-      case WHOLE() then Variability.CONSTANT;
+      else Variability.CONSTANT;
     end match;
   end variability;
 
@@ -786,6 +1107,27 @@ public
     end for;
   end variabilityList;
 
+  function purity
+    input Subscript subscript;
+    output Purity purity;
+  algorithm
+    purity := match subscript
+      case UNTYPED() then Expression.purity(subscript.exp);
+      case INDEX() then Expression.purity(subscript.index);
+      case SLICE() then Expression.purity(subscript.slice);
+      else Purity.IMPURE;
+    end match;
+  end purity;
+
+  function purityList
+    input list<Subscript> subscripts;
+    output Purity pur = Purity.PURE;
+  algorithm
+    for s in subscripts loop
+      pur := Prefixes.purityMin(pur, purity(s));
+    end for;
+  end purityList;
+
   function mergeList
     "Merges a list of subscripts with a list of 'existing' subscripts.
      This is done by e.g. subscripting existing slice and : subscripts,
@@ -796,6 +1138,7 @@ public
     input list<Subscript> newSubs "Subscripts to add";
     input list<Subscript> oldSubs "Existing subscripts";
     input Integer dimensions "The number of dimensions to subscript";
+    input Boolean backend "if true discards a subscript for scalar if it is exacty 1";
     output list<Subscript> outSubs "The merged subscripts, at most 'dimensions' many";
     output list<Subscript> remainingSubs "The subscripts that didn't fit";
   protected
@@ -804,6 +1147,13 @@ public
     list<Subscript> rest_old_subs;
     Boolean merged = true;
   algorithm
+    // discard an index for backend if it is exactly one for scalars
+    if backend and listLength(oldSubs) >= dimensions and List.all(List.firstN(oldSubs, dimensions), isBackendIterator) then
+      (_, remainingSubs) := List.split(newSubs, dimensions);
+      (outSubs, _) := List.split(oldSubs, dimensions);
+      return;
+    end if;
+
     // If there aren't any existing subscripts we just add as many subscripts
     // from the list of new subscripts as possible.
     if listEmpty(oldSubs) then
@@ -885,6 +1235,85 @@ public
       case Dimension.ENUM()    then INDEX(Expression.nthEnumLiteral(dim.enumType, 1));
     end match;
   end first;
+
+  function isSplit
+    input Subscript sub;
+    output Boolean res;
+  algorithm
+    res := match sub
+      case SPLIT_PROXY() then true;
+      case SPLIT_INDEX() then true;
+      else false;
+    end match;
+  end isSplit;
+
+  function isSplitIndex
+    input Subscript sub;
+    output Boolean res;
+  algorithm
+    res := match sub
+      case SPLIT_INDEX() then true;
+      else false;
+    end match;
+  end isSplitIndex;
+
+  function expandSplitIndices
+    input list<Subscript> subs;
+    input list<InstNode> indicesToKeep = {};
+    output list<Subscript> outSubs = {};
+  protected
+    Boolean changed = false;
+  algorithm
+    for s in subs loop
+      () := match s
+        case SPLIT_INDEX()
+          algorithm
+            if List.isMemberOnTrue(s.node, indicesToKeep, InstNode.refEqual) then
+              outSubs := s :: outSubs;
+            else
+              outSubs := WHOLE() :: outSubs;
+              changed := true;
+            end if;
+          then
+            ();
+
+        else
+          algorithm
+            outSubs := s :: outSubs;
+          then
+            ();
+      end match;
+    end for;
+
+    if changed then
+      outSubs := List.trim(outSubs, isWhole);
+      outSubs := listReverseInPlace(outSubs);
+    else
+      outSubs := subs;
+    end if;
+  end expandSplitIndices;
+
+  function hash
+    input Subscript sub;
+    output Integer hash;
+  algorithm
+    hash := match sub
+      case SPLIT_PROXY() then InstNode.hash(sub.origin) + InstNode.hash(sub.parent);
+      case SPLIT_INDEX() then InstNode.hash(sub.node) + sub.dimIndex;
+      else stringHashDjb2(toString(sub));
+    end match;
+  end hash;
+
+  function splitIndexDimExp
+    input Subscript sub;
+    output Expression exp;
+  protected
+    InstNode node;
+    Integer index;
+  algorithm
+    SPLIT_INDEX(node = node, dimIndex = index) := sub;
+    exp := Dimension.sizeExp(Type.nthDimension(InstNode.getType(node), index));
+  end splitIndexDimExp;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFSubscript;

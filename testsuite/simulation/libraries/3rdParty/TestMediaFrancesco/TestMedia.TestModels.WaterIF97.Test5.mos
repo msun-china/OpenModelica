@@ -2,6 +2,7 @@
 // keywords: simulation TestMedia.TestModels.WaterIF97.Test5
 // status: correct
 // teardown_command: rm -rf _TestMedia.TestModels.WaterIF97.Test5.* TestMedia.TestModels.WaterIF97.Test5_* TestMedia.TestModels.WaterIF97.Test5 TestMedia.TestModels.WaterIF97.Test5.exe TestMedia.TestModels.WaterIF97.Test5.cpp TestMedia.TestModels.WaterIF97.Test5.makefile TestMedia.TestModels.WaterIF97.Test5.libs TestMedia.TestModels.WaterIF97.Test5.log TestMedia.TestModels.WaterIF97.Test5.c TestMedia.TestModels.WaterIF97.Test5.o output.log
+// cflags: -d=-newInst
 //
 // Simulation Results
 // Modelica Standard Library
@@ -20,9 +21,9 @@ res := OpenModelica.Scripting.compareSimulationResults("TestMedia.TestModels.Wat
 // Result:
 // true
 // true
-// "Notification: Automatically loaded package Modelica 3.2.1 due to uses annotation.
-// Notification: Automatically loaded package Complex 3.2.1 due to uses annotation.
-// Notification: Automatically loaded package ModelicaServices 3.2.1 due to uses annotation.
+// "Notification: Automatically loaded package Modelica 3.2.1 due to uses annotation from TestMedia.
+// Notification: Automatically loaded package Complex 3.2.1 due to uses annotation from Modelica.
+// Notification: Automatically loaded package ModelicaServices 3.2.1 due to uses annotation from Modelica.
 // "
 // record SimulationResult
 //     resultFile = "TestMedia.TestModels.WaterIF97.Test5_res.mat",
@@ -31,7 +32,7 @@ res := OpenModelica.Scripting.compareSimulationResults("TestMedia.TestModels.Wat
 // LOG_SUCCESS       | info    | The simulation finished successfully.
 // "
 // end SimulationResult;
-// "Warning: The model contains alias variables with conflicting start and/or nominal values. It is recommended to resolve the conflicts, because otherwise the system could be hard to solve. To print the conflicting alias sets and the chosen candidates please use -d=aliasConflicts.
+// "Warning: The model contains alias variables with redundant start and/or conflicting nominal values. It is recommended to resolve the conflicts, because otherwise the system could be hard to solve. To print the conflicting alias sets and the chosen candidates please use -d=aliasConflicts.
 // "
 // {"Files Equal!"}
 // endResult

@@ -62,9 +62,45 @@ static string array2string(double* array, int row, int col)
     }
     if((i+1 != row) && (col != 0))
     {
-      retVal << "; ";
+      retVal << ";\n\t";
     }
   }
+  return retVal.str();
+}
+
+static string array2PythonString(double* array, int row, int col)
+{
+  int i=0;
+  int j=0;
+  ostringstream retVal(ostringstream::out);
+  if (row == 0 || col == 0)
+  {
+    retVal << "[]\n";
+    return retVal.str();
+  }
+
+  retVal.precision(16);
+  retVal << "[";
+  for(i=0; i<row; i++)
+  {
+    int k = i;
+    retVal << "[";
+    for(j=0; j<col-1; j++)
+    {
+      retVal << array[k] << ", ";
+      k += row;
+    }
+    if(col > 0)
+    {
+      retVal << array[k];
+    }
+    if((i+1 != row) && (col != 0))
+    {
+      retVal << "],\n\t";
+    }
+  }
+  retVal << "]]\n";
+
   return retVal.str();
 }
 
@@ -485,8 +521,7 @@ int linearize(DATA* data, threadData_t *threadData)
     double* matrixD = (double*)calloc(size_Outputs*size_Inputs,sizeof(double));
     double* matrixCz = 0;
     double* matrixDz = 0;
-    string strA, strB, strC, strD, strCz, strDz, strX, strU, strZ0, filename;
-	std::size_t pos, pos1, pos2;
+    string strA, strB, strC, strD, strCz, strDz, strX, strU, strZ0, filename, ext;
 
     assertStreamPrint(threadData,0!=matrixA,"calloc failed");
     assertStreamPrint(threadData,0!=matrixB,"calloc failed");
@@ -553,28 +588,57 @@ int linearize(DATA* data, threadData_t *threadData)
             assertStreamPrint(threadData,0==functionJacD(data, threadData, matrixD),"Error, can not get Matrix D ");
         }
     }
+    if (data->modelData->linearizationDumpLanguage != 3)
+    {
 
-    strA = array2string(matrixA,size_A,size_A);
-    strB = array2string(matrixB,size_A,size_Inputs);
-    strC = array2string(matrixC,size_Outputs,size_A);
-    strD = array2string(matrixD,size_Outputs,size_Inputs);
-    if(do_data_recovery > 0){
-        strCz = array2string(matrixCz,size_z,size_A);
-        strDz = array2string(matrixDz,size_z,size_Inputs);
+      strA = array2string(matrixA, size_A, size_A);
+      strB = array2string(matrixB, size_A, size_Inputs);
+      strC = array2string(matrixC, size_Outputs, size_A);
+      strD = array2string(matrixD, size_Outputs, size_Inputs);
+      if (do_data_recovery > 0)
+      {
+        strCz = array2string(matrixCz, size_z, size_A);
+        strDz = array2string(matrixDz, size_z, size_Inputs);
+      }
+
+      // The empty array {} is not valid modelica, so we need to put something
+      //   inside the curly braces for x0 and u0. {for i in in 1:0} will create an
+      //   empty array if needed.
+      if (size_A)
+        strX = "{" + array2string(data->localData[0]->realVars, 1, size_A) + "}";
+      else
+        strX = "zeros(0)";
+
+      if (size_Inputs)
+        strU = "{" + array2string(data->simulationInfo->inputVars, 1, size_Inputs) + "}";
+      else
+        strU = "zeros(0)";
     }
-
-    // The empty array {} is not valid modelica, so we need to put something
-    //   inside the curly braces for x0 and u0. {for i in in 1:0} will create an
-    //   empty array if needed.
-    if(size_A)
-      strX = "{" + array2string(data->localData[0]->realVars, 1, size_A) + "}";
     else
-      strX = "zeros(0)";
+    {
+      // convert the matrices to Python format
+      //infoStreamPrint(LOG_STDOUT, 0, "Python selected");
+      strA = array2PythonString(matrixA, size_A, size_A);
+      strB = array2PythonString(matrixB, size_A, size_Inputs);
+      strC = array2PythonString(matrixC, size_Outputs, size_A);
+      strD = array2PythonString(matrixD, size_Outputs, size_Inputs);
+      if (do_data_recovery > 0)
+      {
+        strCz = array2PythonString(matrixCz, size_z, size_A);
+        strDz = array2PythonString(matrixDz, size_z, size_Inputs);
+      }
+      // strA = "[[-2.887152375617477, -1.62655852935388], [-2.380918056675567, -2.388394731625707]]";
+      //infoStreamPrint(LOG_STDOUT, 0, strA.c_str());
+      if (size_A)
+        strX = "[" + array2string(data->localData[0]->realVars, 1, size_A) + "]";
+      else
+        strX = "[0]";
 
-    if(size_Inputs)
-      strU = "{" + array2string(data->simulationInfo->inputVars, 1, size_Inputs) + "}";
-    else
-      strU = "zeros(0)";
+      if (size_Inputs)
+        strU = "[" + array2string(data->simulationInfo->inputVars, 1, size_Inputs) + "]";
+      else
+        strU = "[0]";
+    }
 
     free(matrixA);
     free(matrixB);
@@ -584,58 +648,47 @@ int linearize(DATA* data, threadData_t *threadData)
         free(matrixCz);
         free(matrixDz);
     }
-
-    /* Use the result file name rather than the model name so that the linear file name can be changed with the -r flag, however strip _res.mat from the filename */
-    filename = string(data->modelData->resultFileName) + ".mo";
-	pos = filename.rfind("_res.mat");
-	if (pos != std::string::npos)
-	{
-      // not found, use the modelFilePrefix
-	  filename = string(data->modelData->modelFilePrefix) + ".mo";
-	}
-	else
-	{
-      filename = filename.substr(0, pos) + ".mo";
-	}
-#if defined(__MINGW32__) || defined(_MSC_VER)
-    pos1 = filename.rfind('\\');
-	pos2 = filename.rfind('/');
-	if (pos1 < pos2)
-	{
-      pos = pos2;
-	}
-	else
-	{
-      pos = pos1;
-	}
-    if(pos >= filename.length()) {
-      filename = "linear_" + filename;
-    }else{
-      filename.replace(pos, 1, "/linear_");
+    switch(data->modelData->linearizationDumpLanguage){
+      case OMC_LINEARIZE_DUMP_LANGUAGE_MODELICA: ext = ".mo";  break;
+      case OMC_LINEARIZE_DUMP_LANGUAGE_MATLAB: ext = ".m";   break;
+      case OMC_LINEARIZE_DUMP_LANGUAGE_JULIA: ext = ".jl";  break;
+      case OMC_LINEARIZE_DUMP_LANGUAGE_PYTHON: ext = ".py";  break;
     }
-#else
-    if(filename.rfind('/') >= filename.length()) {
-      filename = "linear_" + filename;
-    }else{
-      filename.replace(filename.rfind('/'), 1, "/linear_");
-    }
-#endif
+    /* ticket #5927: Don't use the model name to prevent bad names for certain languages. */
+    filename = "linearized_model" + string(ext);
 
     FILE *fout = omc_fopen(filename.c_str(),"wb");
     assertStreamPrint(threadData,0!=fout,"Cannot open File %s",filename.c_str());
+
     if(do_data_recovery > 0){
         fprintf(fout, data->callback->linear_model_datarecovery_frame(), strX.c_str(), strU.c_str(), strZ0.c_str(), strA.c_str(), strB.c_str(), strC.c_str(), strD.c_str(), strCz.c_str(), strDz.c_str());
     }else{
-        fprintf(fout, data->callback->linear_model_frame(), strX.c_str(), strU.c_str(), strA.c_str(), strB.c_str(), strC.c_str(), strD.c_str());
+        fprintf(fout, data->callback->linear_model_frame(), strX.c_str(), strU.c_str(), strA.c_str(), strB.c_str(), strC.c_str(), strD.c_str(), (double) data->simulationInfo->stopTime);
     }
     if(ACTIVE_STREAM(LOG_STATS)) {
-      infoStreamPrint(LOG_STATS, 0, data->callback->linear_model_frame(), strX.c_str(), strU.c_str(), strA.c_str(), strB.c_str(), strC.c_str(), strD.c_str());
+      infoStreamPrint(LOG_STATS, 0, data->callback->linear_model_frame(), strX.c_str(), strU.c_str(), strA.c_str(), strB.c_str(), strC.c_str(), strD.c_str(), (double) data->simulationInfo->stopTime);
     }
+
     fflush(fout);
     fclose(fout);
 
+    if (data->modelData->runTestsuite) {
+        infoStreamPrint(LOG_STDOUT, 0, "Linear model is created.");
+    }
+    else {
+        char* cwd = getcwd(NULL, 0); /* call with NULL and 0 to allocate the buffer dynamically (no pathmax needed) */
+        if(!cwd) {
+          infoStreamPrint(LOG_STDOUT, 0, "Linear model %s is created, but getting the full path failed.", filename.c_str());
+        }
+        else {
+          infoStreamPrint(LOG_STDOUT, 0, "Linear model is created at %s/%s", cwd, filename.c_str());
+          free(cwd);
+        }
+        infoStreamPrint(LOG_STDOUT, 0, "The output format can be changed with the command line option --linearizationDumpLanguage.");
+        infoStreamPrint(LOG_STDOUT, 0, "The options are: --linearizationDumpLanguage=modelica, matlab, julia, python.");
+    }
     TRACE_POP
     return 0;
-}
+  }
 
 }

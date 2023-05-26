@@ -21,9 +21,10 @@ compareVars := {"revolute1.phi","revolute1.w","revolute1.a","revolute2.phi","rev
 echo(false);
 // setCommandLineOptions("+d=failtrace,showStatement +showErrorMessages"); getErrorString();
 
-b:=loadModel(packageName,{packageVersion});
+b:=loadModel(packageName,{if packageVersion == "" then "default" else packageVersion});
 if not b then
-  print("loadModel("+typeNameString(packageName)+","+packageVersion+")\n");
+  print("loadModel("+typeNameString(packageName)+",\""+packageVersion+"\") failed:\n");
+  print(getErrorString());
   print(OpenModelica.Scripting.cd() + "\n");
   exit(1);
 end if;
@@ -103,7 +104,7 @@ elseif (modelTestingType == OpenModelicaModelTesting.Kind.VerifiedSimulation) or
    (modelTestingType == OpenModelicaModelTesting.Kind.SuppressedVerifiedSimulation) then
   print(if debug then "got simulation test\n" else "");
 
-  if size(compareVars,1) > 0 and simulationRuntime <> OpenModelicaModelTesting.SimulationRuntime.Cpp then
+  if size(compareVars,1) > 0 then
     loadString("
     function toRegex
       input String str;
@@ -190,7 +191,7 @@ elseif (modelTestingType == OpenModelicaModelTesting.Kind.VerifiedSimulation) or
         res := false;
       end if;
     elseif diffAlgorithm == OpenModelicaModelTesting.DiffAlgorithm.diffSimulationResults then
-      print(if debug then "Trying diffSimulationResults.\n" else "");
+      print(if debug then "Trying diffSimulationResults(" + resultFile + ", " + referenceFile + ").\n" else "");
       (res,failVars) := OpenModelica.Scripting.diffSimulationResults(resultFile,referenceFile,csvFile+"diff.",relTol,vars=compareVars);
       print(if debug then "diffSimulationResults returns "+String(res)+".\n" else "");
     else

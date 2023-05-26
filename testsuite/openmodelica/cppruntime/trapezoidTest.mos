@@ -2,10 +2,11 @@
 // keywords: events common subexpressions
 // status: correct
 // teardown_command: rm -f *TrapezoidTest*
+// cflags: -d=-newInst
 
 setCommandLineOptions("+simCodeTarget=Cpp");
 
-loadModel(Modelica); getErrorString();
+loadModel(Modelica, {"3.2.3"}); getErrorString();
 
 loadString("
 model TrapezoidTest

@@ -32,25 +32,32 @@
 encapsulated uniontype NFType
 protected
   import Type = NFType;
+  import Array;
   import List;
-  import Restriction = NFRestriction;
-  import NFClass.Class;
+  import Class = NFClass;
   import IOStream;
+  import Util;
+  import NFClassTree.ClassTree;
 
 public
   import Dimension = NFDimension;
   import NFInstNode.InstNode;
   import Subscript = NFSubscript;
   import ComplexType = NFComplexType;
-  import ConvertDAE = NFConvertDAE;
-  import ComponentRef = NFComponentRef;
   import NFFunction.Function;
   import Record = NFRecord;
+  import UnorderedMap;
 
   type FunctionType = enumeration(
     FUNCTIONAL_PARAMETER "Function parameter of function type.",
     FUNCTION_REFERENCE   "Function name used to reference a function.",
     FUNCTIONAL_VARIABLE  "A variable that contains a function reference."
+  );
+
+  type Branch = enumeration(
+    NONE,
+    TRUE,
+    FALSE
   );
 
   record INTEGER
@@ -120,6 +127,20 @@ public
     Type subscriptedTy;
   end SUBSCRIPTED;
 
+  record CONDITIONAL_ARRAY
+    "A type that might be one of two types depending on a condition.
+     The two types are assumed to be array types with equal number of dimensions."
+    Type trueType;
+    Type falseType;
+    Branch matchedBranch;
+  end CONDITIONAL_ARRAY;
+
+  record UNTYPED
+    "Used by untyped components to store type information needed during typing."
+    InstNode typeNode;
+    array<Dimension> dimensions;
+  end UNTYPED;
+
   // TODO: Fix constants in uniontypes and use these wherever applicable to
   // speed up comparisons using referenceEq.
   //constant Type INTEGER_DEFAULT = NFType.INTEGER();
@@ -135,6 +156,9 @@ public
   algorithm
     ty := match ty
       case ARRAY() then ARRAY(ty.elementType, dim :: ty.dimensions);
+      case CONDITIONAL_ARRAY() then CONDITIONAL_ARRAY(liftArrayLeft(ty.trueType, dim),
+                                                      liftArrayLeft(ty.falseType, dim),
+                                                      ty.matchedBranch);
       else ARRAY(ty, {dim});
     end match;
   end liftArrayLeft;
@@ -151,6 +175,9 @@ public
 
     ty := match ty
       case ARRAY() then ARRAY(ty.elementType, listAppend(dims, ty.dimensions));
+      case CONDITIONAL_ARRAY() then CONDITIONAL_ARRAY(liftArrayLeftList(ty.trueType, dims),
+                                                      liftArrayLeftList(ty.falseType, dims),
+                                                      ty.matchedBranch);
       else ARRAY(ty, dims);
     end match;
   end liftArrayLeftList;
@@ -167,43 +194,63 @@ public
 
     ty := match ty
       case ARRAY() then ARRAY(ty.elementType, listAppend(ty.dimensions, dims));
+      case CONDITIONAL_ARRAY() then CONDITIONAL_ARRAY(liftArrayRightList(ty.trueType, dims),
+                                                      liftArrayRightList(ty.falseType, dims),
+                                                      ty.matchedBranch);
       else ARRAY(ty, dims);
     end match;
   end liftArrayRightList;
 
   function unliftArray
     input output Type ty;
-  protected
-    Type el_ty;
-    list<Dimension> dims;
   algorithm
-    ARRAY(el_ty, _ :: dims) := ty;
+    ty := match ty
+      local
+        list<Dimension> dims;
+        Type tty, fty;
 
-    if listEmpty(dims) then
-      ty := el_ty;
-    else
-      ty := ARRAY(el_ty, dims);
-    end if;
+      case ARRAY(dimensions = _ :: dims)
+        then if listEmpty(dims) then ty.elementType else ARRAY(ty.elementType, dims);
+
+      case CONDITIONAL_ARRAY()
+        algorithm
+          tty := unliftArray(ty.trueType);
+          fty := unliftArray(ty.falseType);
+        then
+          if isEqual(tty, fty) then tty else CONDITIONAL_ARRAY(tty, fty, ty.matchedBranch);
+
+    end match;
   end unliftArray;
 
   function unliftArrayN
     input Integer N;
     input output Type ty;
-  protected
-    Type el_ty;
-    list<Dimension> dims;
   algorithm
-    ARRAY(el_ty, dims) := ty;
-
-    for i in 1:N loop
-      dims := listRest(dims);
-    end for;
-
-    if listEmpty(dims) then
-      ty := el_ty;
-    else
-      ty := ARRAY(el_ty, dims);
+    if N == 0 then
+      return;
     end if;
+
+    ty := match ty
+      local
+        list<Dimension> dims;
+        Type tty, fty;
+
+      case ARRAY(dimensions = dims)
+        algorithm
+          for i in 1:N loop
+            dims := listRest(dims);
+          end for;
+        then
+          if listEmpty(dims) then ty.elementType else ARRAY(ty.elementType, dims);
+
+      case CONDITIONAL_ARRAY()
+        algorithm
+          tty := unliftArrayN(N, ty.trueType);
+          fty := unliftArrayN(N, ty.falseType);
+        then
+          if isEqual(tty, fty) then tty else CONDITIONAL_ARRAY(tty, fty, ty.matchedBranch);
+
+    end match;
   end unliftArrayN;
 
   function isInteger
@@ -262,6 +309,7 @@ public
   algorithm
     isScalar := match ty
       case ARRAY() then false;
+      case CONDITIONAL_ARRAY() then false;
       else true;
     end match;
   end isScalar;
@@ -272,9 +320,63 @@ public
   algorithm
     isArray := match ty
       case ARRAY() then true;
+      case CONDITIONAL_ARRAY() then true;
       else false;
     end match;
   end isArray;
+
+  function isConditionalArray
+    input Type ty;
+    output Boolean isConditionalArray;
+  algorithm
+    isConditionalArray := match ty
+      case CONDITIONAL_ARRAY() then true;
+      else false;
+    end match;
+  end isConditionalArray;
+
+  function setConditionalArrayTypes
+    input Type condType;
+    input Type trueType;
+    input Type falseType;
+    output Type outType;
+  protected
+    Branch matched_branch;
+  algorithm
+    CONDITIONAL_ARRAY(matchedBranch = matched_branch) := condType;
+    outType := CONDITIONAL_ARRAY(trueType, falseType, matched_branch);
+  end setConditionalArrayTypes;
+
+  function isMatchedBranch
+    input Boolean condition;
+    input Type condType;
+    output Boolean isMatched = true;
+  protected
+    Branch matched_branch;
+  algorithm
+    CONDITIONAL_ARRAY(matchedBranch = matched_branch) := condType;
+
+    if condition and matched_branch == Branch.FALSE or
+       not condition and matched_branch == Branch.TRUE then
+      isMatched := false;
+    end if;
+  end isMatchedBranch;
+
+  function simplifyConditionalArray
+    input Type ty;
+    output Type outType;
+  algorithm
+    outType := match ty
+      case CONDITIONAL_ARRAY()
+        then match ty.matchedBranch
+            case Branch.TRUE then ty.trueType;
+            case Branch.FALSE then ty.falseType;
+            else ty;
+          end match;
+
+      else ty;
+    end match;
+  end simplifyConditionalArray;
 
   function isVector
     "Return whether the type is a vector type or not, i.e. a 1-dimensional array."
@@ -283,6 +385,7 @@ public
   algorithm
     isVector := match ty
       case ARRAY(dimensions = {_}) then true;
+      case CONDITIONAL_ARRAY() then isVector(ty.trueType);
       else false;
     end match;
   end isVector;
@@ -293,6 +396,7 @@ public
   algorithm
     isMatrix := match ty
       case ARRAY(dimensions = {_, _}) then true;
+      case CONDITIONAL_ARRAY() then isMatrix(ty.trueType);
       else false;
     end match;
   end isMatrix;
@@ -306,6 +410,7 @@ public
         Dimension d1, d2;
 
       case ARRAY(dimensions = {d1, d2}) then Dimension.isEqualKnown(d1, d2);
+      case CONDITIONAL_ARRAY() then isSquareMatrix(ty.trueType);
       else false;
     end match;
   end isSquareMatrix;
@@ -316,6 +421,7 @@ public
   algorithm
     isEmpty := match ty
       case ARRAY() then List.exist(ty.dimensions, Dimension.isZero);
+      case CONDITIONAL_ARRAY() then isEmptyArray(ty.trueType);
       else false;
     end match;
   end isEmptyArray;
@@ -355,6 +461,30 @@ public
       else false;
     end match;
   end isComplex;
+
+  function isComplexArray
+    input Type ty;
+    output Boolean isComplex;
+  algorithm
+    isComplex := match ty
+      case ARRAY() then isComplex(ty.elementType);
+      else false;
+    end match;
+  end isComplexArray;
+
+  function complexNode
+    input Type ty;
+    output InstNode node;
+  algorithm
+    COMPLEX(cls = node) := ty;
+  end complexNode;
+
+  function complexComponents
+    input Type ty;
+    output array<InstNode> comps;
+  algorithm
+    comps := ClassTree.getComponents(Class.classTree(InstNode.getClass(complexNode(ty))));
+  end complexComponents;
 
   function isConnector
     input Type ty;
@@ -396,16 +526,6 @@ public
     end match;
   end isRecord;
 
-  function isScalarArray
-    input Type ty;
-    output Boolean isScalar;
-  algorithm
-    isScalar := match ty
-      case ARRAY(dimensions = {_}) then true;
-      else false;
-    end match;
-  end isScalarArray;
-
   function isBasic
     input Type ty;
     output Boolean isNumeric;
@@ -439,6 +559,7 @@ public
   algorithm
     isNumeric := match ty
       case ARRAY() then isBasicNumeric(ty.elementType);
+      case CONDITIONAL_ARRAY() then isNumeric(ty.trueType);
       else isBasicNumeric(ty);
     end match;
   end isNumeric;
@@ -487,6 +608,7 @@ public
   algorithm
     isKnown := match ty
       case UNKNOWN() then false;
+      case UNTYPED() then false;
       else true;
     end match;
   end isKnown;
@@ -500,6 +622,17 @@ public
       else false;
     end match;
   end isPolymorphic;
+
+  function isPolymorphicNamed
+    input Type ty;
+    input String name;
+    output Boolean res;
+  algorithm
+    res := match ty
+      case POLYMORPHIC() then name == ty.name;
+      else false;
+    end match;
+  end isPolymorphicNamed;
 
   function firstTupleType
     input Type ty;
@@ -532,6 +665,7 @@ public
   algorithm
     elementTy := match ty
       case ARRAY() then ty.elementType;
+      case CONDITIONAL_ARRAY() then arrayElementType(ty.trueType);
       else ty;
     end match;
   end arrayElementType;
@@ -545,6 +679,10 @@ public
   algorithm
     ty := match arrayTy
       case ARRAY() then liftArrayLeftList(elementTy, arrayTy.dimensions);
+      case CONDITIONAL_ARRAY()
+        then CONDITIONAL_ARRAY(setArrayElementType(arrayTy.trueType, elementTy),
+                               setArrayElementType(arrayTy.falseType, elementTy),
+                               arrayTy.matchedBranch);
       else elementTy;
     end match;
   end setArrayElementType;
@@ -555,10 +693,21 @@ public
   algorithm
     elementTy := match ty
       case ARRAY() then ty.elementType;
+      case CONDITIONAL_ARRAY() then elementType(ty.trueType);
       case FUNCTION() then elementType(Function.returnType(ty.fn));
       else ty;
     end match;
   end elementType;
+
+  function copyElementType
+    "Sets the element type of the destination type to the element type of the
+     source type."
+    input Type dstType;
+    input Type srcType;
+    output Type ty;
+  algorithm
+    ty := setArrayElementType(dstType, arrayElementType(srcType));
+  end copyElementType;
 
   function arrayDims
     input Type ty;
@@ -568,6 +717,8 @@ public
       case ARRAY() then ty.dimensions;
       case FUNCTION() then arrayDims(Function.returnType(ty.fn));
       case METABOXED() then arrayDims(ty.ty);
+      case CONDITIONAL_ARRAY() then List.fill(Dimension.UNKNOWN(), dimensionCount(ty.trueType));
+      case UNTYPED() then arrayList(ty.dimensions);
       else {};
     end match;
   end arrayDims;
@@ -609,8 +760,10 @@ public
   algorithm
     dimCount := match ty
       case ARRAY() then listLength(ty.dimensions);
+      case CONDITIONAL_ARRAY() then dimensionCount(ty.trueType);
       case FUNCTION() then dimensionCount(Function.returnType(ty.fn));
       case METABOXED() then dimensionCount(ty.ty);
+      case UNTYPED() then arrayLength(ty.dimensions);
       else 0;
     end match;
   end dimensionCount;
@@ -627,6 +780,7 @@ public
   algorithm
     isKnown := match ty
       case ARRAY() then List.all(ty.dimensions, function Dimension.isKnown(allowExp = false));
+      case CONDITIONAL_ARRAY() then false;
       case FUNCTION() then hasKnownSize(Function.returnType(ty.fn));
       else true;
     end match;
@@ -638,6 +792,7 @@ public
   algorithm
     hasZero := match ty
       case ARRAY() then List.exist(ty.dimensions, Dimension.isZero);
+      case CONDITIONAL_ARRAY() then hasZeroDimension(ty.trueType) and hasZeroDimension(ty.falseType);
       else false;
     end match;
   end hasZeroDimension;
@@ -675,6 +830,13 @@ public
       case METABOXED()
         algorithm
           ty.ty := mapDims(ty.ty, func);
+        then
+          ();
+
+      case CONDITIONAL_ARRAY()
+        algorithm
+          ty.trueType := mapDims(ty.trueType, func);
+          ty.falseType := mapDims(ty.falseType, func);
         then
           ();
 
@@ -725,15 +887,20 @@ public
       case Type.ENUMERATION() then "enumeration " + AbsynUtil.pathString(ty.typePath) +
         "(" + stringDelimitList(ty.literals, ", ") + ")";
       case Type.ENUMERATION_ANY() then "enumeration(:)";
-      case Type.ARRAY() then toString(ty.elementType) + "[" + stringDelimitList(List.map(ty.dimensions, Dimension.toString), ", ") + "]";
+      case Type.ARRAY() then List.toString(ty.dimensions, Dimension.toString, toString(ty.elementType), "[", ", ", "]", false);
       case Type.TUPLE() then "(" + stringDelimitList(List.map(ty.types, toString), ", ") + ")";
       case Type.NORETCALL() then "()";
       case Type.UNKNOWN() then "unknown()";
       case Type.COMPLEX() then AbsynUtil.pathString(InstNode.scopePath(ty.cls));
       case Type.FUNCTION() then Function.typeString(ty.fn);
       case Type.METABOXED() then "#" + toString(ty.ty);
-      case Type.POLYMORPHIC() then "<" + ty.name + ">";
+      case Type.POLYMORPHIC()
+        then if Util.stringStartsWith("__", ty.name) then
+          substring(ty.name, 3, stringLength(ty.name)) else "<" + ty.name + ">";
+
       case Type.ANY() then "$ANY$";
+      case Type.CONDITIONAL_ARRAY() then toString(ty.trueType) + "|" + toString(ty.falseType);
+      case Type.UNTYPED() then List.toString(arrayList(ty.dimensions), Dimension.toString, InstNode.name(ty.typeNode), "[", ", ", "]", false);
       else
         algorithm
           Error.assertion(false, getInstanceName() + " got unknown type: " + anyString(ty), sourceInfo());
@@ -752,17 +919,19 @@ public
       case Type.STRING() then "String";
       case Type.BOOLEAN() then "Boolean";
       case Type.CLOCK() then "Clock";
-      case Type.ENUMERATION() then "'" + AbsynUtil.pathString(ty.typePath) + "'";
+      case Type.ENUMERATION() then Util.makeQuotedIdentifier(AbsynUtil.pathString(ty.typePath));
       case Type.ENUMERATION_ANY() then "enumeration(:)";
-      case Type.ARRAY() then toString(ty.elementType) + "[" + stringDelimitList(List.map(ty.dimensions, Dimension.toString), ", ") + "]";
-      case Type.TUPLE() then "(" + stringDelimitList(List.map(ty.types, toString), ", ") + ")";
+      case Type.ARRAY() then List.toString(ty.dimensions, Dimension.toFlatString, toFlatString(ty.elementType), "[", ", ", "]", false);
+      case Type.TUPLE() then "(" + stringDelimitList(List.map(ty.types, toFlatString), ", ") + ")";
       case Type.NORETCALL() then "()";
       case Type.UNKNOWN() then "unknown()";
-      case Type.COMPLEX() then "'" + AbsynUtil.pathString(InstNode.scopePath(ty.cls)) + "'";
+      case Type.COMPLEX() then Util.makeQuotedIdentifier(AbsynUtil.pathString(InstNode.scopePath(ty.cls)));
       case Type.FUNCTION() then Function.typeString(ty.fn);
       case Type.METABOXED() then "#" + toFlatString(ty.ty);
       case Type.POLYMORPHIC() then "<" + ty.name + ">";
       case Type.ANY() then "$ANY$";
+      case Type.CONDITIONAL_ARRAY() then toFlatString(ty.trueType) + "|" + toFlatString(ty.falseType);
+      case Type.UNTYPED() then List.toString(arrayList(ty.dimensions), Dimension.toFlatString, InstNode.name(ty.typeNode), "[", ", ", "]", false);
       else
         algorithm
           Error.assertion(false, getInstanceName() + " got unknown type: " + anyString(ty), sourceInfo());
@@ -771,6 +940,20 @@ public
     end match;
   end toFlatString;
 
+  function dimensionsToFlatString
+    input Type ty;
+    output String str;
+  algorithm
+    str := match ty
+      case Type.ARRAY() then stringDelimitList(List.map(ty.dimensions, Dimension.toFlatString), ", ");
+      else
+        algorithm
+          Error.assertion(false, getInstanceName() + " got unknown or not array type: " + anyString(ty), sourceInfo());
+        then
+          fail();
+    end match;
+  end dimensionsToFlatString;
+
   function toFlatDeclarationStream
     input Type ty;
     input output IOStream.IOStream s;
@@ -778,12 +961,17 @@ public
     s := match ty
       local
         Integer index;
+        String name;
+        ComplexType complexTy;
+        Absyn.Path path;
+        InstNode constructor, destructor;
+        Function f;
 
       case ENUMERATION()
         algorithm
-          s := IOStream.append(s, "type '");
-          s := IOStream.append(s, AbsynUtil.pathString(ty.typePath));
-          s := IOStream.append(s, "' = enumeration(");
+          s := IOStream.append(s, "type ");
+          s := IOStream.append(s, Util.makeQuotedIdentifier(AbsynUtil.pathString(ty.typePath)));
+          s := IOStream.append(s, " = enumeration(");
 
           if not listEmpty(ty.literals) then
             s := IOStream.append(s, listHead(ty.literals));
@@ -801,19 +989,35 @@ public
       case COMPLEX(complexTy = ComplexType.RECORD())
         then InstNode.toFlatStream(ty.cls, s);
 
+      case COMPLEX(complexTy = complexTy as ComplexType.EXTERNAL_OBJECT())
+        algorithm
+          path := InstNode.scopePath(ty.cls);
+          name := Util.makeQuotedIdentifier(AbsynUtil.pathString(path));
+          s := IOStream.append(s, "class ");
+          s := IOStream.append(s, name);
+          s := IOStream.append(s, "\n  extends ExternalObject;\n\n");
+          {f} := Function.typeNodeCache(complexTy.constructor);
+          s := Function.toFlatStream(f, s, overrideName="constructor");
+          s := IOStream.append(s, ";\n\n");
+          {f} := Function.typeNodeCache(complexTy.destructor);
+          s := Function.toFlatStream(f, s, overrideName="destructor");
+          s := IOStream.append(s, ";\n\nend ");
+          s := IOStream.append(s, name);
+        then s;
+
       case SUBSCRIPTED()
         algorithm
-          s := IOStream.append(s, "function '");
-          s := IOStream.append(s, ty.name);
-          s := IOStream.append(s, "'\n");
+          s := IOStream.append(s, "function ");
+          s := IOStream.append(s, Util.makeQuotedIdentifier(ty.name));
+          s := IOStream.append(s, "\n");
 
-          s := IOStream.append(s, "input ");
+          s := IOStream.append(s, "  input ");
           s := IOStream.append(s, toString(ty.ty));
           s := IOStream.append(s, " exp;\n");
 
           index := 1;
           for sub in ty.subs loop
-            s := IOStream.append(s, "input ");
+            s := IOStream.append(s, "  input ");
             s := IOStream.append(s, toString(sub));
             s := IOStream.append(s, " s");
             s := IOStream.append(s, String(index));
@@ -821,16 +1025,15 @@ public
             index := index + 1;
           end for;
 
-          s := IOStream.append(s, "output ");
+          s := IOStream.append(s, "  output ");
           s := IOStream.append(s, toString(ty.subscriptedTy));
           s := IOStream.append(s, " result = exp[");
           s := IOStream.append(s,
             stringDelimitList(list("s" + String(i) for i in 1:listLength(ty.subs)), ","));
           s := IOStream.append(s, "];\n");
 
-          s := IOStream.append(s, "end '");
-          s := IOStream.append(s, ty.name);
-          s := IOStream.append(s, "'");
+          s := IOStream.append(s, "end ");
+          s := IOStream.append(s, Util.makeQuotedIdentifier(ty.name));
         then
           s;
 
@@ -893,31 +1096,56 @@ public
     "Reduces a type's dimensions based on the given list of subscripts."
     input output Type ty;
     input list<Subscript> subs;
+    input Boolean failOnError = true;
   protected
     Dimension dim;
     list<Dimension> dims, subbed_dims = {};
+    Type el_ty;
   algorithm
-    if listEmpty(subs) or isUnknown(ty) then
+    if listEmpty(subs) then
       return;
     end if;
 
-    dims := arrayDims(ty);
+    ty := match ty
+      case ARRAY(dimensions = dims)
+        algorithm
+          for sub in subs loop
+            dim :: dims := dims;
 
-    for sub in subs loop
-      dim :: dims := dims;
+            subbed_dims := match sub
+              case Subscript.INDEX() then subbed_dims;
+              case Subscript.SLICE() then Subscript.toDimension(sub) :: subbed_dims;
+              case Subscript.WHOLE() then dim :: subbed_dims;
+              case Subscript.SPLIT_INDEX() then subbed_dims;
+            end match;
+          end for;
 
-      subbed_dims := match sub
-        case Subscript.INDEX() then subbed_dims;
-        case Subscript.SLICE() then Subscript.toDimension(sub) :: subbed_dims;
-        case Subscript.WHOLE() then dim :: subbed_dims;
-      end match;
-    end for;
+          el_ty := arrayElementType(ty);
+        then
+          if not (listEmpty(subbed_dims) and listEmpty(dims)) then
+            ARRAY(el_ty, listAppend(listReverse(subbed_dims), dims))
+          else
+            el_ty;
 
-    ty := arrayElementType(ty);
+      case CONDITIONAL_ARRAY()
+        then CONDITIONAL_ARRAY(subscript(ty.trueType, subs),
+                               subscript(ty.falseType, subs),
+                               ty.matchedBranch);
 
-    if not (listEmpty(subbed_dims) and listEmpty(dims)) then
-      ty := ARRAY(ty, listAppend(listReverse(subbed_dims), dims));
-    end if;
+      case METABOXED() then METABOXED(subscript(ty.ty, subs));
+      case UNKNOWN() then ty;
+
+      else
+        algorithm
+          if failOnError then
+            Error.assertion(false, getInstanceName() +
+              " got unsubscriptable type " + toString(ty) + "\n", sourceInfo());
+            fail();
+          end if;
+        then
+          Type.UNKNOWN();
+
+    end match;
   end subscript;
 
   function isEqual
@@ -946,6 +1174,9 @@ public
         then isEqual(ty1.elementType, ty2.elementType) and
              List.isEqualOnTrue(ty1.dimensions, ty2.dimensions, Dimension.isEqualKnown);
 
+      case (CONDITIONAL_ARRAY(), CONDITIONAL_ARRAY())
+        then isEqual(ty1.trueType, ty2.trueType) and isEqual(ty1.falseType, ty2.falseType);
+
       case (TUPLE(names = SOME(names1)), TUPLE(names = SOME(names2)))
         then List.isEqualOnTrue(names1, names2, stringEq) and
              List.isEqualOnTrue(ty1.types, ty2.types, isEqual);
@@ -955,6 +1186,11 @@ public
 
       case (TUPLE(), TUPLE()) then false;
       case (COMPLEX(), COMPLEX()) then InstNode.isSame(ty1.cls, ty2.cls);
+
+      case (UNTYPED(), UNTYPED())
+        then InstNode.refEqual(ty1.typeNode, ty2.typeNode) and
+             Array.isEqualOnTrue(ty1.dimensions, ty2.dimensions, Dimension.isEqualKnown);
+
       else true;
     end match;
   end isEqual;
@@ -969,6 +1205,7 @@ public
       case BOOLEAN() then true;
       case ENUMERATION() then true;
       case ARRAY() then isDiscrete(ty.elementType);
+      case CONDITIONAL_ARRAY() then isDiscrete(ty.trueType);
       case FUNCTION() then isDiscrete(Function.returnType(ty.fn));
       else false;
     end match;
@@ -984,33 +1221,52 @@ public
         then InstNode.getType(Class.lookupElement(name, InstNode.getClass(recordType.cls)));
       case ARRAY()
         then liftArrayLeftList(lookupRecordFieldType(name, recordType.elementType), recordType.dimensions);
+      case CONDITIONAL_ARRAY()
+        then CONDITIONAL_ARRAY(lookupRecordFieldType(name, recordType.trueType),
+                               lookupRecordFieldType(name, recordType.falseType),
+                               recordType.matchedBranch);
     end match;
   end lookupRecordFieldType;
 
   function recordFields
     input Type recordType;
-    output list<Record.Field> fields;
+    output list<Record.Field> field_lst;
   algorithm
-    fields := match recordType
-      case COMPLEX(complexTy = ComplexType.RECORD(fields = fields)) then fields;
+    field_lst := match recordType
+      local
+        array<Record.Field> fields;
+      case COMPLEX(complexTy = ComplexType.RECORD(fields = fields)) then arrayList(fields);
       else {};
     end match;
   end recordFields;
 
   function setRecordFields
-    input list<Record.Field> fields;
+    input list<Record.Field> field_lst;
     input output Type recordType;
   algorithm
     recordType := match recordType
       local
         InstNode rec_node;
+        UnorderedMap<String, Integer> indexMap;
+        array<Record.Field> fields = listArray(field_lst);
 
-      case COMPLEX(complexTy = ComplexType.RECORD(constructor = rec_node))
-        then COMPLEX(recordType.cls, ComplexType.RECORD(rec_node, fields));
+      case COMPLEX(complexTy = ComplexType.RECORD(constructor = rec_node)) algorithm
+        indexMap := UnorderedMap.new<Integer>(stringHashDjb2, stringEq, arrayLength(fields));
+        updateRecordFieldsIndexMap(fields, indexMap);
+      then COMPLEX(recordType.cls, ComplexType.RECORD(rec_node, fields, indexMap));
 
       else recordType;
     end match;
   end setRecordFields;
+
+  function updateRecordFieldsIndexMap
+    input array<Record.Field> fields;
+    input UnorderedMap<String, Integer> indexMap;
+  algorithm
+   for i in 1:arrayLength(fields) loop
+      UnorderedMap.add(Record.Field.name(fields[i]), i, indexMap);
+    end for;
+  end updateRecordFieldsIndexMap;
 
   function enumName
     input Type ty;
@@ -1034,7 +1290,14 @@ public
     output Type boxedType;
   algorithm
     boxedType := match ty
+      case STRING() then ty;
+      case TUPLE() then TUPLE(list(box(t) for t in ty.types), ty.names);
+      case FUNCTION() then ty;
       case METABOXED() then ty;
+      case POLYMORPHIC() then ty;
+      case ANY() then ty;
+      case CONDITIONAL_ARRAY()
+        then CONDITIONAL_ARRAY(box(ty.trueType), box(ty.falseType), ty.matchedBranch);
       else METABOXED(ty);
     end match;
   end box;
@@ -1085,6 +1348,58 @@ public
     strl := "subscript" :: strl;
     str := stringAppendList(strl);
   end subscriptedTypeName;
+
+  function simplify
+    input output Type ty;
+  algorithm
+    () := match ty
+      case ARRAY()
+        algorithm
+          ty.dimensions := list(Dimension.simplify(d) for d in ty.dimensions);
+        then
+          ();
+
+      else ();
+    end match;
+  end simplify;
+
+  function sizeOf
+    input Type ty;
+    output Integer sz;
+    function fold_comp_size
+      input InstNode comp;
+      input Integer sz;
+      output Integer outSize = sz + sizeOf(InstNode.getType(comp));
+    end fold_comp_size;
+  algorithm
+    sz := match ty
+      case INTEGER() then 1;
+      case REAL() then 1;
+      case STRING() then 1;
+      case BOOLEAN() then 1;
+      case CLOCK() then 1;
+      case ENUMERATION() then 1;
+      case ARRAY() then sizeOf(ty.elementType) * Dimension.sizesProduct(ty.dimensions);
+      case TUPLE() then List.fold(list(sizeOf(t) for t in ty.types), intAdd, 0);
+      case COMPLEX()
+        then ClassTree.foldComponents(Class.classTree(InstNode.getClass(ty.cls)), fold_comp_size, 0);
+      else 0;
+    end match;
+  end sizeOf;
+
+  function complexSize
+    "Returns the size of complex part of the type as an option.
+    Arrays of complex will only return the size of the contained complex type.
+    Non-complex types will return NONE()."
+    input Type ty;
+    output Option<Integer> sz;
+  algorithm
+    sz := match ty
+      case ARRAY()    then complexSize(ty.elementType);
+      case COMPLEX()  then SOME(sizeOf(ty));
+                      else NONE();
+    end match;
+  end complexSize;
 
   annotation(__OpenModelica_Interface="frontend");
 end NFType;

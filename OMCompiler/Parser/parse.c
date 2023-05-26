@@ -45,7 +45,7 @@
 
 #include "errorext.h"
 #include "systemimpl.h"
-#include "omc_file.h"
+#include "util/omc_file.h"
 
 pthread_once_t parser_once_create_key = PTHREAD_ONCE_INIT;
 pthread_key_t modelicaParserKey;
@@ -261,7 +261,7 @@ static void handleParseError(pANTLR3_BASE_RECOGNIZER recognizer, pANTLR3_UINT8 *
 
 }
 
-static void* parseStream(pANTLR3_INPUT_STREAM input, int langStd, int runningTestsuite)
+static void* parseStream(pANTLR3_INPUT_STREAM input, int langStd, int strict, int runningTestsuite)
 {
   pANTLR3_LEXER               pLexer;
   pANTLR3_COMMON_TOKEN_STREAM tstream;
@@ -277,6 +277,7 @@ static void* parseStream(pANTLR3_INPUT_STREAM input, int langStd, int runningTes
   ModelicaParser_filename_C = strdup(ModelicaParser_filename_C);
   ModelicaParser_filename_OMC = mmc_mk_scon(ModelicaParser_filename_C);
   ModelicaParser_langStd = langStd;
+  ModelicaParser_strict = strict;
 
   if (ModelicaParser_flags & PARSE_META_MODELICA) {
     lxr = MetaModelica_LexerNew(input);
@@ -329,6 +330,8 @@ static void* parseStream(pANTLR3_INPUT_STREAM input, int langStd, int runningTes
     res = psr->name_path_end(psr);
   } else if (ModelicaParser_flags & PARSE_CREF) {
     res = psr->component_reference_end(psr);
+  } else if (ModelicaParser_flags & PARSE_MODIFIER) {
+    res = psr->element_modification_or_replaceable(psr);
   } else {
     res = psr->stored_definition(psr);
   }
@@ -355,7 +358,7 @@ static void* parseStream(pANTLR3_INPUT_STREAM input, int langStd, int runningTes
   return res;
 }
 
-static void* parseString(const char* data, const char* interactiveFilename, int flags, int langStd, int runningTestsuite)
+static void* parseString(const char* data, const char* interactiveFilename, int flags, int langStd, int strict, int runningTestsuite)
 {
   bool debug         = false; //check_debug_flag("parsedebug");
   time_t current_time = time(NULL);
@@ -388,27 +391,32 @@ static void* parseString(const char* data, const char* interactiveFilename, int 
     fprintf(stderr, "Unable to open file %s\n", members.filename_C); fflush(stderr);
     return NULL;
   }
-  return parseStream(input, langStd, runningTestsuite);
+  return parseStream(input, langStd, strict, runningTestsuite);
 }
 
-#ifdef OMENCRYPTION
+#ifdef OM_ENABLE_ENCRYPTION
 #include "../../OMEncryption/Parser/parseEncryption.c"
 #endif
 
-static void* parseFile(const char* fileName, const char* infoName, int flags, const char *encoding, int langStd, int runningTestsuite, const char* libraryPath, void* lveInstance)
+static void* parseFile(const char* fileName, const char* infoName, int flags, const char *encoding, int langStd, int strict, int runningTestsuite, const char* libraryPath, void* lveInstance)
 {
   bool debug         = false; //check_debug_flag("parsedebug");
+  bool genBootstrappingSources = false;
 
   pANTLR3_UINT8               fName;
   pANTLR3_INPUT_STREAM        input;
   int len = 0;
+  const char *OPENMODELICA_BACKEND_STUBS;
   parser_members members;
   pthread_once(&parser_once_create_key,make_key);
   pthread_setspecific(modelicaParserKey,&members);
 
+  OPENMODELICA_BACKEND_STUBS = getenv("OPENMODELICA_BACKEND_STUBS");
+  genBootstrappingSources = OPENMODELICA_BACKEND_STUBS && 0 == strcmp(OPENMODELICA_BACKEND_STUBS, "1");
+
   members.encoding = encoding;
   members.filename_C = fileName;
-  members.filename_C_testsuiteFriendly = infoName;
+  members.filename_C_testsuiteFriendly = genBootstrappingSources ? SystemImpl__basename(infoName) : infoName;
   members.flags = flags;
   members.readonly = !SystemImpl__regularFileWritable(fileName);
   omc_first_comment = 0;
@@ -419,9 +427,9 @@ static void* parseFile(const char* fileName, const char* infoName, int flags, co
   if (len > 3 && 0==strcmp(fileName+len-4,".mof"))
     ModelicaParser_flags |= PARSE_FLAT;
 
-#ifdef OMENCRYPTION
+#ifdef OM_ENABLE_ENCRYPTION
   if (len > 3 && 0==strcmp(fileName+len-4,".moc")) {
-    return parseEncryptedFile(fileName, langStd, runningTestsuite, libraryPath, lveInstance);
+    return parseEncryptedFile(fileName, langStd, strict, runningTestsuite, libraryPath, lveInstance);
   }
 #else
   if (len > 3 && 0==strcmp(fileName+len-4,".moc")) {
@@ -440,8 +448,9 @@ static void* parseFile(const char* fileName, const char* infoName, int flags, co
   struct stat st;
 #endif
   omc_stat(members.filename_C, &st);
-  members.timestamp = mmc_mk_rcon((double)st.st_mtime);
-  if (0 == st.st_size) return parseString("",members.filename_C,ModelicaParser_flags, langStd, runningTestsuite);
+  members.timestamp = genBootstrappingSources ? mmc_mk_rcon((double)0.0) : mmc_mk_rcon((double)st.st_mtime);
+  members.filename_C = genBootstrappingSources ? members.filename_C_testsuiteFriendly : members.filename_C;
+  if (0 == st.st_size) return parseString("",members.filename_C,ModelicaParser_flags, langStd, strict, runningTestsuite);
 
   fName  = (pANTLR3_UINT8)fileName;
 #if defined(ANTLR_C_VERSION_3_2)
@@ -454,13 +463,13 @@ static void* parseFile(const char* fileName, const char* infoName, int flags, co
   if ( input == NULL ) {
     return NULL;
   }
-  return parseStream(input, langStd, runningTestsuite);
+  return parseStream(input, langStd, strict, runningTestsuite);
 }
 
 int startLibraryVendorExecutable(const char* path, void** lveInstance)
 {
   *lveInstance = mmc_mk_some(0);
-#ifdef OMENCRYPTION
+#ifdef OM_ENABLE_ENCRYPTION
   return startLibraryVendorExecutableImpl(path, lveInstance);
 #endif
   return 0;
@@ -468,22 +477,23 @@ int startLibraryVendorExecutable(const char* path, void** lveInstance)
 
 int checkLVEToolLicense(void** lveInstance, const char* packageName)
 {
-#ifdef OMENCRYPTION
+#ifdef OM_ENABLE_ENCRYPTION
   return checkLVEToolLicenseImpl(lveInstance, packageName);
 #endif
   return 0;
 }
 
-void checkLVEToolFeature(void** lveInstance, const char* feature)
+int checkLVEToolFeature(void** lveInstance, const char* feature)
 {
-#ifdef OMENCRYPTION
-  checkLVEToolFeatureImpl(lveInstance, feature);
+#ifdef OM_ENABLE_ENCRYPTION
+  return checkLVEToolFeatureImpl(lveInstance, feature);
 #endif
+  return 0;
 }
 
 void stopLibraryVendorExecutable(void** lveInstance)
 {
-#ifdef OMENCRYPTION
+#ifdef OM_ENABLE_ENCRYPTION
   stopLibraryVendorExecutableImpl(lveInstance);
 #endif
 }

@@ -8,7 +8,7 @@ Generated on |date| at |time|
 
 .. only :: html or epub
 
- .. include :: releaselink.inc
+ .. include :: omreleaselink.inc
 
 .. only :: latex
 
@@ -18,10 +18,12 @@ Generated on |date| at |time|
   :maxdepth: 2
 
   introduction
+  packagemanager
   omedit
   plotting
   solving
   debugger
+  porting
   graphs
   fmitlm
   omsimulator
@@ -41,7 +43,6 @@ Generated on |date| at |time|
   omjulia
   jupyteropenmodelica
   scripting_api
-  packagemanager
   omchelptext
   simulationflags
   technical_details
@@ -51,7 +52,7 @@ Generated on |date| at |time|
 .. toctree::
   :maxdepth: 1
 
-  tracreleases
+  githubreleases
   contributors
 
 .. only:: html or epub

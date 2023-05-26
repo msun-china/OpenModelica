@@ -1,6 +1,7 @@
 // name: PNlib.Test12
 // keywords: PNlib, continuous
 // status: correct
+// cflags: -d=-newInst
 
 loadFile("PNlib.mo"); getErrorString();
 simulate(PNlib.Examples.Test12); getErrorString();
@@ -21,7 +22,7 @@ res := OpenModelica.Scripting.compareSimulationResults("PNlib.Examples.Test12_re
     "T3.instantaneousSpeed",
     "T3.maximumSpeed"
   }); getErrorString();
-  
+
 // Result:
 // true
 // ""

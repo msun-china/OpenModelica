@@ -35,6 +35,7 @@ encapsulated uniontype NFConnections
   import FlatModel = NFFlatModel;
   import ComponentRef = NFComponentRef;
   import Equation = NFEquation;
+  import NFPrefixes.ConnectorType;
 
 protected
   import Connections = NFConnections;
@@ -43,7 +44,7 @@ protected
   import Expression = NFExpression;
   import Flags;
   import MetaModelica.Dangerous.listReverseInPlace;
-  import NFComponent.Component;
+  import Component = NFComponent;
   import NFInstNode.InstNode;
   import Type = NFType;
 
@@ -89,46 +90,30 @@ public
     conns.broken := broken;
   end addBroken;
 
-  function collect
+  function collectConnections
     input output FlatModel flatModel;
+    input IsDeleted isDeleted;
           output Connections conns = new();
+
+    partial function IsDeleted
+      input ComponentRef cref;
+      output Boolean res;
+    end IsDeleted;
   protected
-    Component comp;
-    ComponentRef cr, lhs, rhs;
-    Connector c1, c2;
+    ComponentRef lhs, rhs;
     DAE.ElementSource source;
     list<Equation> eql = {};
-    list<Connector> cl1, cl2;
-    Expression e1, e2;
     Type ty1, ty2;
-    Boolean b1, b2;
   algorithm
-    // Collect all flow variables.
-    for var in flatModel.variables loop
-      comp := InstNode.component(ComponentRef.node(var.name));
-
-      if Component.isFlow(comp) then
-        c1 := Connector.fromFacedCref(var.name, var.ty,
-          NFConnector.Face.INSIDE, ElementSource.createElementSource(Component.info(comp)));
-        conns := addFlow(c1, conns);
-      end if;
-    end for;
-
     // Collect all connects.
     for eq in flatModel.equations loop
       eql := match eq
         case Equation.CONNECT(lhs = Expression.CREF(ty = ty1, cref = lhs),
                               rhs = Expression.CREF(ty = ty2, cref = rhs), source = source)
           algorithm
-            if not (ComponentRef.isDeleted(lhs) or ComponentRef.isDeleted(rhs)) then
-              cl1 := makeConnectors(lhs, ty1, source);
-              cl2 := makeConnectors(rhs, ty2, source);
-
-              for c1 in cl1 loop
-                c2 :: cl2 := cl2;
-                conns := addConnection(Connection.CONNECTION(c1, c2), conns);
-              end for;
-            end if;
+            lhs := ComponentRef.evaluateSubscripts(lhs);
+            rhs := ComponentRef.evaluateSubscripts(rhs);
+            conns.connections := makeConnections(lhs, ty1, rhs, ty2, source, isDeleted, conns.connections);
           then
             eql;
 
@@ -139,7 +124,59 @@ public
     if not listEmpty(conns.connections) then
       flatModel.equations := listReverseInPlace(eql);
     end if;
-  end collect;
+  end collectConnections;
+
+  function collectFlows
+    input FlatModel flatModel;
+    input output Connections conns;
+  protected
+    Component comp;
+    Connector c;
+  algorithm
+    // Collect all flow variables.
+    for var in flatModel.variables loop
+      comp := InstNode.component(ComponentRef.node(var.name));
+
+      if Component.isFlow(comp) then
+        c := Connector.fromFacedCref(var.name, var.ty,
+          NFConnector.Face.INSIDE, ElementSource.createElementSource(Component.info(comp)));
+        conns := addFlow(c, conns);
+      end if;
+    end for;
+  end collectFlows;
+
+  function makeConnections
+    input ComponentRef lhsCref;
+    input Type lhsType;
+    input ComponentRef rhsCref;
+    input Type rhsType;
+    input DAE.ElementSource source;
+    input IsDeleted isDeleted;
+    input output list<Connection> connections = {};
+
+    partial function IsDeleted
+      input ComponentRef cref;
+      output Boolean res;
+    end IsDeleted;
+  protected
+    list<Connector> cl1, cl2;
+    Connector c2;
+  algorithm
+    if isDeleted(lhsCref) or isDeleted(rhsCref) then
+      return;
+    end if;
+
+    cl1 := makeConnectors(lhsCref, lhsType, source);
+    cl2 := makeConnectors(rhsCref, rhsType, source);
+
+    for c1 in cl1 loop
+      c2 :: cl2 := cl2;
+
+      if not (isDeleted(c1.name) or isDeleted(c2.name)) then
+        connections := Connection.CONNECTION(c1, c2) :: connections;
+      end if;
+    end for;
+  end makeConnections;
 
   function makeConnectors
     input ComponentRef cref;
@@ -151,14 +188,12 @@ public
     ComponentRef cr;
     Boolean expanded;
   algorithm
-    cr := ComponentRef.evaluateSubscripts(cref);
-
     if not Flags.isSet(Flags.NF_SCALARIZE) then
-      connectors := {Connector.fromCref(cr, ComponentRef.getSubscriptedType(cr), source)};
+      connectors := {Connector.fromCref(cref, ComponentRef.getSubscriptedType(cref), source)};
       return;
     end if;
 
-    cref_exp := Expression.CREF(ComponentRef.getSubscriptedType(cr), cr);
+    cref_exp := Expression.CREF(ComponentRef.getSubscriptedType(cref), cref);
     (cref_exp, expanded) := ExpandExp.expand(cref_exp);
 
     if expanded then
@@ -171,6 +206,118 @@ public
     end if;
   end makeConnectors;
 
+  function split
+    input output Connections conns;
+  algorithm
+    conns.flows := List.mapFlat(conns.flows, Connector.split);
+    conns.connections := List.mapFlat(conns.connections, Connection.split);
+  end split;
+
+  function connectCount
+    input Connector conn;
+    input UnorderedMap<Connector, Integer> connectCounts;
+    output Integer count;
+  algorithm
+    count := UnorderedMap.getOrDefault(conn, connectCounts, 0);
+  end connectCount;
+
+  function scalarize
+    input output Connections conns;
+    input Boolean keepSingleConnectedArrays;
+  protected
+    UnorderedMap<Connector, Integer> connect_counts;
+    list<Connector> flows = {};
+    list<Connection> connections = {};
+    Integer count;
+  algorithm
+    if keepSingleConnectedArrays then
+      connect_counts := analyseArrayConnections(conns);
+
+      for f in conns.flows loop
+        count := connectCount(f, connect_counts);
+
+        if count == 0 then
+          flows := f :: flows;
+        elseif count > 1 then
+          flows := listAppend(Connector.scalarize(f), flows);
+        end if;
+      end for;
+
+      for c in conns.connections loop
+        if not ConnectorType.isStream(c.lhs.cty) and
+           connectCount(c.lhs, connect_counts) == 1 and connectCount(c.rhs, connect_counts) == 1 then
+          connections := c :: connections;
+        else
+          connections := listAppend(Connection.scalarize(c), connections);
+        end if;
+      end for;
+
+      conns.flows := listReverseInPlace(flows);
+      conns.connections := listReverseInPlace(connections);
+    else
+      conns.flows := List.mapFlat(conns.flows, Connector.scalarize);
+      conns.connections := List.mapFlat(conns.connections, Connection.scalarize);
+    end if;
+  end scalarize;
+
+  function analyseArrayConnections
+    input Connections conns;
+    output UnorderedMap<Connector, Integer> connectCounts;
+  algorithm
+    connectCounts := UnorderedMap.new<Integer>(Connector.hashNoSubs, Connector.isEqualNoSubs,
+      listLength(conns.connections));
+
+    for conn in conns.connections loop
+      analyseArrayConnector(conn.lhs, connectCounts);
+      analyseArrayConnector(conn.rhs, connectCounts);
+    end for;
+  end analyseArrayConnections;
+
+  function analyseArrayConnector
+    input Connector conn;
+    input UnorderedMap<Connector, Integer> connectCounts;
+  protected
+    function update
+      input Option<Integer> count;
+      output Integer outCount;
+    algorithm
+      outCount := match count
+        case SOME(outCount) then outCount + 1;
+        else 1;
+      end match;
+    end update;
+  algorithm
+    if Connector.isArray(conn) or ComponentRef.hasSubscripts(conn.name) then
+      UnorderedMap.addUpdate(conn, update, connectCounts);
+    end if;
+  end analyseArrayConnector;
+
+  function toString
+    input Connections conns;
+    output String str;
+  protected
+    list<String> strl = {};
+  algorithm
+    strl := "FLOWS:" :: strl;
+    for f in conns.flows loop
+      strl := Connector.toString(f) :: strl;
+    end for;
+
+    strl := "\nCONNECTIONS:" :: strl;
+    for c in conns.connections loop
+      strl := Connection.toString(c) :: strl;
+    end for;
+
+    strl := listReverseInPlace(strl);
+    str := stringDelimitList(strl, "\n");
+  end toString;
+
+  function toStringList
+    input Connections conns;
+    output list<list<String>> strl = {};
+  algorithm
+    strl := list({Connector.toString(c.lhs), Connector.toString(c.rhs)} for c in conns.connections);
+  end toStringList;
 
   annotation(__OpenModelica_Interface="frontend");
 end NFConnections;

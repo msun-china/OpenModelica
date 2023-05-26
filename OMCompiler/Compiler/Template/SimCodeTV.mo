@@ -91,6 +91,19 @@ package builtin
     output Boolean c;
   end intEq;
 
+  function realEq
+    input Real a;
+    input Real b;
+    output Boolean c;
+  end realEq;
+
+  function realAlmostEq
+    input Real a;
+    input Real b;
+    input Real absTol;
+    output Boolean c;
+  end realAlmostEq;
+
   function intNe
     input Integer a;
     input Integer b;
@@ -239,6 +252,7 @@ package SimCodeVar
       list<SimVar> sensitivityVars;
       list<SimVar> dataReconSetcVars;
       list<SimVar> dataReconinputVars;
+      list<SimVar> dataReconSetBVars;
     end SIMVARS;
   end SimVars;
 
@@ -266,11 +280,11 @@ package SimCodeVar
       list<String> numArrayElement;
       Boolean isValueChangeable;
       Boolean isProtected;
-      Boolean hideResult;
+      Option<Boolean> hideResult;
       Option<String> matrixName;
       Option<Variability> variability "FMI-2.0 variabilty attribute";
       Option<Initial> initial_ "FMI-2.0 initial attribute";
-      Boolean exportVar "true for internal variables that are introduced in the symbolic transformation process";
+      Option<DAE.ComponentRef> exportVar "variables will only be exported to the modelDescription.xml if this attribute is SOME(cref)";
     end SIMVAR;
   end SimVar;
 
@@ -357,6 +371,7 @@ package SimCode
   type ExtAlias = tuple<DAE.ComponentRef, DAE.ComponentRef>;
 
   type SparsityPattern = list<tuple<Integer, list<Integer>>>;
+  type NonlinearPattern = SparsityPattern;
 
   uniontype JacobianColumn
     record JAC_COLUMN
@@ -374,10 +389,13 @@ package SimCode
       String matrixName;
       SparsityPattern sparsity;
       SparsityPattern sparsityT;
+      NonlinearPattern nonlinear;
+      NonlinearPattern nonlinearT;
       list<list<Integer>> coloredCols;
       Integer maxColorCols;
       Integer jacobianIndex;
       Integer partitionIndex;
+      list<SimGenericCall> generic_loop_calls;
       Option<HashTableCrefSimVar.HashTable> crefsHT;
     end JAC_MATRIX;
   end JacobianMatrix;
@@ -388,6 +406,7 @@ package SimCode
       list<DAE.Exp> literals;
       list<SimCodeFunction.RecordDeclaration> recordDecls;
       list<String> externalFunctionIncludes;
+      list<SimGenericCall> generic_loop_calls;
       list<SimEqSystem> localKnownVars;
       list<SimEqSystem> allEquations;
       list<list<SimEqSystem>> odeEquations;
@@ -418,7 +437,8 @@ package SimCode
       ExtObjInfo extObjInfo;
       SimCodeFunction.MakefileParams makefileParams;
       DelayedExpression delayedExps;
-      list<JacobianMatrix> jacobianMatrixes;
+      SpatialDistributionInfo spatialInfo;
+      list<JacobianMatrix> jacobianMatrices;
       Option<SimulationSettings> simulationSettingsOpt;
       String fileNamePrefix;
       String fullPathPrefix; // Used for FMI where code is not generated in the same directory
@@ -426,6 +446,7 @@ package SimCode
       HpcOmSimCode.HpcOmData hpcomData;
       HashTableCrIListArray.HashTable varToArrayIndexMapping;
       Option<FmiModelStructure> modelStructure;
+      Option<FmiSimulationFlags> fmiSimulationFlags;
       PartitionData partitionData;
       Option<DaeModeData> daeModeData;
       list<SimEqSystem> inlineEquations;
@@ -465,6 +486,26 @@ package SimCode
       Integer maxDelayedIndex;
     end DELAYED_EXPRESSIONS;
   end DelayedExpression;
+
+  uniontype SpatialDistributionInfo
+    record SPATIAL_DISTRIBUTION_INFO
+      list<SpatialDistribution> spatialDistributions;
+      Integer maxIndex;
+    end SPATIAL_DISTRIBUTION_INFO;
+  end SpatialDistributionInfo;
+
+  uniontype SpatialDistribution
+    record SPATIAL_DISTRIBUTION
+      Integer index         "uniqueIndex";
+      DAE.Exp in0           "input 0";
+      DAE.Exp in1           "input 1";
+      DAE.Exp pos           "current pos";
+      DAE.Exp dir           "flow direction";
+      DAE.Exp initPnts      "initial grid points";
+      DAE.Exp initVals      "initial grid values";
+      Integer initSize      "number of initial points";
+    end SPATIAL_DISTRIBUTION;
+  end SpatialDistribution;
 
   uniontype SimulationSettings
     record SIMULATION_SETTINGS
@@ -510,10 +551,30 @@ package SimCode
   uniontype SimEqSystem
     record SES_RESIDUAL
       Integer index;
+      Integer res_index;
       DAE.Exp exp;
       DAE.ElementSource source;
       BackendDAE.EquationAttributes eqAttr;
     end SES_RESIDUAL;
+
+    record SES_FOR_RESIDUAL
+      Integer index;
+      Integer res_index;
+      list<tuple<DAE.ComponentRef, DAE.Exp>> iterators;
+      DAE.Exp exp;
+      DAE.ElementSource source;
+      BackendDAE.EquationAttributes eqAttr;
+    end SES_FOR_RESIDUAL;
+
+    record SES_GENERIC_RESIDUAL
+      Integer index;
+      Integer res_index;
+      list<Integer> scal_indices;
+      list<tuple<DAE.ComponentRef, DAE.Exp>> iterators;
+      DAE.Exp exp;
+      DAE.ElementSource source;
+      BackendDAE.EquationAttributes eqAttr;
+    end SES_GENERIC_RESIDUAL;
 
     record SES_SIMPLE_ASSIGN
       Integer index;
@@ -539,6 +600,24 @@ package SimCode
       DAE.ElementSource source;
       BackendDAE.EquationAttributes eqAttr;
     end SES_ARRAY_CALL_ASSIGN;
+
+    record SES_GENERIC_ASSIGN
+      "a generic assignment calling a for loop body function with an index list."
+      Integer index;
+      Integer call_index;
+      list<Integer> scal_indices;
+      DAE.ElementSource source;
+      BackendDAE.EquationAttributes eqAttr;
+    end SES_GENERIC_ASSIGN;
+
+    record SES_ENTWINED_ASSIGN
+      "entwined generic assignments calling for loop body functions with an index list and a call order."
+      Integer index;
+      list<Integer> call_order;
+      list<SimEqSystem> single_calls;
+      DAE.ElementSource source;
+      BackendDAE.EquationAttributes eqAttr;
+    end SES_ENTWINED_ASSIGN;
 
     record SES_IFEQUATION
       Integer index;
@@ -668,6 +747,7 @@ package SimCode
       Boolean homotopySupport;
       Boolean mixedSystem;
       Boolean tornSystem;
+      Option<Integer> clockIndex;
     end NONLINEARSYSTEM;
   end NonlinearSystem;
 
@@ -687,9 +767,6 @@ package SimCode
     record MODELINFO
       Absyn.Path name;
       String description;
-      String stateInfo;
-      String inputInfo;
-      String outputInfo;
       String directory;
       VarInfo varInfo;
       SimCodeVar.SimVars vars;
@@ -698,10 +775,37 @@ package SimCode
       list<Absyn.Class> sortedClasses;
       Integer nClocks;
       Integer nSubClocks;
+      Integer nSpatialDistributions;
       list<SimEqSystem> linearSystems;
       list<SimEqSystem> nonLinearSystems;
+      list<UnitDefinition> unitDefinitions "export unitDefintion in modelDescription.xml";
     end MODELINFO;
   end ModelInfo;
+
+  uniontype UnitDefinition "unitDefinitions for fmi modelDescription.xml"
+    record UNITDEFINITION
+      String name;
+      BaseUnit baseUnit;
+      //TODO DisplayUnit
+    end UNITDEFINITION;
+  end UnitDefinition;
+
+  uniontype BaseUnit
+    record BASEUNIT
+      Integer mol "exponent";
+      Integer cd  "exponent";
+      Integer m   "exponent";
+      Integer s   "exponent";
+      Integer A   "exponent";
+      Integer K   "exponent";
+      Integer kg  "exponent";
+      Real factor "prefix";
+      Real offset "offset";
+    end BASEUNIT;
+
+    record NOBASEUNIT "no baseunit definition available"
+    end NOBASEUNIT;
+  end BaseUnit;
 
   uniontype VarInfo
     record VARINFO
@@ -737,8 +841,44 @@ package SimCode
       Integer numSensitivityParameters;
       Integer numSetcVars;
       Integer numDataReconVars;
-      end VARINFO;
+      Integer numRealInputVars "for fmi cs to interpolate inputs";
+      Integer numSetbVars "for data reconciliation setB vars";
+      Integer numRelatedBoundaryConditions "for data reconciliation count number of boundary conditions which failed the extraction algorithm";
+    end VARINFO;
   end VarInfo;
+
+  uniontype SimGenericCall
+    record SINGLE_GENERIC_CALL
+      Integer index;
+      list<BackendDAE.SimIterator> iters;
+      DAE.Exp lhs;
+      DAE.Exp rhs;
+    end SINGLE_GENERIC_CALL;
+
+    record IF_GENERIC_CALL
+      Integer index;
+      list<BackendDAE.SimIterator> iters;
+      list<SimBranch> branches;
+    end IF_GENERIC_CALL;
+
+    record WHEN_GENERIC_CALL
+      Integer index;
+      list<BackendDAE.SimIterator> iters;
+      list<SimBranch> branches;
+    end WHEN_GENERIC_CALL;
+  end SimGenericCall;
+
+  uniontype SimBranch
+    record SIM_BRANCH
+      Option<DAE.Exp> condition;
+      list<tuple<DAE.Exp, DAE.Exp>> body;
+    end SIM_BRANCH;
+
+    record SIM_BRANCH_STMT
+      Option<DAE.Exp> condition;
+      list<DAE.Statement> body;
+    end SIM_BRANCH_STMT;
+  end SimBranch;
 
   uniontype DaeModeConfig
     record ALL_EQUATIONS end ALL_EQUATIONS;
@@ -785,6 +925,8 @@ package SimCode
   uniontype FmiInitialUnknowns
     record FMIINITIALUNKNOWNS
       list<FmiUnknown> fmiUnknownsList;
+      list<tuple<Integer, DAE.ComponentRef>> sortedUnknownCrefs "use the sorted crefs to get the ValueReference of unknowns";
+      list<tuple<Integer, DAE.ComponentRef>> sortedknownCrefs "use the sorted crefs to get the ValueReference of knowns";
     end FMIINITIALUNKNOWNS;
   end FmiInitialUnknowns;
 
@@ -793,10 +935,21 @@ package SimCode
       FmiOutputs fmiOutputs;
       FmiDerivatives fmiDerivatives;
       Option<JacobianMatrix> continuousPartialDerivatives;
+      Option<JacobianMatrix> initialPartialDerivatives;
       FmiDiscreteStates fmiDiscreteStates;
       FmiInitialUnknowns fmiInitialUnknowns;
     end FMIMODELSTRUCTURE;
   end FmiModelStructure;
+
+  uniontype FmiSimulationFlags
+    record FMI_SIMULATION_FLAGS
+      list<tuple<String,String>> nameValueTuples;
+    end FMI_SIMULATION_FLAGS;
+
+    record FMI_SIMULATION_FLAGS_FILE
+      String path;
+    end FMI_SIMULATION_FLAGS_FILE;
+  end FmiSimulationFlags;
 
 end SimCode;
 
@@ -910,6 +1063,7 @@ package SimCodeFunction
       Option<String> aliasName;
       Absyn.Path defPath;
       list<Variable> variables;
+      Boolean usedExternally;
     end RECORD_DECL_FULL;
     record RECORD_DECL_ADD_CONSTRCTOR
       String ctor_name;
@@ -1039,7 +1193,7 @@ package SimCodeUtil
 
   function getFMIModelStructure
     input SimCode.SimCode simCode;
-    input list<SimCode.JacobianMatrix> jacobianMatrixes;
+    input list<SimCode.JacobianMatrix> jacobianMatrices;
     output SimCode.FmiModelStructure outFmiModelStructure;
   end getFMIModelStructure;
 
@@ -1208,11 +1362,6 @@ package SimCodeUtil
     output String outIndex;
   end localCref2Index;
 
-  function isModelTooBigForCSharpInOneFile
-    input SimCode.SimCode simCode;
-    output Boolean outIsTooBig;
-  end isModelTooBigForCSharpInOneFile;
-
   function codegenExpSanityCheck
     input DAE.Exp inExp;
     input SimCodeFunction.Context context;
@@ -1252,6 +1401,33 @@ package SimCodeUtil
     output Integer vr;
   end lookupVR;
 
+  function lookupVRForRealOutputDerivative
+    input DAE.ComponentRef cr;
+    input SimCode.SimCode simCode;
+    input String fmuType;
+    output Integer vr;
+  end lookupVRForRealOutputDerivative;
+
+  function unbalancedEqSystemPartition
+    input list<SimCode.SimEqSystem> inList;
+    input Integer maxLength;
+    output list<list<SimCode.SimEqSystem>> outPartitions;
+  end unbalancedEqSystemPartition;
+
+  function selectNLEqSys
+    input list<SimCode.SimEqSystem> simEqSysIn;
+    output list<SimCode.SimEqSystem> eqs;
+  end selectNLEqSys;
+
+  function jacobianColumnsAreEmpty
+    input list<SimCode.JacobianColumn> columns;
+    output Boolean b ;
+  end jacobianColumnsAreEmpty;
+
+  function getSimIteratorSize
+    input list<BackendDAE.SimIterator> iters;
+    output Integer size ;
+  end getSimIteratorSize;
 end SimCodeUtil;
 
 package SimCodeFunctionUtil
@@ -1465,11 +1641,21 @@ package BackendDAE
 
   uniontype ZeroCrossing
     record ZERO_CROSSING
-      DAE.Exp relation_;
-      list<Integer> occurEquLst;
-      list<Integer> occurWhenLst;
+      Integer index                           "zero crossing index";
+      DAE.Exp relation_                       "function";
+      list<Integer> occurEquLst               "list of equations where the function occurs";
+      Option<list<SimIterator>> iter  "optional iterator for for-loops";
     end ZERO_CROSSING;
   end ZeroCrossing;
+
+  uniontype SimIterator
+    record SIM_ITERATOR
+      DAE.ComponentRef name;
+      Integer start;
+      Integer step;
+      Integer size;
+    end SIM_ITERATOR;
+  end SimIterator;
 
   uniontype TimeEvent
     record SIMPLE_TIME_EVENT "e.g. time > 0.5"
@@ -1814,19 +2000,19 @@ package DAE
     record INFERRED_CLOCK
     end INFERRED_CLOCK;
 
-    record INTEGER_CLOCK
+    record RATIONAL_CLOCK
       Exp intervalCounter;
       Exp resolution;
-    end INTEGER_CLOCK;
+    end RATIONAL_CLOCK;
 
     record REAL_CLOCK
       Exp interval;
     end REAL_CLOCK;
 
-    record BOOLEAN_CLOCK
+    record EVENT_CLOCK
       Exp condition;
       Exp startInterval;
-    end BOOLEAN_CLOCK;
+    end EVENT_CLOCK;
 
     record SOLVER_CLOCK
       Exp c;
@@ -2098,12 +2284,6 @@ package DAE
       Type identType;
       list<Subscript> subscriptLst;
     end CREF_IDENT;
-    record CREF_ITER "An iterator index; used in local scopes in for-loops and reductions"
-      Ident ident;
-      Integer index;
-      Type identType "type of the identifier, without considering the subscripts";
-      list<Subscript> subscriptLst;
-    end CREF_ITER;
     record OPTIMICA_ATTR_INST_CREF
       ComponentRef componentRef;
       String instant;
@@ -2327,6 +2507,17 @@ package DAE
     end TYPES_VAR;
   end Var;
 
+  uniontype Attributes "- Attributes"
+    record ATTR
+      ConnectorType       connectorType "flow, stream or unspecified";
+      SCode.Parallelism   parallelism "parallelism";
+      SCode.Variability   variability "variability" ;
+      Absyn.Direction     direction "direction" ;
+      Absyn.InnerOuter    innerOuter "inner, outer,  inner outer or unspecified";
+      SCode.Visibility    visibility "public, protected";
+    end ATTR;
+  end Attributes;
+
   uniontype Binding
     record UNBOUND end UNBOUND;
 
@@ -2385,7 +2576,7 @@ package DAE
     end T_UNKNOWN;
 
     record T_COMPLEX
-      ClassInf.State complexClassType "The type of. a class" ;
+      ClassInf.State complexClassType "The type of a class" ;
       list<Var> varLst "The variables of a complex type" ;
       EqualityConstraint equalityConstraint;
     end T_COMPLEX;
@@ -2745,478 +2936,480 @@ end ClassInf;
 
 package SCode
 
-type Ident = Absyn.Ident "Some definitions are borrowed from `Absyn\'";
-
-type Path = Absyn.Path;
-
-type Subscript = Absyn.Subscript;
-
-uniontype Restriction
-  record R_CLASS end R_CLASS;
-  record R_OPTIMIZATION end R_OPTIMIZATION;
-  record R_MODEL end R_MODEL;
-  record R_RECORD
-    Boolean isOperator;
-  end R_RECORD;
-  record R_BLOCK end R_BLOCK;
-  record R_CONNECTOR "a connector"
-    Boolean isExpandable "is expandable?";
-  end R_CONNECTOR;
-  record R_OPERATOR "an operator definition"
-    Boolean isFunction "is this operator a function?";
-  end R_OPERATOR;
-  record R_TYPE end R_TYPE;
-  record R_PACKAGE end R_PACKAGE;
-  record R_FUNCTION end R_FUNCTION;
-  record R_EXT_FUNCTION "Added c.t. Absyn" end R_EXT_FUNCTION;
-  record R_ENUMERATION end R_ENUMERATION;
-
-  // predefined internal types
-  record R_PREDEFINED_INTEGER     "predefined IntegerType" end R_PREDEFINED_INTEGER;
-  record R_PREDEFINED_REAL        "predefined RealType"    end R_PREDEFINED_REAL;
-  record R_PREDEFINED_STRING      "predefined StringType"  end R_PREDEFINED_STRING;
-  record R_PREDEFINED_BOOLEAN     "predefined BooleanType" end R_PREDEFINED_BOOLEAN;
-  record R_PREDEFINED_ENUMERATION "predefined EnumType"    end R_PREDEFINED_ENUMERATION;
-
-  // MetaModelica extensions
-  record R_METARECORD "Metamodelica extension"
-    Absyn.Path name; //Name of the uniontype
-    Integer index; //Index in the uniontype
-    Boolean moved;
-  end R_METARECORD; /* added by x07simbj */
-
-  record R_UNIONTYPE "Metamodelica extension"
-  end R_UNIONTYPE; /* added by simbj */
-end Restriction;
-
-uniontype Mod "- Modifications"
-
-  record MOD
-    Final finalPrefix "final prefix";
-    Each  eachPrefix "each prefix";
-    list<SubMod> subModLst;
-    Option<tuple<Absyn.Exp,Boolean>> binding "The binding expression of a modification
-    has an expression and a Boolean delayElaboration which is true if elaboration(type checking)
-    should be delayed. This can for instance be used when having A a(x = a.y) where a.y can not be
-    type checked -before- a is instantiated, which is the current design in instantiation process.";
-  end MOD;
-
-  record REDECL
-    Final         finalPrefix "final prefix";
-    Each          eachPrefix "each prefix";
-    list<Element> elementLst  "elements";
-  end REDECL;
-
-  record NOMOD end NOMOD;
-
-end Mod;
-
-uniontype SubMod "Modifications are represented in an more structured way than in
-    the `Absyn\' module.  Modifications using qualified names
-    (such as in `x.y =  z\') are normalized (to `x(y = z)\')."
-  record NAMEMOD
-    Ident ident;
-    Mod A "A named component" ;
-  end NAMEMOD;
-end SubMod;
-
-type Program = list<Element> "- Programs
-As in the AST, a program is simply a list of class definitions.";
-
-uniontype Enum "Enum, which is a name in an enumeration and an optional Comment."
-  record ENUM
-    Ident           literal;
-    Option<Comment> comment;
-  end ENUM;
-end Enum;
-
-uniontype ClassDef
-"The major difference between these types and their Absyn
- counterparts is that the PARTS constructor contains separate
- lists for elements, equations and algorithms.
-
- SCode.PARTS contains elements of a class definition. For instance,
-    model A
-      extends B;
-      C c;
-    end A;
- Here PARTS contains two elements ('extends B' and 'C c')
- SCode.DERIVED is used for short class definitions, i.e:
-  class A = B(modifiers);
- SCode.CLASS_EXTENDS is used for extended class definition, i.e:
-  class extends A (modifier)
-    new elements;
-  end A;"
-
-  record PARTS "a class made of parts"
-    list<Element>              elementLst          "the list of elements";
-    list<Equation>             normalEquationLst   "the list of equations";
-    list<Equation>             initialEquationLst  "the list of initial equations";
-    list<AlgorithmSection>     normalAlgorithmLst  "the list of algorithms";
-    list<AlgorithmSection>     initialAlgorithmLst "the list of initial algorithms";
-    Option<Absyn.ExternalDecl> externalDecl        "used by external functions";
-    list<Annotation>           annotationLst       "the list of annotations found in between class elements, equations and algorithms";
-    Option<Comment>            comment             "the class comment";
-  end PARTS;
-
-  record CLASS_EXTENDS "an extended class definition plus the additional parts"
-    Ident                      baseClassName       "the name of the base class we have to extend";
-    Mod                        modifications       "the modifications that need to be applied to the base class";
-    ClassDef                   composition         "the new composition";
-  end CLASS_EXTENDS;
-
-  record DERIVED "a derived class"
-    Absyn.TypeSpec typeSpec "typeSpec: type specification" ;
-    Mod modifications       "the modifications";
-    Attributes attributes   "the element attributes";
-    Option<Comment> comment "the translated comment from the Absyn";
-  end DERIVED;
-
-  record ENUMERATION "an enumeration"
-    list<Enum> enumLst      "if the list is empty it means :, the supertype of all enumerations";
-    Option<Comment> comment "the translated comment from the Absyn";
-  end ENUMERATION;
-
-  record OVERLOAD "an overloaded function"
-    list<Absyn.Path> pathLst "the path lists";
-    Option<Comment> comment  "the translated comment from the Absyn";
-  end OVERLOAD;
-
-  record PDER "the partial derivative"
-    Absyn.Path  functionPath     "function name" ;
-    list<Ident> derivedVariables "derived variables" ;
-    Option<Comment> comment      "the Absyn comment";
-  end PDER;
-
-end ClassDef;
-
-uniontype Comment
-
-  record COMMENT
-    Option<Annotation> annotation_;
-    Option<String> comment;
-  end COMMENT;
-
-  record CLASS_COMMENT
-    list<Annotation> annotations;
-    Option<Comment> comment;
-  end CLASS_COMMENT;
-end Comment;
-
-uniontype Annotation
-
-  record ANNOTATION
-    Mod modification;
-  end ANNOTATION;
-
-end Annotation;
-
-uniontype Equation "- Equations"
-  record EQUATION "an equation"
-    EEquation eEquation "an equation";
-  end EQUATION;
-
-end Equation;
-
-uniontype EEquation
-"These represent equations and are almost identical to their Absyn versions.
- In EQ_IF the elseif branches are represented as normal else branches with
- a single if statement in them."
-  record EQ_IF
-    list<Absyn.Exp> condition "conditional" ;
-    list<list<EEquation>> thenBranch "the true (then) branch" ;
-    list<EEquation>       elseBranch "the false (else) branch" ;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_IF;
-
-  record EQ_EQUALS "the equality equation"
-    Absyn.Exp expLeft  "the expression on the left side of the operator";
-    Absyn.Exp expRight "the expression on the right side of the operator";
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_EQUALS;
-
-  record EQ_PDE "PDE or boundary condition"
-    Absyn.Exp expLeft  "the expression on the left side of the operator";
-    Absyn.Exp expRight "the expression on the right side of the operator";
-    ComponentRef domain;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_PDE;
-
-  record EQ_CONNECT "the connect equation"
-    Absyn.ComponentRef crefLeft  "the connector/component reference on the left side";
-    Absyn.ComponentRef crefRight "the connector/component reference on the right side";
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_CONNECT;
-
-  record EQ_FOR "the for equation"
-    Ident           index        "the index name";
-    Absyn.Exp       range        "the range of the index";
-    list<EEquation> eEquationLst "the equation list";
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_FOR;
-
-  record EQ_WHEN "the when equation"
-    Absyn.Exp        condition "the when condition";
-    list<EEquation>  eEquationLst "the equation list";
-    list<tuple<Absyn.Exp, list<EEquation>>> tplAbsynExpEEquationLstLst "the elsewhen expression and equation list";
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_WHEN;
-
-  record EQ_ASSERT "the assert equation"
-    Absyn.Exp condition "the assert condition";
-    Absyn.Exp message   "the assert message";
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_ASSERT;
-
-  record EQ_TERMINATE "the terminate equation"
-    Absyn.Exp message "the terminate message";
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_TERMINATE;
-
-  record EQ_REINIT "a reinit equation"
-    Absyn.ComponentRef cref      "the variable to initialize";
-    Absyn.Exp          expReinit "the new value" ;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_REINIT;
-
-  record EQ_NORETCALL "function calls without return value"
-    Absyn.ComponentRef functionName "the function nanme";
-    Absyn.FunctionArgs functionArgs "the function arguments";
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end EQ_NORETCALL;
-
-end EEquation;
-
-uniontype AlgorithmSection "- Algorithms
-  The Absyn module uses the terminology from the
-  grammar, where algorithm means an algorithmic
-  statement. But here, an Algorithm means a whole
-  algorithm section."
-  record ALGORITHM "the algorithm section"
-    list<Statement> statements "the algorithm statements" ;
-  end ALGORITHM;
-
-end AlgorithmSection;
-
-uniontype Statement "The Statement type describes one algorithm statement in an algorithm section."
-  record ALG_ASSIGN
-    Absyn.Exp assignComponent "assignComponent" ;
-    Absyn.Exp value "value" ;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_ASSIGN;
-
-  record ALG_IF
-    Absyn.Exp boolExpr;
-    list<Statement> trueBranch;
-    list<tuple<Absyn.Exp, list<Statement>>> elseIfBranch;
-    list<Statement> elseBranch;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_IF;
-
-  record ALG_FOR
-    Absyn.ForIterators iterators;
-    list<Statement> forBody "forBody" ;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_FOR;
-
-  record ALG_WHILE
-    Absyn.Exp boolExpr "boolExpr" ;
-    list<Statement> whileBody "whileBody" ;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_WHILE;
-
-  record ALG_WHEN_A
-    list<tuple<Absyn.Exp, list<Statement>>> branches;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_WHEN_A;
-
-  record ALG_NORETCALL
-    Absyn.ComponentRef functionCall "functionCall" ;
-    Absyn.FunctionArgs functionArgs "functionArgs; general fcalls without return value" ;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_NORETCALL;
-
-  record ALG_RETURN
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_RETURN;
-
-  record ALG_BREAK
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_BREAK;
-
-  // Part of MetaModelica extension. KS
-  record ALG_TRY
-    list<Statement> tryBody;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_TRY;
-
-  record ALG_CATCH
-    list<Statement> catchBody;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_CATCH;
-
-  record ALG_THROW
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_THROW;
-
-  record ALG_FAILURE
-    list<Statement> stmts;
-    Option<Comment> comment;
-    builtin.SourceInfo info;
-  end ALG_FAILURE;
-  //-------------------------------
-
-end Statement;
-
-// common prefixes to elements
-uniontype Visibility "the visibility prefix"
-  record PUBLIC    "a public element"    end PUBLIC;
-  record PROTECTED "a protected element" end PROTECTED;
-end Visibility;
-
-uniontype Redeclare "the redeclare prefix"
-  record REDECLARE     "a redeclare prefix"     end REDECLARE;
-  record NOT_REDECLARE "a non redeclare prefix" end NOT_REDECLARE;
-end Redeclare;
-
-uniontype Replaceable "the replaceable prefix"
-  record REPLACEABLE "a replaceable prefix containing an optional constraint"
-    Option<Absyn.ConstrainClass> cc  "the constraint class";
-  end REPLACEABLE;
-  record NOT_REPLACEABLE "a non replaceable prefix" end NOT_REPLACEABLE;
-end Replaceable;
-
-uniontype Final "the final prefix"
-  record FINAL    "a final prefix"      end FINAL;
-  record NOT_FINAL "a non final prefix" end NOT_FINAL;
-end Final;
-
-uniontype Each "the each prefix"
-  record EACH     "a each prefix"     end EACH;
-  record NOT_EACH "a non each prefix" end NOT_EACH;
-end Each;
-
-uniontype Encapsulated "the encapsulated prefix"
-  record ENCAPSULATED     "a encapsulated prefix"     end ENCAPSULATED;
-  record NOT_ENCAPSULATED "a non encapsulated prefix" end NOT_ENCAPSULATED;
-end Encapsulated;
-
-uniontype Partial "the partial prefix"
-  record PARTIAL     "a partial prefix"     end PARTIAL;
-  record NOT_PARTIAL "a non partial prefix" end NOT_PARTIAL;
-end Partial;
-
-uniontype ConnectorType
-  record POTENTIAL end POTENTIAL;
-  record FLOW end FLOW;
-  record STREAM end STREAM;
-end ConnectorType;
-
-uniontype Prefixes "the common class or component prefixes"
-  record PREFIXES "the common class or component prefixes"
-    Visibility       visibility           "the protected/public prefix";
-    Redeclare        redeclarePrefix      "redeclare prefix";
-    Final            finalPrefix          "final prefix, be it at the element or top level";
-    Absyn.InnerOuter innerOuter           "the inner/outer/innerouter prefix";
-    Replaceable      replaceablePrefix    "replaceable prefix";
-  end PREFIXES;
-end Prefixes;
-
-uniontype Element "- Elements
-  There are four types of elements in a declaration, represented by the constructors:
-  IMPORT     (for import clauses)
-  EXTENDS    (for extends clauses),
-  CLASS      (for top/local class definitions)
-  COMPONENT  (for local variables)
-  DEFINEUNIT (for units)"
-
-  record IMPORT "an import element"
-    Absyn.Import imp                 "the import definition";
-    Visibility   visibility          "the protected/public prefix";
-    builtin.SourceInfo   info                "the import information";
-  end IMPORT;
-
-  record EXTENDS "the extends element"
-    Path baseClassPath               "the extends path";
-    Visibility visibility            "the protected/public prefix";
-    Mod modifications                "the modifications applied to the base class";
-    Option<Annotation> ann           "the extends annotation";
-    builtin.SourceInfo info                  "the extends info";
-  end EXTENDS;
-
-  record CLASS "a class definition"
-    Ident   name                     "the name of the class";
-    Prefixes prefixes                "the common class or component prefixes";
-    Encapsulated encapsulatedPrefix  "the encapsulated prefix";
-    Partial partialPrefix            "the partial prefix";
-    Restriction restriction          "the restriction of the class";
-    ClassDef classDef                "the class specification";
-    builtin.SourceInfo info                  "the class information";
-  end CLASS;
-
-  record COMPONENT "a component"
-    Ident name                      "the component name";
-    Prefixes prefixes               "the common class or component prefixes";
-    Attributes attributes           "the component attributes";
-    Absyn.TypeSpec typeSpec         "the type specification";
-    Mod modifications               "the modifications to be applied to the component";
-    Option<Comment> comment         "this if for extraction of comments and annotations from Absyn";
-    Option<Absyn.Exp> condition     "the conditional declaration of a component";
-    builtin.SourceInfo info                 "this is for line and column numbers, also file name.";
-  end COMPONENT;
-
-  record DEFINEUNIT "a unit defintion has a name and the two optional parameters exp, and weight"
-    Ident name;
-    Visibility visibility            "the protected/public prefix";
-    Option<String> exp               "the unit expression";
-    Option<Real> weight              "the weight";
-  end DEFINEUNIT;
-
-end Element;
-
-uniontype Attributes "- Attributes"
-  record ATTR "the attributes of the component"
-    Absyn.ArrayDim arrayDims "the array dimensions of the component";
-    ConnectorType connectorType;
-    Variability variability " the variability: parameter, discrete, variable, constant" ;
-    Absyn.Direction direction "the direction: input, output or bidirectional" ;
-  end ATTR;
-end Attributes;
-
-uniontype Variability "the variability of a component"
-  record VAR      "a variable"          end VAR;
-  record DISCRETE "a discrete variable" end DISCRETE;
-  record PARAM    "a parameter"         end PARAM;
-  record CONST    "a constant"          end CONST;
-end Variability;
-
-uniontype Initial "the initial attribute of an algorithm or equation
- Intial is used as argument to instantiation-function for
- specifying if equations or algorithms are initial or not."
-  record INITIAL     "an initial equation or algorithm" end INITIAL;
-  record NON_INITIAL "a normal equation or algorithm"   end NON_INITIAL;
-end Initial;
+  type Ident = Absyn.Ident "Some definitions are borrowed from `Absyn\'";
+
+  type Path = Absyn.Path;
+
+  type Subscript = Absyn.Subscript;
+
+  uniontype Restriction
+    record R_CLASS end R_CLASS;
+    record R_OPTIMIZATION end R_OPTIMIZATION;
+    record R_MODEL end R_MODEL;
+    record R_RECORD
+      Boolean isOperator;
+    end R_RECORD;
+    record R_BLOCK end R_BLOCK;
+    record R_CONNECTOR "a connector"
+      Boolean isExpandable "is expandable?";
+    end R_CONNECTOR;
+    record R_OPERATOR "an operator definition"
+      Boolean isFunction "is this operator a function?";
+    end R_OPERATOR;
+    record R_TYPE end R_TYPE;
+    record R_PACKAGE end R_PACKAGE;
+    record R_FUNCTION end R_FUNCTION;
+    record R_EXT_FUNCTION "Added c.t. Absyn" end R_EXT_FUNCTION;
+    record R_ENUMERATION end R_ENUMERATION;
+
+    // predefined internal types
+    record R_PREDEFINED_INTEGER     "predefined IntegerType" end R_PREDEFINED_INTEGER;
+    record R_PREDEFINED_REAL        "predefined RealType"    end R_PREDEFINED_REAL;
+    record R_PREDEFINED_STRING      "predefined StringType"  end R_PREDEFINED_STRING;
+    record R_PREDEFINED_BOOLEAN     "predefined BooleanType" end R_PREDEFINED_BOOLEAN;
+    record R_PREDEFINED_ENUMERATION "predefined EnumType"    end R_PREDEFINED_ENUMERATION;
+
+    // MetaModelica extensions
+    record R_METARECORD "Metamodelica extension"
+      Absyn.Path name; //Name of the uniontype
+      Integer index; //Index in the uniontype
+      Boolean moved;
+    end R_METARECORD; /* added by x07simbj */
+
+    record R_UNIONTYPE "Metamodelica extension"
+    end R_UNIONTYPE; /* added by simbj */
+  end Restriction;
+
+  uniontype Mod "- Modifications"
+
+    record MOD
+      Final finalPrefix "final prefix";
+      Each  eachPrefix "each prefix";
+      list<SubMod> subModLst;
+      Option<tuple<Absyn.Exp,Boolean>> binding "The binding expression of a modification
+      has an expression and a Boolean delayElaboration which is true if elaboration(type checking)
+      should be delayed. This can for instance be used when having A a(x = a.y) where a.y can not be
+      type checked -before- a is instantiated, which is the current design in instantiation process.";
+    end MOD;
+
+    record REDECL
+      Final         finalPrefix "final prefix";
+      Each          eachPrefix "each prefix";
+      list<Element> elementLst  "elements";
+    end REDECL;
+
+    record NOMOD end NOMOD;
+
+  end Mod;
+
+  uniontype SubMod "Modifications are represented in an more structured way than in
+      the `Absyn\' module.  Modifications using qualified names
+      (such as in `x.y =  z\') are normalized (to `x(y = z)\')."
+    record NAMEMOD
+      Ident ident;
+      Mod A "A named component" ;
+    end NAMEMOD;
+  end SubMod;
+
+  type Program = list<Element> "- Programs
+  As in the AST, a program is simply a list of class definitions.";
+
+  uniontype Enum "Enum, which is a name in an enumeration and an optional Comment."
+    record ENUM
+      Ident           literal;
+      Option<Comment> comment;
+    end ENUM;
+  end Enum;
+
+  uniontype ClassDef
+  "The major difference between these types and their Absyn
+  counterparts is that the PARTS constructor contains separate
+  lists for elements, equations and algorithms.
+
+  SCode.PARTS contains elements of a class definition. For instance,
+      model A
+        extends B;
+        C c;
+      end A;
+  Here PARTS contains two elements ('extends B' and 'C c')
+  SCode.DERIVED is used for short class definitions, i.e:
+    class A = B(modifiers);
+  SCode.CLASS_EXTENDS is used for extended class definition, i.e:
+    class extends A (modifier)
+      new elements;
+    end A;"
+
+    record PARTS "a class made of parts"
+      list<Element>              elementLst          "the list of elements";
+      list<Equation>             normalEquationLst   "the list of equations";
+      list<Equation>             initialEquationLst  "the list of initial equations";
+      list<AlgorithmSection>     normalAlgorithmLst  "the list of algorithms";
+      list<AlgorithmSection>     initialAlgorithmLst "the list of initial algorithms";
+      Option<Absyn.ExternalDecl> externalDecl        "used by external functions";
+      list<Annotation>           annotationLst       "the list of annotations found in between class elements, equations and algorithms";
+      Option<Comment>            comment             "the class comment";
+    end PARTS;
+
+    record CLASS_EXTENDS "an extended class definition plus the additional parts"
+      Ident                      baseClassName       "the name of the base class we have to extend";
+      Mod                        modifications       "the modifications that need to be applied to the base class";
+      ClassDef                   composition         "the new composition";
+    end CLASS_EXTENDS;
+
+    record DERIVED "a derived class"
+      Absyn.TypeSpec typeSpec "typeSpec: type specification" ;
+      Mod modifications       "the modifications";
+      Attributes attributes   "the element attributes";
+      Option<Comment> comment "the translated comment from the Absyn";
+    end DERIVED;
+
+    record ENUMERATION "an enumeration"
+      list<Enum> enumLst      "if the list is empty it means :, the supertype of all enumerations";
+      Option<Comment> comment "the translated comment from the Absyn";
+    end ENUMERATION;
+
+    record OVERLOAD "an overloaded function"
+      list<Absyn.Path> pathLst "the path lists";
+      Option<Comment> comment  "the translated comment from the Absyn";
+    end OVERLOAD;
+
+    record PDER "the partial derivative"
+      Absyn.Path  functionPath     "function name" ;
+      list<Ident> derivedVariables "derived variables" ;
+      Option<Comment> comment      "the Absyn comment";
+    end PDER;
+
+  end ClassDef;
+
+  uniontype Comment
+
+    record COMMENT
+      Option<Annotation> annotation_;
+      Option<String> comment;
+    end COMMENT;
+
+    record CLASS_COMMENT
+      list<Annotation> annotations;
+      Option<Comment> comment;
+    end CLASS_COMMENT;
+  end Comment;
+
+  uniontype Annotation
+
+    record ANNOTATION
+      Mod modification;
+    end ANNOTATION;
+
+  end Annotation;
+
+  uniontype Equation "- Equations"
+    record EQUATION "an equation"
+      EEquation eEquation "an equation";
+    end EQUATION;
+
+  end Equation;
+
+  uniontype EEquation
+  "These represent equations and are almost identical to their Absyn versions.
+  In EQ_IF the elseif branches are represented as normal else branches with
+  a single if statement in them."
+    record EQ_IF
+      list<Absyn.Exp> condition "conditional" ;
+      list<list<EEquation>> thenBranch "the true (then) branch" ;
+      list<EEquation>       elseBranch "the false (else) branch" ;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_IF;
+
+    record EQ_EQUALS "the equality equation"
+      Absyn.Exp expLeft  "the expression on the left side of the operator";
+      Absyn.Exp expRight "the expression on the right side of the operator";
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_EQUALS;
+
+    record EQ_PDE "PDE or boundary condition"
+      Absyn.Exp expLeft  "the expression on the left side of the operator";
+      Absyn.Exp expRight "the expression on the right side of the operator";
+      ComponentRef domain;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_PDE;
+
+    record EQ_CONNECT "the connect equation"
+      Absyn.ComponentRef crefLeft  "the connector/component reference on the left side";
+      Absyn.ComponentRef crefRight "the connector/component reference on the right side";
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_CONNECT;
+
+    record EQ_FOR "the for equation"
+      Ident           index        "the index name";
+      Absyn.Exp       range        "the range of the index";
+      list<EEquation> eEquationLst "the equation list";
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_FOR;
+
+    record EQ_WHEN "the when equation"
+      Absyn.Exp        condition "the when condition";
+      list<EEquation>  eEquationLst "the equation list";
+      list<tuple<Absyn.Exp, list<EEquation>>> tplAbsynExpEEquationLstLst "the elsewhen expression and equation list";
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_WHEN;
+
+    record EQ_ASSERT "the assert equation"
+      Absyn.Exp condition "the assert condition";
+      Absyn.Exp message   "the assert message";
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_ASSERT;
+
+    record EQ_TERMINATE "the terminate equation"
+      Absyn.Exp message "the terminate message";
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_TERMINATE;
+
+    record EQ_REINIT "a reinit equation"
+      Absyn.ComponentRef cref      "the variable to initialize";
+      Absyn.Exp          expReinit "the new value" ;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_REINIT;
+
+    record EQ_NORETCALL "function calls without return value"
+      Absyn.ComponentRef functionName "the function nanme";
+      Absyn.FunctionArgs functionArgs "the function arguments";
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end EQ_NORETCALL;
+
+  end EEquation;
+
+  uniontype AlgorithmSection "- Algorithms
+    The Absyn module uses the terminology from the
+    grammar, where algorithm means an algorithmic
+    statement. But here, an Algorithm means a whole
+    algorithm section."
+    record ALGORITHM "the algorithm section"
+      list<Statement> statements "the algorithm statements" ;
+    end ALGORITHM;
+
+  end AlgorithmSection;
+
+  uniontype Statement "The Statement type describes one algorithm statement in an algorithm section."
+    record ALG_ASSIGN
+      Absyn.Exp assignComponent "assignComponent" ;
+      Absyn.Exp value "value" ;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_ASSIGN;
+
+    record ALG_IF
+      Absyn.Exp boolExpr;
+      list<Statement> trueBranch;
+      list<tuple<Absyn.Exp, list<Statement>>> elseIfBranch;
+      list<Statement> elseBranch;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_IF;
+
+    record ALG_FOR
+      Absyn.ForIterators iterators;
+      list<Statement> forBody "forBody" ;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_FOR;
+
+    record ALG_WHILE
+      Absyn.Exp boolExpr "boolExpr" ;
+      list<Statement> whileBody "whileBody" ;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_WHILE;
+
+    record ALG_WHEN_A
+      list<tuple<Absyn.Exp, list<Statement>>> branches;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_WHEN_A;
+
+    record ALG_NORETCALL
+      Absyn.ComponentRef functionCall "functionCall" ;
+      Absyn.FunctionArgs functionArgs "functionArgs; general fcalls without return value" ;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_NORETCALL;
+
+    record ALG_RETURN
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_RETURN;
+
+    record ALG_BREAK
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_BREAK;
+
+    // Part of MetaModelica extension. KS
+    record ALG_TRY
+      list<Statement> tryBody;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_TRY;
+
+    record ALG_CATCH
+      list<Statement> catchBody;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_CATCH;
+
+    record ALG_THROW
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_THROW;
+
+    record ALG_FAILURE
+      list<Statement> stmts;
+      Option<Comment> comment;
+      builtin.SourceInfo info;
+    end ALG_FAILURE;
+    //-------------------------------
+
+  end Statement;
+
+  // common prefixes to elements
+  uniontype Visibility "the visibility prefix"
+    record PUBLIC    "a public element"    end PUBLIC;
+    record PROTECTED "a protected element" end PROTECTED;
+  end Visibility;
+
+  uniontype Redeclare "the redeclare prefix"
+    record REDECLARE     "a redeclare prefix"     end REDECLARE;
+    record NOT_REDECLARE "a non redeclare prefix" end NOT_REDECLARE;
+  end Redeclare;
+
+  uniontype Replaceable "the replaceable prefix"
+    record REPLACEABLE "a replaceable prefix containing an optional constraint"
+      Option<Absyn.ConstrainClass> cc  "the constraint class";
+    end REPLACEABLE;
+    record NOT_REPLACEABLE "a non replaceable prefix" end NOT_REPLACEABLE;
+  end Replaceable;
+
+  uniontype Final "the final prefix"
+    record FINAL    "a final prefix"      end FINAL;
+    record NOT_FINAL "a non final prefix" end NOT_FINAL;
+  end Final;
+
+  uniontype Each "the each prefix"
+    record EACH     "a each prefix"     end EACH;
+    record NOT_EACH "a non each prefix" end NOT_EACH;
+  end Each;
+
+  uniontype Encapsulated "the encapsulated prefix"
+    record ENCAPSULATED     "a encapsulated prefix"     end ENCAPSULATED;
+    record NOT_ENCAPSULATED "a non encapsulated prefix" end NOT_ENCAPSULATED;
+  end Encapsulated;
+
+  uniontype Partial "the partial prefix"
+    record PARTIAL     "a partial prefix"     end PARTIAL;
+    record NOT_PARTIAL "a non partial prefix" end NOT_PARTIAL;
+  end Partial;
+
+  uniontype ConnectorType
+    record POTENTIAL end POTENTIAL;
+    record FLOW end FLOW;
+    record STREAM end STREAM;
+  end ConnectorType;
+
+  uniontype Prefixes "the common class or component prefixes"
+    record PREFIXES "the common class or component prefixes"
+      Visibility       visibility           "the protected/public prefix";
+      Redeclare        redeclarePrefix      "redeclare prefix";
+      Final            finalPrefix          "final prefix, be it at the element or top level";
+      Absyn.InnerOuter innerOuter           "the inner/outer/innerouter prefix";
+      Replaceable      replaceablePrefix    "replaceable prefix";
+    end PREFIXES;
+  end Prefixes;
+
+  uniontype Element "- Elements
+    There are four types of elements in a declaration, represented by the constructors:
+    IMPORT     (for import clauses)
+    EXTENDS    (for extends clauses),
+    CLASS      (for top/local class definitions)
+    COMPONENT  (for local variables)
+    DEFINEUNIT (for units)"
+
+    record IMPORT "an import element"
+      Absyn.Import imp                 "the import definition";
+      Visibility   visibility          "the protected/public prefix";
+      builtin.SourceInfo   info                "the import information";
+    end IMPORT;
+
+    record EXTENDS "the extends element"
+      Path baseClassPath               "the extends path";
+      Visibility visibility            "the protected/public prefix";
+      Mod modifications                "the modifications applied to the base class";
+      Option<Annotation> ann           "the extends annotation";
+      builtin.SourceInfo info                  "the extends info";
+    end EXTENDS;
+
+    record CLASS "a class definition"
+      Ident   name                     "the name of the class";
+      Prefixes prefixes                "the common class or component prefixes";
+      Encapsulated encapsulatedPrefix  "the encapsulated prefix";
+      Partial partialPrefix            "the partial prefix";
+      Restriction restriction          "the restriction of the class";
+      ClassDef classDef                "the class specification";
+      builtin.SourceInfo info                  "the class information";
+    end CLASS;
+
+    record COMPONENT "a component"
+      Ident name                      "the component name";
+      Prefixes prefixes               "the common class or component prefixes";
+      Attributes attributes           "the component attributes";
+      Absyn.TypeSpec typeSpec         "the type specification";
+      Mod modifications               "the modifications to be applied to the component";
+      Option<Comment> comment         "this if for extraction of comments and annotations from Absyn";
+      Option<Absyn.Exp> condition     "the conditional declaration of a component";
+      builtin.SourceInfo info                 "this is for line and column numbers, also file name.";
+    end COMPONENT;
+
+    record DEFINEUNIT "a unit defintion has a name and the two optional parameters exp, and weight"
+      Ident name;
+      Visibility visibility            "the protected/public prefix";
+      Option<String> exp               "the unit expression";
+      Option<Real> weight              "the weight";
+    end DEFINEUNIT;
+
+  end Element;
+
+  uniontype Attributes "- Attributes"
+    record ATTR "the attributes of the component"
+      Absyn.ArrayDim arrayDims "the array dimensions of the component";
+      ConnectorType connectorType "The connector type: flow, stream or nothing.";
+      Parallelism parallelism "parallelism prefix: parglobal, parlocal, parprivate";
+      Variability variability " the variability: parameter, discrete, variable, constant" ;
+      Absyn.Direction direction "the direction: input, output or bidirectional" ;
+      Absyn.IsField isField "non-fiel / field";
+    end ATTR;
+  end Attributes;
+
+  uniontype Variability "the variability of a component"
+    record VAR      "a variable"          end VAR;
+    record DISCRETE "a discrete variable" end DISCRETE;
+    record PARAM    "a parameter"         end PARAM;
+    record CONST    "a constant"          end CONST;
+  end Variability;
+
+  uniontype Initial "the initial attribute of an algorithm or equation
+  Intial is used as argument to instantiation-function for
+  specifying if equations or algorithms are initial or not."
+    record INITIAL     "an initial equation or algorithm" end INITIAL;
+    record NON_INITIAL "a normal equation or algorithm"   end NON_INITIAL;
+  end Initial;
 
 end SCode;
 
@@ -3236,6 +3429,13 @@ package Util
       Integer year;
     end DATETIME;
   end DateTime;
+
+  function stringReplaceChar
+    input String inString1;
+    input String inString2;
+    input String inString3;
+    output String outString;
+  end stringReplaceChar;
 
   function escapeModelicaStringToCString
     input String modelicaString;
@@ -3338,13 +3538,13 @@ package List
     replaceable type Type_a subtypeof Any;
   end lastN;
 
-  function threadTuple
+  function zip
     replaceable type Type_b subtypeof Any;
     input list<Type_a> inTypeALst;
     input list<Type_b> inTypeBLst;
     output list<tuple<Type_a, Type_b>> outTplTypeATypeBLst;
     replaceable type Type_a subtypeof Any;
-  end threadTuple;
+  end zip;
 
   function position
     replaceable type Type_a subtypeof Any;
@@ -3399,6 +3599,12 @@ package List
     output list<Type_b> outTypeALst;
     replaceable type Type_a subtypeof Any;
   end unzipSecond;
+
+  function first
+    replaceable type ElementType subtypeof Any;
+    input list<ElementType> inList;
+    output ElementType val;
+  end first;
 
   function last
     replaceable type ElementType subtypeof Any;
@@ -3580,6 +3786,16 @@ package Expression
    output Boolean outBoolean;
   end isConst;
 
+  function isEvaluatedConst
+    input DAE.Exp inExp;
+    output Boolean outBoolean;
+  end isEvaluatedConst;
+
+  function isCref
+    input DAE.Exp inExp;
+    output Boolean outIsCref;
+  end isCref;
+
   function subscriptConstants
     "returns true if all subscripts are known (i.e no cref) constant values (no slice or wholedim "
     input list<DAE.Subscript> inSubs;
@@ -3643,21 +3859,6 @@ package Expression
     output Boolean outBoolean;
   end isPositiveOrZero;
 
-  function extractUniqueCrefsFromExp
-    input DAE.Exp inExp;
-    output list<DAE.ComponentRef> ocrefs;
-  end extractUniqueCrefsFromExp;
-
-  function extractUniqueCrefsFromExpDerPreStart
-    input DAE.Exp inExp;
-    output list<DAE.ComponentRef> ocrefs;
-  end extractUniqueCrefsFromExpDerPreStart;
-
-  function extractUniqueCrefsFromStatmentS
-    input list<DAE.Statement> inStmts;
-    output tuple<list<DAE.ComponentRef>,list<DAE.ComponentRef>> ocrefs;
-  end extractUniqueCrefsFromStatmentS;
-
   function isCrefListWithEqualIdents
     input list<DAE.Exp> iExpressions;
     output Boolean oCrefWithEqualIdents;
@@ -3668,11 +3869,15 @@ package Expression
     output list<Integer> outValues;
   end dimensionsList;
 
+  function hasZeroDimension
+    input DAE.Dimensions inDims;
+    output Boolean hasZeroDimension;
+  end hasZeroDimension;
+
   function expDimensionsList
     input list<DAE.Exp> inDims;
     output list<Integer> outValues;
   end expDimensionsList;
-
 
   function isMetaArray
     input DAE.Exp inExp;
@@ -3796,7 +4001,6 @@ package Flags
   uniontype DebugFlag end DebugFlag;
   uniontype ConfigFlag end ConfigFlag;
 
-  constant DebugFlag PARMODAUTO;
   constant DebugFlag HPCOM;
   constant DebugFlag HPCOM_MEMORY_OPT;
   constant DebugFlag GEN_DEBUG_SYMBOLS;
@@ -3808,6 +4012,7 @@ package Flags
   constant DebugFlag OMC_RECORD_ALLOC_WORDS;
   constant DebugFlag OMC_RELOCATABLE_FUNCTIONS;
   constant DebugFlag NF_SCALARIZE;
+  constant ConfigFlag PARMODAUTO;
   constant ConfigFlag NUM_PROC;
   constant ConfigFlag HPCOM_CODE;
   constant ConfigFlag PROFILING_LEVEL;
@@ -3824,7 +4029,7 @@ package Flags
   constant ConfigFlag REDUCE_TERMS;
   constant ConfigFlag LABELED_REDUCTION;
   constant ConfigFlag LOAD_MSL_MODEL;
-  constant ConfigFlag Load_PACKAGE_FILE;
+  constant ConfigFlag LOAD_PACKAGE_FILE;
   constant ConfigFlag SINGLE_INSTANCE_AGLSOLVER;
   constant ConfigFlag LINEARIZATION_DUMP_LANGUAGE;
   constant ConfigFlag USE_ZEROMQ_IN_SIM;
@@ -3833,6 +4038,9 @@ package Flags
   constant ConfigFlag ZEROMQ_JOB_ID;
   constant ConfigFlag ZEROMQ_SERVER_ID;
   constant ConfigFlag ZEROMQ_CLIENT_ID;
+  constant ConfigFlag FMI_FILTER;
+  constant ConfigFlag EXPORT_CLOCKS_IN_MODELDESCRIPTION;
+  constant ConfigFlag OBFUSCATE;
 
   function isSet
     input DebugFlag inFlag;

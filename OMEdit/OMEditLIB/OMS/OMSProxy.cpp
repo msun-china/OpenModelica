@@ -34,15 +34,15 @@
 #include "OMSProxy.h"
 #include "Util/Helper.h"
 #include "MainWindow.h"
-#include "OMSSimulationDialog.h"
-#include "OMSSimulationOutputWidget.h"
 #include "Util/Utilities.h"
 
+#include <QTime>
+
 #define LOG_COMMAND(command,args) \
-  QTime commandTime; \
+  QElapsedTimer commandTime; \
   commandTime.start(); \
   command = QString("%1(%2)").arg(command, args.join(",")); \
-  logCommand(&commandTime, command);
+  logCommand(command);
 
 /*!
  * \brief loggingCallback
@@ -67,24 +67,8 @@ void loggingCallback(oms_message_type_enu_t type, const char *message)
       level = Helper::notificationLevel;
       break;
   }
-  emit OMSProxy::instance()->emitLogGUIMessage(MessageItem(MessageItem::Modelica,
-                                                           QString(message), Helper::scriptingKind, level));
-
+  emit OMSProxy::instance()->emitLogGUIMessage(MessageItem(MessageItem::Modelica, QString(message), Helper::scriptingKind, level));
   //  qDebug() << "loggingCallback" << type << message;
-}
-
-void simulateCallback(const char* ident, double time, oms_status_enu_t status)
-{
-  //  qDebug() << "simulateCallback" << ident << time << status;
-  QList<OMSSimulationOutputWidget*> OMSSimulationOutputWidgetList;
-  OMSSimulationOutputWidgetList = MainWindow::instance()->getOMSSimulationDialog()->getOMSSimulationOutputWidgetsList();
-  foreach (OMSSimulationOutputWidget *pOMSSimulationOutputWidget, OMSSimulationOutputWidgetList) {
-    if (pOMSSimulationOutputWidget->isSimulationRunning()
-        && pOMSSimulationOutputWidget->getOMSSimulationOptions().getModelName().compare(QString(ident)) == 0) {
-      pOMSSimulationOutputWidget->simulateCallback(ident, time, status);
-      break;
-    }
-  }
 }
 
 /*!
@@ -111,6 +95,7 @@ void OMSProxy::destroy()
 {
   oms_setLoggingCallback(0);
   mpInstance->deleteLater();
+  mpInstance = 0;
 }
 
 /*!
@@ -146,13 +131,12 @@ OMSProxy::~OMSProxy()
  * \brief OMSProxy::logCommand
  * Writes the command to the omscommunication.log file.
  * \param command - the command to write
- * \param commandTime - the command start time
  */
-void OMSProxy::logCommand(QTime *commandTime, QString command)
+void OMSProxy::logCommand(QString command)
 {
   // write the log to communication log file
   if (mpCommunicationLogFile) {
-    fputs(QString("%1 %2\n").arg(command, commandTime->currentTime().toString("hh:mm:ss:zzz")).toUtf8().constData(), mpCommunicationLogFile);
+    fputs(QString("%1 %2\n").arg(command, QTime::currentTime().toString("hh:mm:ss:zzz")).toUtf8().constData(), mpCommunicationLogFile);
   }
 }
 
@@ -163,7 +147,7 @@ void OMSProxy::logCommand(QTime *commandTime, QString command)
  * \param status - execution status of the command
  * \param responseTime - the response end time
  */
-void OMSProxy::logResponse(QString command, oms_status_enu_t status, QTime *responseTime)
+void OMSProxy::logResponse(QString command, oms_status_enu_t status, QElapsedTimer *responseTime)
 {
   double elapsed = (double)responseTime->elapsed() / 1000.0;
   QString firstLine("");
@@ -178,7 +162,7 @@ void OMSProxy::logResponse(QString command, oms_status_enu_t status, QTime *resp
   // write the log to communication log file
   if (mpCommunicationLogFile) {
     mTotalOMSCallsTime += elapsed;
-    fputs(QString("%1 %2\n").arg(status).arg(responseTime->currentTime().toString("hh:mm:ss:zzz")).toUtf8().constData(), mpCommunicationLogFile);
+    fputs(QString("%1 %2\n").arg(status).arg(QTime::currentTime().toString("hh:mm:ss:zzz")).toUtf8().constData(), mpCommunicationLogFile);
     fputs(QString("#s#; %1; %2; \'%3\'\n\n").arg(QString::number(elapsed, 'f', 6)).arg(QString::number(mTotalOMSCallsTime, 'f', 6)).arg(firstLine).toUtf8().constData(),  mpCommunicationLogFile);
   }
 
@@ -366,13 +350,13 @@ bool OMSProxy::addBus(QString cref)
  * \param crefB
  * \return
  */
-bool OMSProxy::addConnection(QString crefA, QString crefB)
+bool OMSProxy::addConnection(QString crefA, QString crefB, bool suppressUnitConversion)
 {
   QString command = "oms_addConnection";
   QStringList args;
-  args << "\"" + crefA + "\"" << "\"" + crefB + "\"";
+  args << "\"" + crefA + "\"" << "\"" + crefB + "\"" << (suppressUnitConversion ? "true" : "false");
   LOG_COMMAND(command, args);
-  oms_status_enu_t status = oms_addConnection(crefA.toUtf8().constData(), crefB.toUtf8().constData());
+  oms_status_enu_t status = oms_addConnection(crefA.toUtf8().constData(), crefB.toUtf8().constData(), suppressUnitConversion);
   logResponse(command, status, &commandTime);
   return statusToBool(status);
 }
@@ -453,6 +437,50 @@ bool OMSProxy::addSubModel(QString cref, QString fmuPath)
   return statusToBool(status);
 }
 
+/*!
+ * \brief OMSProxy::replaceSubModel
+ * \Adds the submodel to the system
+ * \param cref
+ * \param fmupath
+ * \param dryCount
+ * \param count
+ * \return
+ */
+bool OMSProxy::replaceSubModel(QString cref, QString fmuPath, bool dryCount, int *count)
+{
+  QString command = "oms_replaceSubModel";
+  QStringList args;
+  args << "\"" + cref + "\"" << fmuPath << QString::number(dryCount);
+  LOG_COMMAND(command, args);
+  oms_status_enu_t status = oms_replaceSubModel(cref.toUtf8().constData(), fmuPath.toUtf8().constData(), dryCount, count);
+  logResponse(command, status, &commandTime);
+  return statusToBool(status);
+}
+
+/*!
+ * \brief OMSProxy::createElementGeometryUsingPosition
+ * Creates the element geometry using position.
+ * \param cref
+ * \param position
+ */
+void OMSProxy::createElementGeometryUsingPosition(const QString &cref, QPointF position)
+{
+  qreal x = position.x();
+  qreal y = position.y();
+
+  ssd_element_geometry_t elementGeometry;
+  elementGeometry.x1 = x - 10.0;
+  elementGeometry.y1 = y - 10.0;
+  elementGeometry.x2 = x + 10.0;
+  elementGeometry.y2 = y + 10.0;
+  elementGeometry.rotation = 0.0;
+  elementGeometry.iconSource = NULL;
+  elementGeometry.iconRotation = 0.0;
+  elementGeometry.iconFlip = false;
+  elementGeometry.iconFixedAspectRatio = false;
+  setElementGeometry(cref, &elementGeometry);
+}
+
 bool OMSProxy::addExternalTLMModel(QString cref, QString startScript, QString modelPath)
 {
     QString command = "oms_addExternalModel";
@@ -522,23 +550,6 @@ bool OMSProxy::addTLMConnection(QString crefA, QString crefB, double delay, doub
   LOG_COMMAND(command, args);
   oms_status_enu_t status = oms_addTLMConnection(crefA.toUtf8().constData(), crefB.toUtf8().constData(), delay, alpha,
                                                  linearimpedance, angularimpedance);
-  logResponse(command, status, &commandTime);
-  return statusToBool(status);
-}
-
-/*!
- * \brief OMSProxy::cancelSimulation_asynchronous
- * Cancels the current model asynchronous simulation.
- * \param cref
- * \return
- */
-bool OMSProxy::cancelSimulation_asynchronous(QString cref)
-{
-  QString command = "oms_cancelSimulation_asynchronous";
-  QStringList args;
-  args << "\"" + cref + "\"";
-  LOG_COMMAND(command, args);
-  oms_status_enu_t status = oms_cancelSimulation_asynchronous(cref.toUtf8().constData());
   logResponse(command, status, &commandTime);
   return statusToBool(status);
 }
@@ -796,6 +807,24 @@ bool OMSProxy::getInteger(QString cref, int *value)
 }
 
 /*!
+ * \brief OMSProxy::getModelState
+ * Gets the model state.
+ * \param cref
+ * \param modelState
+ * \return
+ */
+bool OMSProxy::getModelState(const QString &cref, oms_modelState_enu_t *modelState)
+{
+  QString command = "oms_getModelState";
+  QStringList args;
+  args << "\"" + cref + "\"";
+  LOG_COMMAND(command, args);
+  oms_status_enu_t status = oms_getModelState(cref.toUtf8().constData(), modelState);
+  logResponse(command, status, &commandTime);
+  return statusToBool(status);
+}
+
+/*!
  * \brief OMSProxy::getReal
  * Gets the real variable value.
  * \param cref
@@ -1019,21 +1048,22 @@ bool OMSProxy::initialize(QString cref)
 }
 
 /*!
- * \brief OMSProxy::list
+ * \brief OMSProxy::exportSnapshot
  * Lists the contents of a model.
  * Since memory is allocated so we need to call free.
  * \param cref
  * \param pContents
  * \return
  */
-bool OMSProxy::list(QString cref, QString *pContents)
+bool OMSProxy::exportSnapshot(QString cref, QString *pContents)
 {
-  QString command = "oms_list";
+  QString command = "oms_exportSnapshot";
+  QString cref_ = cref + ":SystemStructure.ssd";
   QStringList args;
-  args << "\"" + cref + "\"";
+  args << "\"" + cref_ + "\"";
   LOG_COMMAND(command, args);
   char* contents = NULL;
-  oms_status_enu_t status = oms_list(cref.toUtf8().constData(), &contents);
+  oms_status_enu_t status = oms_exportSnapshot(cref_.toUtf8().constData(), &contents);
   if (contents) {
     *pContents = QString(contents);
     free(contents);
@@ -1063,6 +1093,30 @@ bool OMSProxy::loadModel(QString filename, QString* pModelName)
 }
 
 /*!
+ * \brief OMSProxy::importSnapshot
+ * Loads the snapshot of the model.
+ * \param cref
+ * \param snapshot
+ * \param pNewCref
+ * \return
+ */
+bool OMSProxy::importSnapshot(QString cref, QString snapshot, QString* pNewCref)
+{
+  QString command = "oms_importSnapshot";
+  QStringList args;
+  args << "\"" + cref + "\"" << "\"" + snapshot + "\"";
+  LOG_COMMAND(command, args);
+  char* new_cref = NULL;
+  oms_status_enu_t status = oms_importSnapshot(cref.toUtf8().constData(), snapshot.toUtf8().constData(), &new_cref);
+  if (new_cref)
+    *pNewCref = QString(new_cref);
+  else
+    *pNewCref = cref;
+  logResponse(command, status, &commandTime);
+  return statusToBool(status);
+}
+
+/*!
  * \brief OMSProxy::newModel
  * \param cref
  * \return
@@ -1079,13 +1133,36 @@ bool OMSProxy::newModel(QString cref)
 }
 
 /*!
+ * \brief OMSProxy::rename
+ * Renames the OMSimulator model/elements.
+ * \param cref
+ * \param newCref
+ * \return
+ */
+bool OMSProxy::rename(const QString &cref, const QString &newCref)
+{
+  QString command = "oms_rename";
+  QStringList args;
+  args << "\"" + cref + "\"" << "\"" + newCref + "\"";
+  LOG_COMMAND(command, args);
+  oms_status_enu_t status = oms_rename(cref.toUtf8().constData(), newCref.toUtf8().constData());
+  logResponse(command, status, &commandTime);
+  return statusToBool(status);
+}
+
+/*!
  * \brief OMSProxy::omsDelete
  * \param cref
  * \return
  */
 bool OMSProxy::omsDelete(QString cref)
 {
+  QString command = "oms_delete";
+  QStringList args;
+  args << "\"" + cref + "\"";
+  LOG_COMMAND(command, args);
   oms_status_enu_t status = oms_delete(cref.toUtf8().constData());
+  logResponse(command, status, &commandTime);
   return statusToBool(status);
 }
 
@@ -1349,20 +1426,13 @@ bool OMSProxy::setResultFile(QString cref, QString filename, int bufferSize)
   return statusToBool(status);
 }
 
-/*!
- * \brief OMSProxy::setSignalFilter
- * Sets the signal filter.
- * \param cref
- * \param regex
- * \return
- */
-bool OMSProxy::setSignalFilter(QString cref, QString regex)
+bool OMSProxy::getResultFile(QString cref, char **pFilename, int *pBufferSize)
 {
-  QString command = "oms_setSignalFilter";
+  QString command = "oms_getResultFile";
   QStringList args;
-  args << "\"" + cref + "\"" << "\"" + regex + "\"";
+  args << "\"" + cref + "\"";
   LOG_COMMAND(command, args);
-  oms_status_enu_t status = oms_setSignalFilter(cref.toUtf8().constData(), regex.toUtf8().constData());
+  oms_status_enu_t status = oms_getResultFile(cref.toUtf8().constData(), pFilename, pBufferSize);
   logResponse(command, status, &commandTime);
   return statusToBool(status);
 }
@@ -1547,23 +1617,6 @@ void OMSProxy::setWorkingDirectory(QString path)
 }
 
 /*!
- * \brief OMSProxy::simulate_asynchronous
- * Starts the asynchronous simulation.
- * \param cref
- * \return
- */
-bool OMSProxy::simulate_asynchronous(QString cref)
-{
-  QString command = "oms_simulate_asynchronous";
-  QStringList args;
-  args << "\"" + cref + "\"";
-  LOG_COMMAND(command, args);
-  oms_status_enu_t status = oms_simulate_asynchronous(cref.toUtf8().constData(), simulateCallback);
-  logResponse(command, status, &commandTime);
-  return statusToBool(status);
-}
-
-/*!
  * \brief OMSProxy::terminate
  * Terminates the model.
  * \param cref
@@ -1578,43 +1631,4 @@ bool OMSProxy::terminate(QString cref)
   oms_status_enu_t status = oms_terminate(cref.toUtf8().constData());
   logResponse(command, status, &commandTime);
   return statusToBool(status);
-}
-
-/*!
- * \brief OMSProxy::parseString
- * Parses a model string and returns a model name.
- * \param contents
- * \param pModelName
- * \return
- */
-bool OMSProxy::parseString(QString contents, QString *pModelName)
-{
-  Q_UNUSED(contents);
-  Q_UNUSED(pModelName);
-  //  char* ident = NULL;
-  //  oms_status_enu_t status = oms2_parseString(contents.toUtf8().constData(), &ident);
-  //  if (ident) {
-  //    *pModelName = QString(ident);
-  //    free(ident);
-  //  }
-  //  return statusToBool(status);
-  return false;
-}
-
-/*!
- * \brief OMSProxy::loadString
- * Loads the model from a string.
- * \param contents
- * \param pModelName
- * \return
- */
-bool OMSProxy::loadString(QString contents, QString* pModelName)
-{
-  Q_UNUSED(contents);
-  Q_UNUSED(pModelName);
-  //  char* ident = NULL;
-  //  oms_status_enu_t status = oms2_loadString(contents.toUtf8().constData(), &ident);
-  //  *pModelName = QString(ident);
-  //  return statusToBool(status);
-  return false;
 }

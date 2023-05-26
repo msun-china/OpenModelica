@@ -36,9 +36,11 @@
 
 #include "../omc_inline.h"
 #include "../ModelicaUtilities.h"
+#include "omc_file.h"
 #ifdef _MSC_VER
 #include "omc_msvc.h"
 #endif
+#include "omc_numbers.h"
 
 /* Definition to get some Debug information if interface is called */
 /* #define INFOS */
@@ -340,7 +342,7 @@ static TEXT_FILE *Text_open(const char *filename)
       for(i=0;i<=l;i++) {
         f->filename[i] = filename[i];
       }
-      f->fp = fopen(filename,"r");
+      f->fp = omc_fopen(filename,"r");
       if (!f->fp) {
         ModelicaFormatError("Cannot open File %s",filename);
       }
@@ -530,7 +532,7 @@ static void Text_readTable(TEXT_FILE *f, double *buf, size_t rows, size_t cols)
     for(j = 0; j < cols; ++j)
     {
       /* remove sufix whitespaces */
-      buf[i*cols+j] = strtod(number,&entp);
+      buf[i*cols+j] = om_strtod(number,&entp);
       /* move to next number */
       number = entp;
     }
@@ -575,7 +577,7 @@ static MAT_FILE *Mat_open(const char *filename)
   {
     f->filename[i] = filename[i];
   }
-  f->fp = fopen(filename,"rb");
+  f->fp = omc_fopen(filename,"rb");
   if (!f->fp) {
     ModelicaFormatError("Cannot open File %s",filename);
   }
@@ -770,7 +772,7 @@ static CSV_FILE *csv_open(const char *filename)
       for(i=0;i<=l;i++) {
         f->filename[i] = filename[i];
       }
-      f->fp = fopen(filename,"r");
+      f->fp = omc_fopen(filename,"r");
       if (!f->fp) {
         ModelicaFormatError("Cannot open File %s",filename);
       }
@@ -920,7 +922,7 @@ static void csv_readTable(CSV_FILE *f, const char *tableName, double *data, size
         number = strLn;
         for(col=0;col<cols;col++)
         {
-          data[row*cols+col] = strtod(number,&entp);
+          data[row*cols+col] = om_strtod(number,&entp);
           trim((const char**)&entp,&lh);
           number = entp+1;
         }

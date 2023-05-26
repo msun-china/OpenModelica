@@ -49,6 +49,8 @@
 
 #include <cstdlib>
 
+#include "../../../OMCompiler/Compiler/runtime/settingsimpl.h"
+
 namespace IAEX
 {
   /*!
@@ -115,17 +117,14 @@ namespace IAEX
     app_ = new MyApp(argc, argv, this);
 
 
-    const char *omhome = getenv("OPENMODELICAHOME");
-  #ifdef WIN32
-    if (!omhome) {
-      QMessageBox::critical(0, tr("Error"), tr("OPENMODELICAHOME not set"), "OK");
+    const char *installationDirectoryPath = SettingsImpl__getInstallationDirectoryPath();
+    if (!installationDirectoryPath) {
+      QMessageBox::critical(0, tr("Error"), tr("Could not find installation directory path. Please make sure OpenModelica is installed properly."), "OK");
       app_->quit();
       exit(1);
     }
-  #else /* unix */
-    omhome = omhome ? omhome : CONFIG_DEFAULT_OPENMODELICAHOME;
-  #endif
-    QString translationDirectory = omhome + QString("/share/omnotebook/nls");
+
+    QString translationDirectory = installationDirectoryPath + QString("/share/omnotebook/nls");
     // install Qt's default translations
   #ifdef Q_OS_WIN
     qtTranslator.load("qt_" + QLocale::system().name(), translationDirectory);
@@ -150,19 +149,9 @@ namespace IAEX
     setlocale(LC_NUMERIC, "C");
 
     /* Don't move this line
-     * Is importat for threadData initialization
+     * Is important for threadData initialization
      */
     OmcInteractiveEnvironment *env = OmcInteractiveEnvironment::getInstance(threadData);
-
-    // 2006-04-10 AF, use environment variable to find xml files
-    QString openmodelica = OmcInteractiveEnvironment::OpenModelicaHome();
-
-    if(!QDir().exists(openmodelica))
-    {
-      QMessageBox::critical( 0, "OpenModelica Error", tr("The environment variable OPENMODELICAHOME=%1 is not a valid directory").arg(openmodelica) );
-      exit(1);
-    }
-
     // Avoid cluttering the whole disk with omc temp-files
     env->evalExpression("setCommandLineOptions(\"+d=shortOutput\")");
     QString cmdLine = env->getResult();
@@ -181,7 +170,8 @@ namespace IAEX
     }
 
     // 2005-12-17 AF, Create instance (load styles) of stylesheet
-    // 2006-04-10 AF, use environment variable to find stylesheet.xml
+    // 2006-04-10 AF, use installation directory path to find stylesheet.xml
+    QString openmodelica = QString(installationDirectoryPath);
     try
     {
       QString stylesheetfile;
@@ -238,7 +228,7 @@ namespace IAEX
         else
         {
           cout << "File not found: " << fileToOpen.toStdString() << endl;
-          open(QString::null);
+          open(QString());
         }
       }
       else
@@ -260,27 +250,14 @@ namespace IAEX
           //QString drmodelica = OmcInteractiveEnvironment::OpenModelicaHome() + "/share/omnotebook/drmodelica/QuickTour/HelloWorld.onb";
 
           if( dir.exists( drmodelica ))
-            open(drmodelica);
+            open(drmodelica, READMODE_NORMAL, 1);
           else if( dir.exists( "DrModelica/DrModelica.onb" ))
-            open( "DrModelica/DrModelica.onb" );
+            open( "DrModelica/DrModelica.onb", READMODE_NORMAL, 1);
           else
           {
             cout << "Unable to find (1): " << drmodelica.toStdString() << endl;
             cout << "Unable to find (2): DrModelica/DrModelica.onb" << endl;
-
-            // NB
-            drmodelica = OmcInteractiveEnvironment::OpenModelicaHome() + "/share/omnotebook/drmodelica/DrModelica.onb";
-
-            if( dir.exists( drmodelica ))
-              open(drmodelica);
-            else if( dir.exists( "DrModelica/DrModelica.nb" ))
-              open( "DrModelica/DrModelica.nb" );
-            else
-            {
-              cout << "Unable to find (3): " << drmodelica.toStdString() << endl;
-              cout << "Unable to find (4): DrModelica/DrModelica.nb" << endl;
-              open(QString::null);
-            }
+            open(QString());
           }
         }
       }
@@ -414,7 +391,7 @@ namespace IAEX
    * all operations are done on the window.
    * 2006-05-03 AF, during open, stop highlighter
    */
-  void CellApplication::open( const QString filename, int readmode )
+  void CellApplication::open( const QString filename, int readmode, int isDrModelica )
   {
     // 2005-12-01 AF, Added try-catch
     try
@@ -425,7 +402,7 @@ namespace IAEX
 
       //2. Create a new View.
       // 2005-09-22 AF: Added 'filename' in NotebookWindow() call
-      DocumentView *v = new NotebookWindow(d, filename);
+      DocumentView *v = new NotebookWindow(d, filename, isDrModelica);
       add(v);
 
       // 2006-01-31 AF, Open window minimized instead of normal

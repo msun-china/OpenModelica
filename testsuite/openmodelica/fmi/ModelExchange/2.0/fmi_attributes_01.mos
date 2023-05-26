@@ -3,15 +3,19 @@
 // status: correct
 // teardown_command: rm -rf fmi_attributes_01.fmu fmi_attributes_01.log fmi_attributes_01.xml fmi_attributes_01_tmp.xml
 
+setCommandLineOptions("-d=newInst,-disableDirectionalDerivatives,fmuExperimental");
+getErrorString();
+
 loadString("
 model fmi_attributes_01
   Real x(start=-1.0, fixed=true);
 equation
   (x + der(x))^2 = 3.0 - x^2 - der(x)^2;
+
+  annotation(__OpenModelica_commandLineOptions=\"-d=force-fmi-attributes\");
 end fmi_attributes_01;
 "); getErrorString();
 
-setDebugFlags("force-fmi-attributes"); getErrorString();
 translateModelFMU(fmi_attributes_01); getErrorString();
 
 // unzip to console, quiet, extra quiet
@@ -50,7 +54,7 @@ readFile("fmi_attributes_01.xml"); getErrorString();
 //     variability=\"continuous\"
 //     causality=\"local\"
 //     initial=\"approx\">
-//     <Real start=\"0.0\" derivative=\"1\"/>
+//     <Real start=\"0.0\" derivative=\"1\" nominal=\"500.0\"/>
 //   </ScalarVariable>
 //   </ModelVariables>
 // "

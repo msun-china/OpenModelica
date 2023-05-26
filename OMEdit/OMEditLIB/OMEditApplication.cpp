@@ -36,9 +36,14 @@
 #include "Util/Helper.h"
 #include "MainWindow.h"
 #include "Modeling/LibraryTreeWidget.h"
+//! @todo Remove this once new frontend is used as default and old frontend is removed.
+#include "Options/OptionsDialog.h"
+#include "Simulation/TranslationFlagsWidget.h"
 
 #include <locale.h>
 #include <QMessageBox>
+
+#include "../../OMCompiler/Compiler/runtime/settingsimpl.h"
 
 /*!
  * \class OMEditApplication
@@ -63,29 +68,22 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
   QTextCodec::setCodecForLocale(QTextCodec::codecForName(Helper::utf8.toUtf8().constData()));
 #endif
   setAttribute(Qt::AA_DontShowIconsInMenus, false);
+  setAttribute(Qt::AA_UseHighDpiPixmaps);
   // Localization
   //*a.severin/ add localization
-  const char *omhome = getenv("OPENMODELICAHOME");
-#ifdef WIN32
-  if (!omhome) {
-    QMessageBox::critical(0, QString(Helper::applicationName).append(" - ").append(Helper::error),
-                          GUIMessages::getMessage(GUIMessages::OPENMODELICAHOME_NOT_FOUND), Helper::ok);
+  const char *installationDirectoryPath = SettingsImpl__getInstallationDirectoryPath();
+  if (!installationDirectoryPath) {
+    QMessageBox::critical(0, QString("%1 - %2").arg(Helper::applicationName, Helper::error), GUIMessages::getMessage(GUIMessages::INSTALLATIONDIRECTORY_NOT_FOUND), Helper::ok);
     quit();
     exit(1);
   }
-#else /* unix */
-  omhome = omhome ? omhome : CONFIG_DEFAULT_OPENMODELICAHOME;
-#endif
   QSettings *pSettings = Utilities::getApplicationSettings();
   QLocale settingsLocale = QLocale(pSettings->value("language").toString());
-  settingsLocale = settingsLocale.name() == "C" ? pSettings->value("language").toLocale() : settingsLocale;
-  QString locale = settingsLocale.name().isEmpty() ? QLocale::system().name() : settingsLocale.name();
-  /* Set the default locale of the application so that QSpinBox etc show values according to the locale.
-   * Set OMEdit locale to C so that we get dot as decimal separator instead of comma.
-   */
+  QString locale = settingsLocale.name() == "C" ? QLocale::system().name() : settingsLocale.name();
+  // Set OMEdit locale to C so that we get dot as decimal separator instead of comma.
   QLocale::setDefault(QLocale::c());
 
-  QString translationDirectory = omhome + QString("/share/omedit/nls");
+  QString translationDirectory = installationDirectoryPath + QString("/share/omedit/nls");
   // install Qt's default translations
   QTranslator *pQtTranslator = new QTranslator(this);
 #ifdef Q_OS_WIN
@@ -110,8 +108,11 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
   setlocale(LC_NUMERIC, "C");
   // if user has requested to open the file by passing it in argument then,
   bool debug = false;
+  bool newApi = false;
+  bool newApiProfiling = false;
+  bool newApiCommandLine = false;
   QString fileName = "";
-  QStringList fileNames;
+  QStringList fileNames, invalidFlags;
   if (arguments().size() > 1 && !testsuiteRunning) {
     for (int i = 1; i < arguments().size(); i++) {
       if (strncmp(arguments().at(i).toUtf8().constData(), "--Debug=",8) == 0) {
@@ -119,8 +120,19 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
         debugArg.remove("--Debug=");
         if (0 == strcmp("true", debugArg.toUtf8().constData())) {
           debug = true;
-        } else {
-          debug = false;
+        }
+      } else if (strncmp(arguments().at(i).toUtf8().constData(), "--NAPI=",7) == 0) {
+        newApiCommandLine = true;
+        QString napiArg = arguments().at(i);
+        napiArg.remove("--NAPI=");
+        if (0 == strcmp("true", napiArg.toUtf8().constData())) {
+          newApi = true;
+        }
+      } else if (strncmp(arguments().at(i).toUtf8().constData(), "--NAPIProfiling=",16) == 0) {
+        QString napiProfilingArg = arguments().at(i);
+        napiProfilingArg.remove("--NAPIProfiling=");
+        if (0 == strcmp("true", napiProfilingArg.toUtf8().constData())) {
+          newApiProfiling = true;
         }
       } else {
         fileName = arguments().at(i);
@@ -135,7 +147,7 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
           if (QFile::exists(absoluteFileName)) {
             fileNames << absoluteFileName;
           } else {
-            printf("Invalid command line argument: %s %s\n", fileName.toUtf8().constData(), absoluteFileName.toUtf8().constData());
+            invalidFlags.append(fileName);
           }
         }
       }
@@ -144,11 +156,19 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
   // MainWindow Initialization
   MainWindow *pMainwindow = MainWindow::instance();
   pMainwindow->setDebug(debug);
+  pMainwindow->setNewApi(newApi);
+  pMainwindow->setNewApiCommandLine(newApiCommandLine);
+  pMainwindow->setNewApiProfiling(newApiProfiling);
   pMainwindow->setTestsuiteRunning(testsuiteRunning);
   pMainwindow->setUpMainWindow(threadData);
   if (pMainwindow->getExitApplicationStatus()) {        // if there is some issue in running the application.
     quit();
     exit(1);
+  }
+  // show error of invalid flags
+  if (!invalidFlags.isEmpty()) {
+    MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, QString("Invalid command line argument(s): %1").arg(invalidFlags.join(", ")),
+                                                          Helper::scriptingKind, Helper::errorLevel));
   }
   // open the files passed as command line arguments
   foreach (QString fileName, fileNames) {
@@ -166,6 +186,27 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
     pMainwindow->show();
     // hide the splash screen
     SplashScreen::instance()->finish(pMainwindow);
+    //! @todo Remove this once new frontend is used as default and old frontend is removed.
+    //! Fixes issue #7456
+    if (OptionsDialog::instance()->getSimulationPage()->getTranslationFlagsWidget()->getOldInstantiationCheckBox()->isChecked()) {
+      QMessageBox *pMessageBox = new QMessageBox;
+      pMessageBox->setWindowTitle(QString("%1 - %2").arg(Helper::applicationName, Helper::question));
+      pMessageBox->setIcon(QMessageBox::Question);
+      pMessageBox->setAttribute(Qt::WA_DeleteOnClose);
+      pMessageBox->setText(tr("You have enabled old frontend for code generation which is not recommended. Do you want to switch to new frontend?"));
+      pMessageBox->addButton(tr("Switch to new frontend"), QMessageBox::AcceptRole);
+      pMessageBox->addButton(tr("Keep using old frontend"), QMessageBox::RejectRole);
+      int answer = pMessageBox->exec();
+      switch (answer) {
+        case QMessageBox::AcceptRole:
+          OptionsDialog::instance()->getSimulationPage()->getTranslationFlagsWidget()->getOldInstantiationCheckBox()->setChecked(false);
+          OptionsDialog::instance()->saveSimulationSettings();
+          break;
+        case QMessageBox::RejectRole:
+        default:
+          break;
+      }
+    }
   }
 }
 

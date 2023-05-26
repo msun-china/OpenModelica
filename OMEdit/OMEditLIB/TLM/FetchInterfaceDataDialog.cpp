@@ -30,6 +30,8 @@
 
 #include "FetchInterfaceDataDialog.h"
 #include "Util/Helper.h"
+#include "Options/OptionsDialog.h"
+#include "Util/OutputPlainTextEdit.h"
 #include "Modeling/LibraryTreeWidget.h"
 #include "Modeling/ModelWidgetContainer.h"
 #include "Modeling/ItemDelegate.h"
@@ -72,7 +74,7 @@ FetchInterfaceDataDialog::FetchInterfaceDataDialog(LibraryTreeItem *pLibraryTree
   connect(mpFetchAgainButton, SIGNAL(clicked()), SLOT(fetchAgainInterfaceData()));
   // output
   mpOutputLabel = new Label(Helper::output);
-  mpOutputTextBox = new QPlainTextEdit;
+  mpOutputTextBox = new OutputPlainTextEdit;
   mpOutputTextBox->setFont(QFont(Helper::monospacedFontInfo.family()));
   // main Layout
   QGridLayout *pMainGridLayout = new QGridLayout;
@@ -147,8 +149,8 @@ void FetchInterfaceDataDialog::managerProcessStarted()
 void FetchInterfaceDataDialog::writeManagerOutput(QString output, StringHandler::SimulationMessageType type)
 {
   QTextCharFormat format;
-  format.setForeground(StringHandler::getSimulationMessageTypeColor(type));
-  Utilities::insertText(mpOutputTextBox, output, format);
+  format.setForeground(OptionsDialog::instance()->getMessagesPage()->getColor(type));
+  mpOutputTextBox->appendOutput(output, format);
 }
 
 /*!
@@ -207,8 +209,8 @@ AlignInterfacesDialog::AlignInterfacesDialog(ModelWidget *pModelWidget, LineAnno
   // list of interfaces
   QStringList interfaces;
   if (pConnectionLineAnnotation) {
-    interfaces << pConnectionLineAnnotation->getStartComponentName() + "  ->  " + pConnectionLineAnnotation->getEndComponentName();
-    interfaces << pConnectionLineAnnotation->getEndComponentName() + "  ->  " + pConnectionLineAnnotation->getStartComponentName();
+    interfaces << pConnectionLineAnnotation->getStartElementName() + "  ->  " + pConnectionLineAnnotation->getEndElementName();
+    interfaces << pConnectionLineAnnotation->getEndElementName() + "  ->  " + pConnectionLineAnnotation->getStartElementName();
   } else {
     CompositeModelEditor *pCompositeModelEditor = dynamic_cast<CompositeModelEditor*>(pModelWidget->getEditor());
     if (pCompositeModelEditor) {

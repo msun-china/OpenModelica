@@ -50,13 +50,43 @@ EllipseAnnotation::EllipseAnnotation(QString annotation, GraphicsView *pGraphics
   setShapeFlags(true);
 }
 
-EllipseAnnotation::EllipseAnnotation(ShapeAnnotation *pShapeAnnotation, Component *pParent)
+EllipseAnnotation::EllipseAnnotation(ModelInstance::Ellipse *pEllipse, bool inherited, GraphicsView *pGraphicsView)
+  : ShapeAnnotation(inherited, pGraphicsView, 0, 0)
+{
+  mpOriginItem = new OriginItem(this);
+  mpOriginItem->setPassive();
+  mpEllipse = pEllipse;
+  // set the default values
+  GraphicItem::setDefaults();
+  FilledShape::setDefaults();
+  ShapeAnnotation::setDefaults();
+  // set users default value by reading the settings file.
+  ShapeAnnotation::setUserDefaults();
+  parseShapeAnnotation();
+  setShapeFlags(true);
+}
+
+EllipseAnnotation::EllipseAnnotation(ShapeAnnotation *pShapeAnnotation, Element *pParent)
   : ShapeAnnotation(pShapeAnnotation, pParent)
 {
   mpOriginItem = 0;
   updateShape(pShapeAnnotation);
-  setPos(mOrigin);
-  setRotation(mRotation);
+  applyTransformation();
+}
+
+EllipseAnnotation::EllipseAnnotation(ModelInstance::Ellipse *pEllipse, Element *pParent)
+  : ShapeAnnotation(pParent)
+{
+  mpOriginItem = 0;
+  mpEllipse = pEllipse;
+  // set the default values
+  GraphicItem::setDefaults();
+  FilledShape::setDefaults();
+  ShapeAnnotation::setDefaults();
+  // set users default value by reading the settings file.
+  ShapeAnnotation::setUserDefaults();
+  parseShapeAnnotation();
+  applyTransformation();
 }
 
 EllipseAnnotation::EllipseAnnotation(ShapeAnnotation *pShapeAnnotation, GraphicsView *pGraphicsView)
@@ -76,21 +106,32 @@ void EllipseAnnotation::parseShapeAnnotation(QString annotation)
   FilledShape::parseShapeAnnotation(annotation);
   // parse the shape to get the list of attributes of Ellipse.
   QStringList list = StringHandler::getStrings(annotation);
-  if (list.size() < 11) {
+  if (list.size() < 12) {
     return;
   }
   // 9th item is the extent points
-  QStringList extentsList = StringHandler::getStrings(StringHandler::removeFirstLastCurlBrackets(list.at(8)));
-  for (int i = 0 ; i < qMin(extentsList.size(), 2) ; i++) {
-    QStringList extentPoints = StringHandler::getStrings(StringHandler::removeFirstLastCurlBrackets(extentsList[i]));
-    if (extentPoints.size() >= 2) {
-      mExtents.replace(i, QPointF(extentPoints.at(0).toFloat(), extentPoints.at(1).toFloat()));
-    }
-  }
+  mExtent.parse(list.at(8));
   // 10th item of the list contains the start angle.
-  mStartAngle = list.at(9).toFloat();
+  mStartAngle.parse(list.at(9));
   // 11th item of the list contains the end angle.
-  mEndAngle = list.at(10).toFloat();
+  mEndAngle.parse(list.at(10));
+  // 12th item of the list contains the closure
+  mClosure = StringHandler::getClosureType(stripDynamicSelect(list.at(11)));
+}
+
+void EllipseAnnotation::parseShapeAnnotation()
+{
+  GraphicItem::parseShapeAnnotation(mpEllipse);
+  FilledShape::parseShapeAnnotation(mpEllipse);
+
+  mExtent = mpEllipse->getExtent();
+  mExtent.evaluate(mpEllipse->getParentModel());
+  mStartAngle = mpEllipse->getStartAngle();
+  mStartAngle.evaluate(mpEllipse->getParentModel());
+  mEndAngle = mpEllipse->getEndAngle();
+  mEndAngle.evaluate(mpEllipse->getParentModel());
+  mClosure = mpEllipse->getClosure();
+  mClosure.evaluate(mpEllipse->getParentModel());
 }
 
 QRectF EllipseAnnotation::boundingRect() const
@@ -101,52 +142,39 @@ QRectF EllipseAnnotation::boundingRect() const
 QPainterPath EllipseAnnotation::shape() const
 {
   QPainterPath path;
-  qreal startAngle = StringHandler::getNormalizedAngle(mStartAngle);
-  qreal endAngle = StringHandler::getNormalizedAngle(mEndAngle);
-  if ((startAngle - endAngle) == 0)
-  {
-    path.addEllipse(getBoundingRect());
-    if (mFillPattern == StringHandler::FillNone)
-    {
-      return addPathStroker(path);
-    }
-    else
-    {
-      return path;
-    }
-  }
   path.addEllipse(getBoundingRect());
-  return path;
+  if (mFillPattern == StringHandler::FillNone) {
+    return addPathStroker(path);
+  } else {
+    return path;
+  }
 }
 
 void EllipseAnnotation::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
   Q_UNUSED(option);
   Q_UNUSED(widget);
-  if (mVisible || !mDynamicVisible.isEmpty()) {
-    if (!mDynamicVisibleValue && ((mpGraphicsView && mpGraphicsView->isVisualizationView())
-                                  || (mpParentComponent && mpParentComponent->getGraphicsView()->isVisualizationView()))) {
-      return;
-    }
-    drawEllipseAnnotaion(painter);
+  if (mVisible) {
+    drawEllipseAnnotation(painter);
   }
 }
 
-void EllipseAnnotation::drawEllipseAnnotaion(QPainter *painter)
+void EllipseAnnotation::drawEllipseAnnotation(QPainter *painter)
 {
-  QPainterPath path;
   // first we invert the painter since we have our coordinate system inverted.
   // inversion is required to draw the elliptic curves at correct angles.
   painter->scale(1.0, -1.0);
   painter->translate(0, ((-boundingRect().top()) - boundingRect().bottom()));
   applyLinePattern(painter);
-  applyFillPattern(painter);
-  qreal startAngle = StringHandler::getNormalizedAngle(mStartAngle);
-  qreal endAngle = StringHandler::getNormalizedAngle(mEndAngle);
-  if ((startAngle - endAngle) == 0) {
-    path.addEllipse(getBoundingRect());
-    painter->drawPath(path);
-  } else {
+  if (mClosure != StringHandler::ClosureNone) {
+    applyFillPattern(painter);
+  }
+
+  if (mClosure == StringHandler::ClosureNone) {
+    painter->drawArc(getBoundingRect(), mStartAngle*16, mEndAngle*16 - mStartAngle*16);
+  } else if (mClosure == StringHandler::ClosureChord) {
+    painter->drawChord(getBoundingRect(), mStartAngle*16, mEndAngle*16 - mStartAngle*16);
+  } else { // StringHandler::ClosureRadial
     painter->drawPie(getBoundingRect(), mStartAngle*16, mEndAngle*16 - mStartAngle*16);
   }
 }
@@ -162,18 +190,13 @@ QString EllipseAnnotation::getOMCShapeAnnotation()
   annotationString.append(GraphicItem::getOMCShapeAnnotation());
   annotationString.append(FilledShape::getOMCShapeAnnotation());
   // get the extents
-  QString extentString;
-  extentString.append("{");
-  extentString.append("{").append(QString::number(mExtents.at(0).x())).append(",");
-  extentString.append(QString::number(mExtents.at(0).y())).append("},");
-  extentString.append("{").append(QString::number(mExtents.at(1).x())).append(",");
-  extentString.append(QString::number(mExtents.at(1).y())).append("}");
-  extentString.append("}");
-  annotationString.append(extentString);
+  annotationString.append(mExtent.toQString());
   // get the start angle
-  annotationString.append(QString::number(mStartAngle));
+  annotationString.append(mStartAngle.toQString());
   // get the end angle
-  annotationString.append(QString::number(mEndAngle));
+  annotationString.append(mEndAngle.toQString());
+  // get the closure
+  annotationString.append(mClosure.toQString());
   return annotationString.join(",");
 }
 
@@ -198,23 +221,21 @@ QString EllipseAnnotation::getShapeAnnotation()
   annotationString.append(GraphicItem::getShapeAnnotation());
   annotationString.append(FilledShape::getShapeAnnotation());
   // get the extents
-  if (mExtents.size() > 1) {
-    QString extentString;
-    extentString.append("extent={");
-    extentString.append("{").append(QString::number(mExtents.at(0).x())).append(",");
-    extentString.append(QString::number(mExtents.at(0).y())).append("},");
-    extentString.append("{").append(QString::number(mExtents.at(1).x())).append(",");
-    extentString.append(QString::number(mExtents.at(1).y())).append("}");
-    extentString.append("}");
-    annotationString.append(extentString);
+  if (mExtent.isDynamicSelectExpression() || mExtent.size() > 1) {
+    annotationString.append(QString("extent=%1").arg(mExtent.toQString()));
   }
   // get the start angle
-  if (mStartAngle != 0) {
-    annotationString.append(QString("startAngle=").append(QString::number(mStartAngle)));
+  if (mStartAngle.isDynamicSelectExpression() || mStartAngle.toQString().compare(QStringLiteral("0")) != 0) {
+    annotationString.append(QString("startAngle=%1").arg(mStartAngle.toQString()));
   }
   // get the end angle
-  if (mEndAngle != 0) {
-    annotationString.append(QString("endAngle=").append(QString::number(mEndAngle)));
+  if (mEndAngle.isDynamicSelectExpression() || mEndAngle.toQString().compare(QStringLiteral("360")) != 0) {
+    annotationString.append(QString("endAngle=%1").arg(mEndAngle.toQString()));
+  }
+  // get the closure
+  if (mClosure.isDynamicSelectExpression() || !((mStartAngle == 0 && mEndAngle == 360 && mClosure.toQString().compare(QStringLiteral("EllipseClosure.Chord")) == 0)
+                                                || (!(mStartAngle == 0 && mEndAngle == 360) && mClosure.toQString().compare(QStringLiteral("EllipseClosure.Radial")) == 0))) {
+    annotationString.append(QString("closure=%1").append(mClosure.toQString()));
   }
   return QString("Ellipse(").append(annotationString.join(",")).append(")");
 }
@@ -225,6 +246,11 @@ void EllipseAnnotation::updateShape(ShapeAnnotation *pShapeAnnotation)
   GraphicItem::setDefaults(pShapeAnnotation);
   FilledShape::setDefaults(pShapeAnnotation);
   ShapeAnnotation::setDefaults(pShapeAnnotation);
+}
+
+ModelInstance::Extend *EllipseAnnotation::getExtend() const
+{
+  return mpEllipse->getParentExtend();
 }
 
 /*!

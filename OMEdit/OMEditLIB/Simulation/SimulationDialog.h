@@ -58,42 +58,14 @@ class SimulationOutputWidget;
 class LibraryTreeItem;
 class TranslationFlagsWidget;
 
-class ArchivedSimulationItem : public QTreeWidgetItem
-{
-public:
-  ArchivedSimulationItem(SimulationOptions simulationOptions, SimulationOutputWidget *pSimulationOutputWidget)
-    : mpSimulationOutputWidget(pSimulationOutputWidget)
-  {
-    setText(0, simulationOptions.getClassName());
-    setToolTip(0, simulationOptions.getClassName());
-    setText(1, QDateTime::currentDateTime().toString());
-    setToolTip(1, QDateTime::currentDateTime().toString());
-    setText(2, simulationOptions.getStartTime());
-    setToolTip(2, simulationOptions.getStartTime());
-    setText(3, simulationOptions.getStopTime());
-    setToolTip(3, simulationOptions.getStopTime());
-    setStatus(Helper::running);
-  }
-  SimulationOutputWidget* getSimulationOutputWidget() {return mpSimulationOutputWidget;}
-  void setStatus(QString status) {
-    setText(4, status);
-    setToolTip(4, status);
-  }
-private:
-  SimulationOutputWidget *mpSimulationOutputWidget;
-};
-
 class SimulationDialog : public QDialog
 {
   Q_OBJECT
 public:
   SimulationDialog(QWidget *pParent = 0);
   ~SimulationDialog();
-  QTreeWidget* getArchivedSimulationsTreeWidget() {return mpArchivedSimulationsTreeWidget;}
   void show(LibraryTreeItem *pLibraryTreeItem, bool isReSimulate, SimulationOptions simulationOptions);
-  void directSimulate(LibraryTreeItem *pLibraryTreeItem, bool launchTransformationalDebugger, bool launchAlgorithmicDebugger,
-                      bool launchAnimation);
-  QList<SimulationOutputWidget*> getSimulationOutputWidgetsList() {return mSimulationOutputWidgetsList;}
+  void directSimulate(LibraryTreeItem *pLibraryTreeItem, bool launchTransformationalDebugger, bool launchAlgorithmicDebugger, bool launchAnimation, bool enableDataReconciliation);
   OpcUaClient* getOpcUaClient(int port);
   void removeSimulationOutputWidget(SimulationOutputWidget* pSimulationOutputWidget);
 private:
@@ -120,7 +92,7 @@ private:
   QLineEdit *mpToleranceTextBox;
   Label *mpJacobianLabel;
   QComboBox *mpJacobianComboBox;
-  QGroupBox *mpDasslIdaOptionsGroupBox;
+  QGroupBox *mpOptionsGroupBox;
   QCheckBox *mpRootFindingCheckBox;
   QCheckBox *mpRestartAfterEventCheckBox;
   Label *mpInitialStepSizeLabel;
@@ -174,12 +146,6 @@ private:
   QComboBox *mpProfilingComboBox;
   QCheckBox *mpCPUTimeCheckBox;
   QCheckBox *mpEnableAllWarningsCheckBox;
-  QGroupBox *mpReconcileGroupBox;
-  Label *mpDataReconciliationInputFileLabel;
-  QLineEdit *mpDataReconciliationInputFileTextBox;
-  QPushButton *mpDataReconciliationInputFileBrowseButton;
-  Label *mpDataReconciliationEpsilonLabel;
-  QLineEdit *mpDataReconciliationEpsilonTextBox;
   QGroupBox *mpLoggingGroupBox;
   QGridLayout *mpLoggingGroupLayout;
   Label *mpAdditionalSimulationFlagsLabel;
@@ -198,16 +164,14 @@ private:
   QLineEdit *mpFileNameTextBox;
   Label *mpResultFileNameLabel;
   QLineEdit *mpResultFileNameTextBox;
-  Label *mpResultFileName;
   Label *mpVariableFilterLabel;
   QLineEdit *mpVariableFilterTextBox;
+  QToolButton *mpVariableFilterHelpButton;
   QCheckBox *mpProtectedVariablesCheckBox;
+  QCheckBox *mpIgnoreHideResultCheckBox;
   QCheckBox *mpEquidistantTimeGridCheckBox;
   QCheckBox *mpStoreVariablesAtEventsCheckBox;
   QCheckBox *mpShowGeneratedFilesCheckBox;
-  // Archived Simulation Flags Tab
-  QWidget *mpArchivedSimulationsTab;
-  QTreeWidget *mpArchivedSimulationsTreeWidget;
   // checkboxes
   QCheckBox *mpSaveExperimentAnnotationCheckBox;
   QCheckBox *mpSaveSimulationFlagsAnnotationCheckBox;
@@ -231,16 +195,15 @@ private:
   void applySimulationOptions(SimulationOptions simulationOptions);
   bool translateModel(QString simulationParameters);
   SimulationOptions createSimulationOptions();
-  void createAndShowSimulationOutputWidget(SimulationOptions simulationOptions);
+  void createAndShowSimulationOutputWidget(const SimulationOptions &simulationOptions);
   void showSimulationOutputWidget(SimulationOutputWidget *pSimulationOutputWidget);
   void saveExperimentAnnotation();
   void saveSimulationFlagsAnnotation();
   void saveTranslationFlagsAnnotation();
-  void performSimulation();
+  void performSimulation(const SimulationOptions &simulationOptions);
   void saveDialogGeometry();
   void killSimulationProcess(int port);
   void removeVariablesFromTree(QString className);
-  void terminateSimulationProcess(SimulationOutputWidget *pSimulationOutputWidget);
   void setInteractiveControls(bool enabled);
 public:
   void reSimulate(SimulationOptions simulationOptions);
@@ -250,25 +213,61 @@ public:
 public slots:
   void numberOfIntervalsRadioToggled(bool toggle);
   void intervalRadioToggled(bool toggle);
-  void updateMethodToolTip(int index);
-  void enableDasslIdaOptions(QString method);
+  void enableDisableOptions(QString method);
   void showIntegrationHelp();
-  void updateJacobianToolTip(int index);
   void buildOnly(bool checked);
   void interactiveSimulation(bool checked);
   void browseModelSetupFile();
   void browseEquationSystemInitializationFile();
-  void browseDataReconciliationInputFile();
   void showSimulationFlagsHelp();
-  void showArchivedSimulation(QTreeWidgetItem *pTreeWidgetItem);
   void simulate();
   void reject();
   void updateInteractiveSimulationCurves();
   void updateYAxis(double min, double max);
 private slots:
   void resultFileNameChanged(QString text);
+  void showVariableFilterHelp();
   void simulationStarted();
   void simulationPaused();
+};
+
+class DataReconciliationDialog : public QDialog
+{
+  Q_OBJECT
+public:
+  explicit DataReconciliationDialog(LibraryTreeItem *pLibraryTreeItem, QDialog *parent = nullptr);
+private:
+  LibraryTreeItem *mpLibraryTreeItem;
+  Label *mpDataReconciliationAlgorithmLabel;
+  QComboBox *mpDataReconciliationAlgorithmComboBox;
+  Label *mpDataReconciliationMeasurementInputFileLabel;
+  QLineEdit *mpDataReconciliationMeasurementInputFileTextBox;
+  QPushButton *mpDataReconciliationMeasurementInputFileBrowseButton;
+  Label *mpDataReconciliationCorrelationMatrixInputFileLabel;
+  QLineEdit *mpDataReconciliationCorrelationMatrixInputFileTextBox;
+  QPushButton *mpDataReconciliationCorrelationMatrixInputFileBrowseButton;
+
+  Label *mpBoundaryConditionMeasurementInputFileLabel;
+  QLineEdit *mpBoundaryConditionMeasurementInputFileTextBox;
+  QPushButton *mpBoundaryConditionMeasurementInputFileBrowseButton;
+  Label *mpBoundaryConditionCorrelationMatrixInputFileLabel;
+  QLineEdit *mpBoundaryConditionCorrelationMatrixInputFileTextBox;
+  QPushButton *mpBoundaryConditionCorrelationMatrixInputFileBrowseButton;
+
+  Label *mpDataReconciliationEpsilonLabel;
+  QLineEdit *mpDataReconciliationEpsilonTextBox;
+  QCheckBox *mpSaveSettingsCheckBox;
+  QPushButton *mpCalculateButton;
+  QPushButton *mpCancelButton;
+  QDialogButtonBox *mpButtonBox;
+  QStackedWidget  *mpDataReconciliationStackedWidget;
+private slots:
+  void browseDataReconciliationMeasurementInputFile();
+  void browseDataReconciliationCorrelationMatrixInputFile();
+  void browseBoundaryConditionMeasurementInputFile();
+  void browseBoundaryConditionCorrelationMatrixInputFile();
+  void calculateDataReconciliation();
+  void switchAlgorithmPage(int index);
 };
 
 #endif // SIMULATIONDIALOG_H

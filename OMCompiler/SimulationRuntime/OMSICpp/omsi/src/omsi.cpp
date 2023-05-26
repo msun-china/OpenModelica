@@ -37,6 +37,7 @@
 //Cpp Simulation kernel includes
 #include <Core/ModelicaDefine.h>
 #include <Core/Modelica.h>
+#include <Core/System/IOMSI.h>
 #include <Core/SimController/ISimController.h>
 #include <Core/System/FactoryExport.h>
 #include <Core/Utils/extension/logger.hpp>
@@ -46,6 +47,29 @@
 
 
 //OpenModelica Simulation Interface
+
+
+#include <csignal>
+
+extern "C" void handle_aborts(int signal_number)
+{
+
+    std::string error = std::string("Abort was called with error code: ") + to_string(signal_number);
+    throw ModelicaSimulationError(MODEL_EQ_SYSTEM, error);
+
+}
+
+extern "C" void handle_segmentaion_faults(int signal_number)
+{
+
+    std::string error = std::string("A memory access violation has occurred: ") + to_string(signal_number);
+    throw ModelicaSimulationError(MODEL_EQ_SYSTEM, error);
+
+}
+
+
+
+
 #include <omsi.h>
 
 
@@ -54,14 +78,24 @@
 namespace fs = boost::filesystem;
 
 
+
+
+
+
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #include <tchar.h>
+
 
 int _tmain(int argc, const _TCHAR* argv[])
 #else
 int main(int argc, const char* argv[])
 #endif
 {
+
+    //use handle_aborts for abort() calls
+    signal(SIGABRT, &handle_aborts);
+    //use handle_segmentaion_faults for segmentatino faults
+    signal(SIGSEGV , &handle_segmentaion_faults);
     // default program options
     std::map<std::string, std::string> opts;
 
@@ -93,6 +127,6 @@ int main(int argc, const char* argv[])
     {
         if (!ex.isSuppressed())
             std::cerr << "Simulation stopped with error in " << error_id_string(ex.getErrorID()) << ": " << ex.what();
-        return 1;
+        return -1;
     }
 }

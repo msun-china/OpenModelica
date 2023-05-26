@@ -50,6 +50,12 @@
   #include <regex.h>
 #endif
 
+/* For CommandLineToArgvW. */
+#if defined(__MINGW32__) || defined(_MSC_VER)
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 /* ppriv - NO_INTERACTIVE_DEPENDENCY - for simpler debugging in Visual Studio
  *
  */
@@ -60,6 +66,7 @@
 
 #include "util/omc_error.h"
 #include "util/omc_file.h"
+#include "util/omc_numbers.h"
 #include "simulation_data.h"
 #include "openmodelica_func.h"
 #include "meta/meta_modelica.h"
@@ -133,7 +140,7 @@ void setGlobalVerboseLevel(int argc, char**argv)
     return; // no lv flag given.
   }
 
-  /* default activated, but it can be disabled with -stdout or -assert */
+  /* default activated, but it can be disabled with -LOG_STDOUT or -LOG_ASSERT */
   useStream[LOG_STDOUT] = 1;
   useStream[LOG_ASSERT] = 1;
 
@@ -168,11 +175,13 @@ void setGlobalVerboseLevel(int argc, char**argv)
         {
           useStream[i] = 1;
           error = 0;
+          break;
         }
         else if(flag == string("-") + string(LOG_STREAM_NAME[i]))
         {
           useStream[i] = 0;
           error = 0;
+          break;
         }
       }
 
@@ -186,6 +195,14 @@ void setGlobalVerboseLevel(int argc, char**argv)
       }
     }while(pos != string::npos);
   }
+
+  /* print LOG_GBODE if LOG_GBODE_V if active */
+  if(useStream[LOG_GBODE_V] == 1)
+    useStream[LOG_GBODE] = 1;
+
+  /* print LOG_GBODE_NLS if LOG_GBODE_NLS_V if active */
+  if(useStream[LOG_GBODE_NLS_V] == 1)
+    useStream[LOG_GBODE_NLS] = 1;
 
   /* print LOG_INIT and LOG_SOTI if LOG_INIT_V is active */
   if(useStream[LOG_INIT_V] == 1)
@@ -235,8 +252,12 @@ void setGlobalVerboseLevel(int argc, char**argv)
 }
 
 
-/* Read value of flag lv_time to set time interval in which loggin is active */
-void setGlobalLoggingTime(int argc, char**argv, SIMULATION_INFO *simulationInfo)
+/**
+ * @brief Read value of flag lv_time to set time interval in which logging is active.
+ *
+ * @param simulationInfo    Simulation info struct
+ */
+void setGlobalLoggingTime(SIMULATION_INFO *simulationInfo)
 {
   const char *flagStr = omc_flagValue[FLAG_LV_TIME];
   const string *flags = flagStr ? new string(flagStr) : NULL;
@@ -253,13 +274,13 @@ void setGlobalLoggingTime(int argc, char**argv, SIMULATION_INFO *simulationInfo)
   }
 
   /* Parse flagStr */
-  loggingStartTime = strtod(flagStr, &endptr);
+  loggingStartTime = om_strtod(flagStr, &endptr);
   endptr = endptr+1;
   secondPart = endptr;
-  loggingStopTime = strtod(secondPart, &endptr);
+  loggingStopTime = om_strtod(secondPart, &endptr);
   if (*endptr)
   {
-    throwStreamPrint(NULL, "Simulation flag %s expects two real numbers, seperated by a comata. Got: %s", FLAG_NAME[FLAG_LV_TIME], flagStr);
+    throwStreamPrint(NULL, "Simulation flag %s expects two real numbers, separated by a commas. Got: %s", FLAG_NAME[FLAG_LV_TIME], flagStr);
   }
 
   /* Check flag input */
@@ -272,7 +293,7 @@ void setGlobalLoggingTime(int argc, char**argv, SIMULATION_INFO *simulationInfo)
   simulationInfo->useLoggingTime = 1;
   simulationInfo->loggingTimeRecord[0] = loggingStartTime;
   simulationInfo->loggingTimeRecord[1] = loggingStopTime;
-  infoStreamPrint(LOG_STDOUT, 0, "Time dependent logging enabled. Activate loggin in intervall [%f, %f]", simulationInfo->loggingTimeRecord[0], simulationInfo->loggingTimeRecord[1]);
+  infoStreamPrint(LOG_STDOUT, 0, "Time dependent logging enabled. Activate logging in interval [%f, %f]", simulationInfo->loggingTimeRecord[0], simulationInfo->loggingTimeRecord[1]);
 
   /* Deactivate Logging */
   deactivateLogging();
@@ -308,7 +329,7 @@ static double getFlagReal(enum _FLAG flag, double res)
   if (flagStr==NULL || *flagStr=='\0') {
     return res;
   }
-  res = strtod(flagStr, &endptr);
+  res = om_strtod(flagStr, &endptr);
   if (*endptr) {
     throwStreamPrint(NULL, "Simulation flag %s expects a real number, got: %s", FLAG_NAME[flag], flagStr);
   }
@@ -420,6 +441,7 @@ int startNonInteractiveSimulation(int argc, char**argv, DATA* data, threadData_t
 
   /* linear model option is set : <-l lintime> */
   int create_linearmodel = omc_flag[FLAG_L];
+  data->modelData->create_linearmodel = create_linearmodel;
   const char* lintime = omc_flagValue[FLAG_L];
 
   /* activated measure time option with LOG_STATS */
@@ -484,7 +506,7 @@ int startNonInteractiveSimulation(int argc, char**argv, DATA* data, threadData_t
     } else {
       data->simulationInfo->stopTime = atof(lintime);
     }
-    infoStreamPrint(LOG_STDOUT, 0, "Linearization will performed at point of time: %f", data->simulationInfo->stopTime);
+    infoStreamPrint(LOG_STDOUT, 0, "Linearization will be performed at point of time: %f", data->simulationInfo->stopTime);
   }
 
   /* set delta x for linearization */
@@ -530,6 +552,8 @@ int startNonInteractiveSimulation(int argc, char**argv, DATA* data, threadData_t
     data->modelData->resultFileName = GC_strdup(result_file_cstr.c_str());
   }
 
+  data->modelData->resourcesDir = NULL;
+
   string init_initMethod = "";
   string init_file = "";
   string init_time_string = "";
@@ -541,7 +565,27 @@ int startNonInteractiveSimulation(int argc, char**argv, DATA* data, threadData_t
     init_initMethod = omc_flagValue[FLAG_IIM];
   }
   if(omc_flag[FLAG_IIF]) {
-    init_file = omc_flagValue[FLAG_IIF];
+    if (omc_flag[FLAG_INPUT_PATH]) {
+      const char *tmp_filename;
+
+      if (omc_file_exists(omc_flagValue[FLAG_IIF])) {
+        if (0 > GC_asprintf(&tmp_filename, "%s", omc_flagValue[FLAG_IIF] )) {
+          throwStreamPrint(NULL, "simulation_runtime.cpp: Error: can not allocate memory.");
+        }
+      }
+      else {
+        if (0 > GC_asprintf(&tmp_filename, "%s/%s", omc_flagValue[FLAG_INPUT_PATH], omc_flagValue[FLAG_IIF])) {
+          throwStreamPrint(NULL, "simulation_runtime.cpp: Error: can not allocate memory.");
+        }
+      }
+      init_file = tmp_filename;
+    }
+    else {
+      init_file = omc_flagValue[FLAG_IIF];
+    }
+    if (!omc_file_exists(init_file.c_str())) {
+      throwStreamPrint(NULL, "Initialization file \"%s\" doesn't exist.", init_file.c_str());
+    }
   }
   if(omc_flag[FLAG_IIT]) {
     init_time_string = omc_flagValue[FLAG_IIT];
@@ -585,19 +629,34 @@ int startNonInteractiveSimulation(int argc, char**argv, DATA* data, threadData_t
     alarm(0);
   }
 
-  if(0 == retVal && omc_flag[FLAG_DATA_RECONCILE])
+  if (omc_flag[FLAG_DATA_RECONCILE])
   {
-	infoStreamPrint(LOG_STDOUT, 0, "DataReconciliation Starting!");
-	infoStreamPrint(LOG_STDOUT, 0, "%s", data->modelData->modelName);
-	retVal = dataReconciliation(data, threadData);
-	infoStreamPrint(LOG_STDOUT, 0, "DataReconciliation Completed!");
+    infoStreamPrint(LOG_STDOUT, 0, "DataReconciliation Starting!");
+    infoStreamPrint(LOG_STDOUT, 0, "%s", data->modelData->modelName);
+    retVal = dataReconciliation(data, threadData, retVal);
+    infoStreamPrint(LOG_STDOUT, 0, "DataReconciliation Completed!");
+  }
+
+  if (omc_flag[FLAG_DATA_RECONCILE_BOUNDARY])
+  {
+    infoStreamPrint(LOG_STDOUT, 0, "Reconcile Boundary Conditions Starting!");
+    infoStreamPrint(LOG_STDOUT, 0, "%s", data->modelData->modelName);
+    retVal = boundaryConditions(data, threadData, retVal);
+    infoStreamPrint(LOG_STDOUT, 0, "Reconcile Boundary Conditions Completed!");
+  }
+
+  if (omc_flag[FLAG_DATA_RECONCILE_STATE])
+  {
+    infoStreamPrint(LOG_STDOUT, 0, "Reconcile State Estimation Starting!");
+    infoStreamPrint(LOG_STDOUT, 0, "%s", data->modelData->modelName);
+    retVal = dataReconciliation(data, threadData, retVal);
+    infoStreamPrint(LOG_STDOUT, 0, "Reconcile State Estimation Completed!");
   }
 
   if(0 == retVal && create_linearmodel) {
     rt_tick(SIM_TIMER_JACOBIAN);
     retVal = linearize(data, threadData);
     rt_accumulate(SIM_TIMER_JACOBIAN);
-    infoStreamPrint(LOG_STDOUT, 0, "Linear model is created!");
   }
 
   /* Use the saved state of measure_time_flag.
@@ -732,9 +791,11 @@ static int callSolver(DATA* simData, threadData_t *threadData, string init_initM
       )
   {
     solverID = S_EULER;
+    infoStreamPrint(LOG_SOLVER, 0, "No states present, continuing without ODE solver.");
     if (compiledInDAEMode)
     {
       simData->callback->functionDAE = evaluateDAEResiduals_wrapperEventUpdate;
+      simData->callback->function_ZeroCrossingsEquations = evaluateDAEResiduals_wrapperZeroCrossingsEquations;
     }
   }
 
@@ -777,7 +838,29 @@ int initRuntimeAndSimulation(int argc, char**argv, DATA *data, threadData_t *thr
   int i;
   initDumpSystem();
 
-  if(setLogFormat(argc, argv) || helpFlagSet(argc, argv) || checkCommandLineArguments(argc, argv))
+  int checkArgumentsRes = checkCommandLineArguments(argc, argv);
+
+#ifndef NO_INTERACTIVE_DEPENDENCY
+  if(omc_flag[FLAG_PORT]) {
+    std::istringstream stream(omc_flagValue[FLAG_PORT]);
+    int port;
+    stream >> port;
+    sim_communication_port_open = 1;
+    sim_communication_port_open &= sim_communication_port.create();
+    sim_communication_port_open &= sim_communication_port.connect("127.0.0.1", port);
+  }
+#endif
+
+  int logFormatResult = setLogFormat(argc, argv);
+
+#ifndef NO_INTERACTIVE_DEPENDENCY
+  if (isXMLTCP && !sim_communication_port_open) {
+    errorStreamPrint(LOG_STDOUT, 0, "xmltcp log format requires a TCP-port to be passed (and successfully open)");
+    EXIT(1);
+  }
+#endif
+
+  if(logFormatResult || helpFlagSet(argc, argv) || checkArgumentsRes)
   {
     infoStreamPrint(LOG_STDOUT, 1, "usage: %s", argv[0]);
 
@@ -793,12 +876,12 @@ int initRuntimeAndSimulation(int argc, char**argv, DATA *data, threadData_t *thr
     }
 
     messageClose(LOG_STDOUT);
-    EXIT(0);
+    EXIT(1);
   }
 
-  if(omc_flag[FLAG_HELP]) {
+  if(omc_flag[FLAG_HELP])
+  {
     std::string option = omc_flagValue[FLAG_HELP];
-
     for(i=1; i<FLAG_MAX; ++i)
     {
       if(option == std::string(FLAG_NAME[i]))
@@ -883,11 +966,18 @@ int initRuntimeAndSimulation(int argc, char**argv, DATA *data, threadData_t *thr
 
     warningStreamPrint(LOG_STDOUT, 0, "invalid command line option: -help=%s", option.c_str());
     warningStreamPrint(LOG_STDOUT, 0, "use %s -help for a list of all command-line flags", argv[0]);
-    EXIT(0);
+    EXIT(1);
   }
 
   setGlobalVerboseLevel(argc, argv);
-  setGlobalLoggingTime(argc, argv, data->simulationInfo);
+  setGlobalLoggingTime(data->simulationInfo);
+  if(omc_flag[FLAG_LV_MAX_WARN]) {
+    data->simulationInfo->maxWarnDisplays = atoi(omc_flagValue[FLAG_LV_MAX_WARN]);
+    infoStreamPrint(LOG_STDOUT, 0, "Display limit for repeating warnings changed to %lu.", data->simulationInfo->maxWarnDisplays);
+  } else {
+    data->simulationInfo->maxWarnDisplays = DEFAULT_FLAG_LV_MAX_WARN;
+  }
+
   initializeDataStruc(data, threadData);
   if(!data)
   {
@@ -895,13 +985,13 @@ int initRuntimeAndSimulation(int argc, char**argv, DATA *data, threadData_t *thr
     EXIT(1);
   }
 
-  readFlag(&data->simulationInfo->nlsMethod, NLS_MAX, omc_flagValue[FLAG_NLS], "-nls", NLS_NAME, NLS_DESC);
-  readFlag(&data->simulationInfo-> lsMethod,  LS_MAX, omc_flagValue[FLAG_LS ],  "-ls",  LS_NAME,  LS_DESC);
-  readFlag(&data->simulationInfo->lssMethod, LSS_MAX, omc_flagValue[FLAG_LSS], "-lss", LSS_NAME, LSS_DESC);
-  readFlag(&homBacktraceStrategy, HOM_BACK_STRAT_MAX, omc_flagValue[FLAG_HOMOTOPY_BACKTRACE_STRATEGY], "-homBacktraceStrategy", HOM_BACK_STRAT_NAME, HOM_BACK_STRAT_DESC);
-  readFlag(&data->simulationInfo->newtonStrategy, NEWTON_MAX, omc_flagValue[FLAG_NEWTON_STRATEGY], "-newton", NEWTONSTRATEGY_NAME, NEWTONSTRATEGY_DESC);
+  readFlag((int*)&data->simulationInfo->nlsMethod, NLS_MAX, omc_flagValue[FLAG_NLS], "-nls", NLS_NAME, NLS_DESC);
+  readFlag((int*)&data->simulationInfo-> lsMethod,  LS_MAX, omc_flagValue[FLAG_LS ],  "-ls",  LS_NAME,  LS_DESC);
+  readFlag((int*)&data->simulationInfo->lssMethod, LSS_MAX, omc_flagValue[FLAG_LSS], "-lss", LSS_NAME, LSS_DESC);
+  readFlag((int*)&homBacktraceStrategy, HOM_BACK_STRAT_MAX, omc_flagValue[FLAG_HOMOTOPY_BACKTRACE_STRATEGY], "-homBacktraceStrategy", HOM_BACK_STRAT_NAME, HOM_BACK_STRAT_DESC);
+  readFlag((int*)&data->simulationInfo->newtonStrategy, NEWTON_MAX, omc_flagValue[FLAG_NEWTON_STRATEGY], "-newton", NEWTONSTRATEGY_NAME, NEWTONSTRATEGY_DESC);
   data->simulationInfo->nlsCsvInfomation = omc_flag[FLAG_NLS_INFO];
-  readFlag(&data->simulationInfo->nlsLinearSolver, NLS_LS_MAX, omc_flagValue[FLAG_NLS_LS], "-nlsLS", NLS_LS_METHOD, NLS_LS_METHOD_DESC);
+  readFlag((int*)&data->simulationInfo->nlsLinearSolver, NLS_LS_MAX, omc_flagValue[FLAG_NLS_LS], "-nlsLS", NLS_LS_METHOD, NLS_LS_METHOD_DESC);
 
   if(omc_flag[FLAG_HOMOTOPY_ADAPT_BEND]) {
     homAdaptBend = atof(omc_flagValue[FLAG_HOMOTOPY_ADAPT_BEND]);
@@ -969,15 +1059,15 @@ int initRuntimeAndSimulation(int argc, char**argv, DATA *data, threadData_t *thr
   }
   if(omc_flag[FLAG_LSS_MIN_SIZE]) {
     linearSparseSolverMinSize = atoi(omc_flagValue[FLAG_LSS_MIN_SIZE]);
-    infoStreamPrint(LOG_STDOUT, 0, "Maximum system size for using linear sparse solver changed to %d", linearSparseSolverMinSize);
+    infoStreamPrint(LOG_STDOUT, 0, "Minimum system size for using linear sparse solver changed to %d", linearSparseSolverMinSize);
   }
-  if(omc_flag[FLAG_NLS_MAX_DENSITY]) {
-    nonlinearSparseSolverMaxDensity = atof(omc_flagValue[FLAG_NLS_MAX_DENSITY]);
+  if(omc_flag[FLAG_NLSS_MAX_DENSITY]) {
+    nonlinearSparseSolverMaxDensity = atof(omc_flagValue[FLAG_NLSS_MAX_DENSITY]);
     infoStreamPrint(LOG_STDOUT, 0, "Maximum density for using non-linear sparse solver changed to %f", nonlinearSparseSolverMaxDensity);
   }
-  if(omc_flag[FLAG_NLS_MIN_SIZE]) {
-    nonlinearSparseSolverMinSize = atoi(omc_flagValue[FLAG_NLS_MIN_SIZE]);
-    infoStreamPrint(LOG_STDOUT, 0, "Maximum system size for using non-linear sparse solver changed to %d", nonlinearSparseSolverMinSize);
+  if(omc_flag[FLAG_NLSS_MIN_SIZE]) {
+    nonlinearSparseSolverMinSize = atoi(omc_flagValue[FLAG_NLSS_MIN_SIZE]);
+    infoStreamPrint(LOG_STDOUT, 0, "Minimum system size for using non-linear sparse solver changed to %d", nonlinearSparseSolverMinSize);
   }
   if(omc_flag[FLAG_NEWTON_XTOL]) {
     newtonXTol = atof(omc_flagValue[FLAG_NEWTON_XTOL]);
@@ -1048,21 +1138,9 @@ int initRuntimeAndSimulation(int argc, char**argv, DATA *data, threadData_t *thr
 
 #ifndef NO_INTERACTIVE_DEPENDENCY
   if(omc_flag[FLAG_PORT]) {
-    std::istringstream stream(omc_flagValue[FLAG_PORT]);
-    int port;
-    stream >> port;
-    sim_communication_port_open = 1;
-    sim_communication_port_open &= sim_communication_port.create();
-    sim_communication_port_open &= sim_communication_port.connect("127.0.0.1", port);
-
     if(0 != strcmp("ia", data->simulationInfo->outputFormat)) {
       communicateStatus("Starting", 0.0, data->simulationInfo->startTime, 0);
     }
-  }
-
-  if (isXMLTCP && !sim_communication_port_open) {
-    errorStreamPrint(LOG_STDOUT, 0, "xmltcp log format requires a TCP-port to be passed (and successfully open)");
-    EXIT(1);
   }
 #endif
   // ppriv - NO_INTERACTIVE_DEPENDENCY - for simpler debugging in Visual Studio
@@ -1102,6 +1180,28 @@ void communicateMsg(char id, unsigned int size, const char *data)
 #endif
 }
 
+/**
+ * @brief Parses the commandline (program options) and sets some
+ * values. See initRuntimeAndSimulation for more info.
+ * This allows generated simulation code to check-on/read options and flags before
+ * it calls the main _main_SimulationRuntime function to do the simulation.
+ *
+ * @param argc
+ * @param argv  This gets overwritten on Windows!!
+ * @param data
+ * @param threadData
+ * @return int    Returns 0 on success. Returns 1 otherwise.
+ *
+ * Note: The function will overwrite argv to its wide character representation. Not sure
+ * if this is a good idea. However, I am leaving it as it was for now.
+ */
+int _main_initRuntimeAndSimulation(int argc, char**argv, DATA *data, threadData_t *threadData) {
+
+  if (initRuntimeAndSimulation(argc, argv, data, threadData)) //initRuntimeAndSimulation returns 1 if an error occurs
+    return 1;
+
+  return 0;
+}
 
 /* \brief main function for simulator
  *
@@ -1114,23 +1214,8 @@ void communicateMsg(char id, unsigned int size, const char *data)
 
 int _main_SimulationRuntime(int argc, char**argv, DATA *data, threadData_t *threadData)
 {
-#if defined(__MINGW32__) || defined(_MSC_VER)
-  /* Support for non-ASCII characters
-   * Read the unicode command line arguments and replace the normal arguments with it.
-   */
-  wchar_t** wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  for (int i = 0; i < argc; i++) {
-    WIDECHAR_TO_MULTIBYTE_LENGTH(wargv[i], len);
-    WIDECHAR_TO_MULTIBYTE_VAR(wargv[i], buf, len);
-    strcpy(argv[i], buf);
-    MULTIBYTE_OR_WIDECHAR_VAR_FREE(buf);
-  }
-#endif
-
   int retVal = -1;
   MMC_TRY_INTERNAL(globalJumpBuffer)
-  if (initRuntimeAndSimulation(argc, argv, data, threadData)) //initRuntimeAndSimulation returns 1 if an error occurs
-    return 1;
 
   /* sighandler_t oldhandler = different type on all platforms... */
 #ifdef SIGUSR1
@@ -1208,7 +1293,7 @@ static inline void sendXMLTCPIfClosed()
   }
 }
 
-static void messageXMLTCP(int type, int stream, int indentNext, char *msg, int subline, const int *indexes)
+static void messageXMLTCP(int type, int stream, FILE_INFO info, int indentNext, char *msg, int subline, const int *indexes)
 {
   numOpenTags++;
   xmlTcpStream << "<message stream=\"" << LOG_STREAM_NAME[stream] << "\" type=\"" << LOG_TYPE_DESC[type] << "\" text=\"";
@@ -1265,7 +1350,7 @@ static void printEscapedXML(const char *msg)
   }
 }
 
-static void messageXML(int type, int stream, int indentNext, char *msg, int subline, const int *indexes)
+static void messageXML(int type, int stream, FILE_INFO info, int indentNext, char *msg, int subline, const int *indexes)
 {
   printf("<message stream=\"%s\" type=\"%s\" text=\"", LOG_STREAM_NAME[stream], LOG_TYPE_DESC[type]);
   printEscapedXML(msg);

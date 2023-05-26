@@ -37,6 +37,7 @@
 #if !defined(OMC_NO_THREADS)
 #include <pthread.h>
 #endif
+#include "../util/omc_error.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -68,7 +69,7 @@ static void pool_init(void)
   memory_pools->next = NULL;
 }
 
-static unsigned long upper_power_of_two(unsigned long v)
+static size_t upper_power_of_two(size_t v)
 {
   v--;
   v |= v >> 1;
@@ -158,7 +159,18 @@ static void nofree(void* ptr)
 }
 
 static void* malloc_zero(size_t sz) {
-  return calloc(1, sz);
+  // Our runtime system sometimes asks for 0 size allocation.
+  // Maybe we should forbid that to avoid masking issues like
+  // zero caused by overflow. See #7611.
+  if(sz == 0)
+    return NULL;
+
+  void* addr = calloc(1, sz);
+
+  if(!addr)
+    throwStreamPrint(NULL, "memory_pool.c: Error: Failed to allocate memory (calloc returned NULL.)");
+
+  return addr;
 }
 
 omc_alloc_interface_t omc_alloc_interface_pooled = {
@@ -243,27 +255,27 @@ omc_alloc_interface_t omc_alloc_interface = {
 };
 
 /* allocates n reals in the real_buffer */
-m_real* real_alloc(int n)
+modelica_real* real_alloc(int n)
 {
-  return (m_real*) omc_alloc_interface.malloc_atomic(n*sizeof(m_real));
+  return (modelica_real*) omc_alloc_interface.malloc_atomic(n*sizeof(modelica_real));
 }
 
 /* allocates n integers in the integer_buffer */
-m_integer* integer_alloc(int n)
+modelica_integer* integer_alloc(int n)
 {
-  return (m_integer*) omc_alloc_interface.malloc_atomic(n*sizeof(m_integer));
+  return (modelica_integer*) omc_alloc_interface.malloc_atomic(n*sizeof(modelica_integer));
 }
 
 /* allocates n strings in the string_buffer */
-m_string* string_alloc(int n)
+modelica_string* string_alloc(int n)
 {
-  return (m_string*) omc_alloc_interface.malloc(n*sizeof(m_string));
+  return (modelica_string*) omc_alloc_interface.malloc(n*sizeof(modelica_string));
 }
 
 /* allocates n booleans in the boolean_buffer */
-m_boolean* boolean_alloc(int n)
+modelica_boolean* boolean_alloc(int n)
 {
-  return (m_boolean*) omc_alloc_interface.malloc_atomic(n*sizeof(m_boolean));
+  return (modelica_boolean*) omc_alloc_interface.malloc_atomic(n*sizeof(modelica_boolean));
 }
 
 _index_t* size_alloc(int n)
@@ -286,4 +298,3 @@ void* generic_alloc(int n, size_t sze)
 #if defined(__cplusplus)
 } /* end extern "C" */
 #endif
-

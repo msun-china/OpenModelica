@@ -59,7 +59,6 @@ import BackendDAEUtil;
 import BackendEquation;
 import BackendVariable;
 import BaseHashSet;
-import CodegenModelica;
 import ComponentReference;
 import DAEDump;
 import DAEUtil;
@@ -114,14 +113,6 @@ end printBackendDAE;
 
 public function printEqSystem "This function prints the BackendDAE.EqSystem representation to stdout."
   input BackendDAE.EqSystem inSyst;
-protected
-  BackendDAE.Variables orderedVars;
-  BackendDAE.EquationArray orderedEqs;
-  Option<BackendDAE.AdjacencyMatrix> m;
-  Option<BackendDAE.AdjacencyMatrix> mT;
-  BackendDAE.Matching matching;
-  BackendDAE.StateSets stateSets;
-  BackendDAE.BaseClockPartitionKind partitionKind;
 algorithm
   print("\n" + partitionKindString(inSyst.partitionKind) + "\n" + UNDERLINE + "\n");
   dumpVariables(inSyst.orderedVars, "Variables");
@@ -619,7 +610,6 @@ end setAdjacencyMatrix1;
 // These are functions, that print directly to the standard-stream and separates
 // there output (e.g. with some kind of headings).
 //   - dumpBackendDAE
-//   - dumpBackendDAEToModelica
 //   - dumpBackendDAEEqnList
 //   - dumpBackendDAEVarList
 //   - dumpComponent
@@ -655,16 +645,6 @@ algorithm
   printBackendDAE(inBackendDAE);
   print("\n");
 end dumpBackendDAE;
-
-public function dumpBackendDAEToModelica "This function dumps the BackendDAE.BackendDAE representation to a Modelica file."
-  input BackendDAE.BackendDAE inBackendDAE;
-  input String suffix;
-protected
-  String str;
-algorithm
-  str := Tpl.tplString(CodegenModelica.dumpBackendDAE, inBackendDAE);
-  Error.addMessage(Error.BACKEND_DAE_TO_MODELICA, {suffix, str});
-end dumpBackendDAEToModelica;
 
 public function dumpEqSystem
   input BackendDAE.EqSystem inEqSystem;
@@ -1500,16 +1480,18 @@ algorithm
         s3 = stringDelimitList(ls, ", ");
         s4 = if b then "linear" else "nonlinear";
         tmpStr = "{{" + s + "}\n,{" + s2 + ":" + s3 + "}} Size: " + intString(listLength(vlst)) + " " + s4 + "\n";
-        if (Flags.isSet(Flags.TEARING_DUMP) or Flags.isSet(Flags.TEARING_DUMPVERBOSE)) and isSome(inSyst) then
-          SOME(eSys) = inSyst;
-          (innerEqLst,innerVarLst,_) = BackendDAEUtil.getEqnAndVarsFromInnerEquationLst(innerEquations);
-          tmpStr = tmpStr
-                   + "\nTearing Variables:\n-------------------------------------\n" + dumpMarkedVars(eSys,vlst) + "\n"
-                   + "Residual Equations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,ilst)
-                   + "Inner Variables:\n-------------------------------------\n" + dumpMarkedVarsLsts(eSys,innerVarLst) + "\n"
-                   + "InnerEquations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,innerEqLst);
-        else
-          tmpStr = tmpStr + "For more information please use \"-d=tearingdump\".\n";
+        if isSome(inSyst) then
+          if Flags.isSet(Flags.TEARING_DUMP) or Flags.isSet(Flags.TEARING_DUMPVERBOSE) then
+            SOME(eSys) = inSyst;
+            (innerEqLst,innerVarLst,_) = BackendDAEUtil.getEqnAndVarsFromInnerEquationLst(innerEquations);
+            tmpStr = tmpStr
+                     + "\nTearing Variables:\n-------------------------------------\n" + dumpMarkedVars(eSys,vlst) + "\n"
+                     + "Residual Equations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,ilst)
+                     + "Inner Variables:\n-------------------------------------\n" + dumpMarkedVarsLsts(eSys,innerVarLst) + "\n"
+                     + "InnerEquations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,innerEqLst);
+          else
+            tmpStr = tmpStr + "For more information please use \"-d=tearingdump\".\n";
+          end if;
         end if;
       then tmpStr;
     case BackendDAE.TORNSYSTEM(strictTearingSet=BackendDAE.TEARINGSET(residualequations=ilst,tearingvars=vlst,innerEquations=innerEquations),casualTearingSet=SOME(BackendDAE.TEARINGSET(residualequations=ilst2,tearingvars=vlst2,innerEquations=innerEquations2)),linear=b)
@@ -1522,16 +1504,18 @@ algorithm
         s3 = stringDelimitList(ls, ", ");
         s4 = if b then "linear" else "nonlinear";
         tmpStr = "{{" + s + "}\n,{" + s2 + ":" + s3 + "}} Size: " + intString(listLength(vlst)) + " " + s4 + " (strict tearing set)\n";
-        if (Flags.isSet(Flags.TEARING_DUMP) or Flags.isSet(Flags.TEARING_DUMPVERBOSE)) and isSome(inSyst) then
-          SOME(eSys) = inSyst;
-          (innerEqLst,innerVarLst,_) = BackendDAEUtil.getEqnAndVarsFromInnerEquationLst(innerEquations);
-          tmpStr = tmpStr
-                   + "\nTearing Variables:\n-------------------------------------\n" + dumpMarkedVars(eSys,vlst) + "\n"
-                   + "Residual Equations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,ilst)
-                   + "Inner Variables:\n-------------------------------------\n" + dumpMarkedVarsLsts(eSys,innerVarLst) + "\n"
-                   + "InnerEquations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,innerEqLst);
-        else
-          tmpStr = tmpStr + "For more information please use \"-d=tearingdump\".\n";
+        if isSome(inSyst) then
+          if Flags.isSet(Flags.TEARING_DUMP) or Flags.isSet(Flags.TEARING_DUMPVERBOSE) then
+            SOME(eSys) = inSyst;
+            (innerEqLst,innerVarLst,_) = BackendDAEUtil.getEqnAndVarsFromInnerEquationLst(innerEquations);
+            tmpStr = tmpStr
+                     + "\nTearing Variables:\n-------------------------------------\n" + dumpMarkedVars(eSys,vlst) + "\n"
+                     + "Residual Equations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,ilst)
+                     + "Inner Variables:\n-------------------------------------\n" + dumpMarkedVarsLsts(eSys,innerVarLst) + "\n"
+                     + "InnerEquations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,innerEqLst);
+          else
+            tmpStr = tmpStr + "For more information please use \"-d=tearingdump\".\n";
+          end if;
         end if;
 
         ls = List.map(innerEquations2, innerEquationString);
@@ -1542,16 +1526,18 @@ algorithm
         s3 = stringDelimitList(ls, ", ");
         s4 = if b then "linear" else "nonlinear";
         tmpStr2 = "{{" + s + "}\n,{" + s2 + ":" + s3 + "}} Size: " + intString(listLength(vlst2)) + " " + s4 + " (casual tearing set)\n";
-        if (Flags.isSet(Flags.TEARING_DUMP) or Flags.isSet(Flags.TEARING_DUMPVERBOSE)) and isSome(inSyst) then
-          SOME(eSys) = inSyst;
-          (innerEqLst,innerVarLst,_) = BackendDAEUtil.getEqnAndVarsFromInnerEquationLst(innerEquations2);
-          tmpStr2 = tmpStr2
-                   + "\nTearing Variables:\n-------------------------------------\n" + dumpMarkedVars(eSys,vlst2) + "\n"
-                   + "Residual Equations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,ilst2)
-                   + "Inner Variables:\n-------------------------------------\n" + dumpMarkedVarsLsts(eSys,innerVarLst) + "\n"
-                   + "InnerEquations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,innerEqLst);
-        else
-          tmpStr2 = tmpStr2 + "For more information please use \"-d=tearingdump\".\n";
+        if isSome(inSyst) then
+          if Flags.isSet(Flags.TEARING_DUMP) or Flags.isSet(Flags.TEARING_DUMPVERBOSE) then
+            SOME(eSys) = inSyst;
+            (innerEqLst,innerVarLst,_) = BackendDAEUtil.getEqnAndVarsFromInnerEquationLst(innerEquations2);
+            tmpStr2 = tmpStr2
+                      + "\nTearing Variables:\n-------------------------------------\n" + dumpMarkedVars(eSys,vlst2) + "\n"
+                      + "Residual Equations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,ilst2)
+                      + "Inner Variables:\n-------------------------------------\n" + dumpMarkedVarsLsts(eSys,innerVarLst) + "\n"
+                      + "InnerEquations:\n-------------------------------------\n" + dumpMarkedEqns(eSys,innerEqLst);
+          else
+            tmpStr2 = tmpStr2 + "For more information please use \"-d=tearingdump\".\n";
+          end if;
         end if;
       then tmpStr + tmpStr2;
   end match;
@@ -1570,7 +1556,6 @@ end dumpListList;
 // section for all *String functions
 //
 // These are functions, that return their output with a String.
-//   - componentRef_DIVISION_String
 //   - equationString
 //   - strongComponentString
 // =============================================================================
@@ -1764,7 +1749,7 @@ algorithm
       equation
         s1 = ExpressionDump.printExpStr(iter) + " in " + ExpressionDump.printExpStr(start) + " : " + ExpressionDump.printExpStr(stop);
         s2 = equationString(eqn);
-        res = stringAppendList({"for ", s1, " loop \n    ", s2, "; end for; "});
+        res = stringAppendList({"for ", s1, " loop\n    ", s2, "; end for; "});
       then
         res;
   end match;
@@ -1830,29 +1815,6 @@ algorithm
   end match;
 end timeEventString;
 
-
-public function componentRef_DIVISION_String
-  input DAE.ComponentRef inCref;
-  input Integer dummy;
-  output String outString;
-algorithm
-  outString := matchcontinue(inCref,dummy)
-    local
-      DAE.ComponentRef c;
-      String sc;
-    case(DAE.CREF_QUAL(ident="$DER",componentRef=c),_)
-      equation
-        sc = ComponentReference.printComponentRefStr(c);
-        sc = "der(" + sc + ")";
-      then
-        sc;
-    case(c,_)
-      equation
-        sc = ComponentReference.printComponentRefStr(c);
-      then
-        sc;
-  end matchcontinue;
-end componentRef_DIVISION_String;
 
 // =============================================================================
 // section for all debug* functions
@@ -2472,47 +2434,6 @@ algorithm
   end match;
 end symJacString;
 
-public function dumpLinearIntegerJacobianSparse
-  input BackendDAE.LinearIntegerJacobian linIntJac;
-  input String heading = "";
-protected
-  array<BackendDAE.LinearIntegerJacobianRow> rowArr;
-  BackendDAE.LinearIntegerJacobianRhs rhsArr;
-  BackendDAE.LinearIntegerJacobianIndices idxArr;
-  array<Boolean> boolArr, matchedVarsArr;
-algorithm
-  (rowArr, rhsArr, idxArr, boolArr, matchedVarsArr) := linIntJac;
-  print("######################################################\n" +
-        " LinearIntegerJacobian sparsity pattern: " + heading + "\n" +
-        "######################################################\n" +
-        "(scal_idx|arr_idx|changed) [var_index, value] || RHS_EXPRESSION\n");
-  for idx in 1:arrayLength(rowArr) loop
-    dumpLinearIntegerJacobianSparseRow(rowArr[idx], rhsArr[idx], idxArr[idx], boolArr[idx]);
-  end for;
-  print("\n");
-end dumpLinearIntegerJacobianSparse;
-
-protected function dumpLinearIntegerJacobianSparseRow
-  input BackendDAE.LinearIntegerJacobianRow linIntJacRow;
-  input DAE.Exp rhs;
-  input tuple<Integer, Integer> indices;
-  input Boolean changed;
-protected
-  Integer i_arr, i_scal, index, value;
-algorithm
-  (i_arr, i_scal) := indices;
-  print("(" + intString(i_arr) + "|" + intString(i_scal) + "|" + boolString(changed) +"):    ");
-  if listLength(linIntJacRow) < 1 then
-    print("EMPTY ROW     ");
-  else
-    for element in linIntJacRow loop
-      (index, value) := element;
-      print("[" + intString(index) + "|" + intString(value) + "] ");
-    end for;
-  end if;
-  print("    || RHS: " + ExpressionDump.printExpStr(rhs) + "\n");
-end dumpLinearIntegerJacobianSparseRow;
-
 public function dumpEqnsStr
 "Helper function to dump."
   input list<BackendDAE.Equation> eqns;
@@ -2548,7 +2469,7 @@ algorithm
   end match;
 end dumpEqnsStr2;
 
-protected function ifequationString
+public function ifequationString
   input list<DAE.Exp> conditions;
   input list<list<BackendDAE.Equation>> eqnstrue;
   input list<BackendDAE.Equation> eqnsfalse;
@@ -2899,6 +2820,7 @@ algorithm
     case(SOME(DAE.GIVEN())) then "uncertain=Uncertainty.given";
     case(SOME(DAE.SOUGHT())) then "uncertain=Uncertainty.sought";
     case(SOME(DAE.REFINE())) then "uncertain=Uncertainty.refine";
+    case(SOME(DAE.PROPAGATE())) then "uncertain=Uncertainty.propagate";
   end match;
 end optUncertainty;
 
@@ -3359,7 +3281,13 @@ protected
   BackendDAE.Var var;
 algorithm
   for sel in selList loop
-    var := listGet(varList, sel);
+    try
+      var := listGet(varList, sel);
+    else
+      Error.addInternalError("function dumpMarkedVarList failed", sourceInfo());
+      Error.addCompilerNotification("Could not get variable " + intString(sel) + " from varList \n" + varListString(varList,""));
+      fail();
+    end try;
     outString := outString + "  " + varString(var) + "\n";
   end for;
 end dumpMarkedVarList;
@@ -3590,11 +3518,11 @@ protected
   list<tuple<Integer,Integer>> te_nl,te_nl2;
   list<Integer> m_se,m_salg,m_sarr,m_sec;
   list<tuple<Integer,Integer>> me_jc,e_jt,me_jt,me_jn,me_nj,me_lt,me_nt;
-  list<DAE.ComponentRef> states,discvars,discstates;
+  list<DAE.ComponentRef> states,discvars,discstates,clockedstates={};
   HashSet.HashSet HS;
   BackendDAE.EqSystems systs;
   BackendDAE.EquationArray removedEqs;
-  String statesStr, sysStr, stStr, dvarStr, dstStr, statesStr, discvarsStr, discstatesStr, inpStr, strcompsStr, seqStr, sarrStr, salgStr, sceStr, sweStr, sieStr, eqsysStr, teqsysStr, meqsysStr, daeType;
+  String sysStr, stStr, dvarStr, dstStr, clckStr, statesStr, discvarsStr, discstatesStr, clockedstatesStr, inpStr, strcompsStr, seqStr, sarrStr, salgStr, sceStr, sweStr, sieStr, eqsysStr, teqsysStr, meqsysStr, daeType;
 
   list<String> msgs;
   DumpCompShortSystemsTpl systemsTpl;
@@ -3612,7 +3540,12 @@ algorithm
   discstates := BaseHashSet.hashSetList(HS);
   dst := listLength(discstates);
 
-  ((sys,inp,st,states,dvar,discvars,seq,salg,sarr,sce,swe,sie,systemsTpl,mixedTpl,tornTpl,tornTpl2)) := BackendDAEUtil.foldEqSystem(inDAE,dumpCompShort1,(0,0,0,{},0,{},0,0,0,0,0,0,({},{},{},{}),({},{},{},{},{},{},{},{},{},{}),({},{}),({},{})));
+  // collect and print clocked states #6132
+  for syst in systs loop
+    clockedstates := BackendVariable.filterCrefs(syst.orderedVars, BackendVariable.isVarClockedState, clockedstates);
+  end for;
+
+  (sys,inp,st,states,dvar,discvars,seq,salg,sarr,sce,swe,sie,systemsTpl,mixedTpl,tornTpl,tornTpl2) := BackendDAEUtil.foldEqSystem(inDAE,dumpCompShort1,(0,0,0,{},0,{},0,0,0,0,0,0,({},{},{},{}),({},{},{},{},{},{},{},{},{},{}),({},{}),({},{})));
   (e_jc,e_jt,e_jn,e_nj) := systemsTpl;
   (m_se,m_salg,m_sarr,m_sec,me_jc,me_jt,me_jn,me_nj,me_lt,me_nt) := mixedTpl;
   (te_l,te_nl) := tornTpl;
@@ -3628,6 +3561,7 @@ algorithm
   stStr := intString(st);
   dvarStr := intString(dvar);
   dstStr := intString(dst);
+  clckStr := intString(listLength(clockedstates));
   statesStr := if Flags.isSet(Flags.DUMP_STATESELECTION_INFO)
     then " (" + stringDelimitList(List.map(states, ComponentReference.printComponentRefStr),",") + ")"
     else " ('-d=stateselection' for list of states)";
@@ -3637,11 +3571,15 @@ algorithm
   discstatesStr := if Flags.isSet(Flags.DUMP_DISCRETEVARS_INFO)
      then " (" + stringDelimitList(List.map(discstates, ComponentReference.printComponentRefStr),",") + ")"
      else " ('-d=discreteinfo' for list of discrete states)";
-  inpStr := intString(inp);
+  clockedstatesStr := if Flags.isSet(Flags.DUMP_DISCRETEVARS_INFO)
+     then " (" + stringDelimitList(List.map(clockedstates, ComponentReference.printComponentRefStr),",") + ")"
+     else " ('-d=discreteinfo' for list of clocked states)";
   stStr := stStr+statesStr;
   dvarStr := dvarStr+discvarsStr;
   dstStr := dstStr+discstatesStr;
-  msgs := {daeType,sysStr,stStr,dvarStr,dstStr,inpStr};
+  clckStr := clckStr+clockedstatesStr;
+  inpStr := intString(inp);
+  msgs := {daeType,sysStr,stStr,dvarStr,dstStr,clckStr,inpStr};
   Error.addMessage(Error.BACKENDDAEINFO_STATISTICS, msgs);
 
   strcompsStr := intString(strcomps);
@@ -3680,10 +3618,10 @@ protected
   String s_jc,s_jn,s_nj,s_jt;
 algorithm
   (e_jc,e_jt,e_jn,e_nj) := systemsTpl;
-  s_jc := equationSizesStr(e_jc,intString);
+  s_jc := equationSizesStr(e_jc,intString); // TODO add density, like for the linear case
   s_jt := equationSizesStr(e_jt,sizeNumNonZeroTplString);
-  s_jn := equationSizesStr(e_jn,intString);
-  s_nj := equationSizesStr(e_nj,intString);
+  s_jn := equationSizesStr(e_jn,intString); // TODO add density, like for the linear case
+  s_nj := equationSizesStr(e_nj,intString); // TODO add density, like for the linear case
   Error.addMessage(Error.BACKENDDAEINFO_SYSTEMS, {s_jc,s_jt,s_jn,s_nj});
 end dumpCompSystems;
 
@@ -3697,7 +3635,7 @@ protected
 algorithm
   (te_l,te_nl) := systemsTpl;
   s_l := equationSizesStr(te_l,sizeNumNonZeroTornTplString);
-  s_nl := equationSizesStr(te_nl,intTplString);
+  s_nl := equationSizesStr(te_nl,intTplString); // TODO add density, like for the linear case
   Error.addMessage(Error.BACKENDDAEINFO_TORN, {whichset,s_l,s_nl});
 end dumpCompTorn;
 
@@ -3735,7 +3673,8 @@ protected
   Integer len;
 algorithm
   len := listLength(eqs);
-  str := if len == 0 then "0" else (intString(len) + " {" + stringDelimitList(List.map(eqs,fn),",") + "}");
+  str := if len == 1 then "1 system" else (intString(len) + " systems");
+  str := if len == 0 then str else (str + "\n   {" + stringDelimitList(List.map(eqs,fn),", ") + "}");
 end equationSizesStr;
 
 protected function sizeNumNonZeroTplString
@@ -3761,7 +3700,7 @@ algorithm
   (sz,others,nnz) := inTpl;
   density := if nnz == 0 then 0.0 else realDiv(realMul(100.0,intReal(nnz)),realMul(intReal(sz),intReal(sz)));
   str := System.snprintff("%.1f",20,density);
-  str := "(" + intString(sz) + "," + str + "%)" + " " + intString(others);
+  str := "(" + intString(sz) + "," + intString(others) + "," + str + "%)";
 end sizeNumNonZeroTornTplString;
 
 protected function intTplString
@@ -3770,8 +3709,10 @@ protected function intTplString
 protected
   Integer e,d;
 algorithm
+  // d = number of residual/iteration/tearing vars
+  // e = number of internal/inner/torn vars
   (d,e) := inTpl;
-  outStr := intString(d) + " " + intString(e);
+  outStr := "(" + intString(d) + "," + intString(e) + ")";
 end intTplString;
 
 protected function dumpCompShort1
@@ -3807,11 +3748,11 @@ algorithm
   BackendDAE.EQSYSTEM(orderedVars=vars) := inSyst;
   (sys, inp, st, states, dvar, discvars, seq, salg, sarr, sce, swe, sie, eqsys, meqsys, teqsys, teqsys_2) := inTpl;
 
-  ((inp1,st1,states1,dvar1,discvars1)) := BackendVariable.traverseBackendDAEVars(vars,traversingisStateTopInputVarFinder,(inp,st,states,dvar,discvars));
+  (inp1,st1,states1,dvar1,discvars1) := BackendVariable.traverseBackendDAEVars(vars,traversingisStateTopInputVarFinder,(inp,st,states,dvar,discvars));
   comps := BackendDAEUtil.getStrongComponents(inSyst);
-  ((seq1,salg1,sarr1,sce1,swe1,sie1,eqsys1,meqsys1,teqsys1,teqsys1_2)) := List.fold(comps,dumpCompShort2,(seq,salg,sarr,sce,swe,sie,eqsys,meqsys,teqsys,teqsys_2));
+  (seq1,salg1,sarr1,sce1,swe1,sie1,eqsys1,meqsys1,teqsys1,teqsys1_2) := List.fold(comps,dumpCompShort2,(seq,salg,sarr,sce,swe,sie,eqsys,meqsys,teqsys,teqsys_2));
 
-  outTpl := ((sys+1, inp1, st1, states1, dvar1, discvars1, seq1, salg1, sarr1, sce1, swe1, sie1, eqsys1, meqsys1, teqsys1, teqsys1_2));
+  outTpl := (sys+1, inp1, st1, states1, dvar1, discvars1, seq1, salg1, sarr1, sce1, swe1, sie1, eqsys1, meqsys1, teqsys1, teqsys1_2);
 end dumpCompShort1;
 
 protected function traversingisStateTopInputVarFinder
@@ -4200,8 +4141,8 @@ algorithm
       //gather equations ans variables
       (eqIdcs,varIdcsLst,_) = List.map_3(innerEquations, BackendDAEUtil.getEqnAndVarsFromInnerEquation);
       varIdcs = List.flatten(varIdcsLst);
-      eqIdcs = listAppend(eqIdcs, rEqIdcs);
-      varIdcs = listAppend(varIdcs, tVarIdcs);
+      eqIdcs = listAppend(eqIdcs, rEqIdcs) annotation(__OpenModelica_DisableListAppendWarning=true);
+      varIdcs = listAppend(varIdcs, tVarIdcs) annotation(__OpenModelica_DisableListAppendWarning=true);
       compEqLst = List.map1(eqIdcs,List.getIndexFirst,eqsIn);
       compVarLst = List.map1(varIdcs,List.getIndexFirst,varsIn);
       compVars = BackendVariable.listVar1(compVarLst);

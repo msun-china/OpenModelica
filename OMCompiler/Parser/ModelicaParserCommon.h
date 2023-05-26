@@ -65,6 +65,7 @@ DLLDirection extern pthread_key_t modelicaParserKey;
 #define ModelicaParser_readonly ((parser_members*)pthread_getspecific(modelicaParserKey))->readonly
 #define ModelicaParser_flags ((parser_members*)pthread_getspecific(modelicaParserKey))->flags
 #define ModelicaParser_langStd ((parser_members*)pthread_getspecific(modelicaParserKey))->langStd
+#define ModelicaParser_strict ((parser_members*)pthread_getspecific(modelicaParserKey))->strict
 #define ModelicaParser_lexerError ((parser_members*)pthread_getspecific(modelicaParserKey))->lexerError
 #define ModelicaParser_encoding ((parser_members*)pthread_getspecific(modelicaParserKey))->encoding
 #define ModelicaParser_threadData ((threadData_t*)pthread_getspecific(mmc_thread_data_key))
@@ -85,6 +86,7 @@ typedef struct antlr_members_struct {
   int readonly;
   int flags;
   int langStd;
+  int strict;
 #if !defined(OMJULIA)
   threadData_t *threadData;
 #endif
@@ -100,6 +102,7 @@ typedef struct antlr_members_struct {
 #define PARSE_PATH            1<<6
 #define PARSE_CREF            1<<7
 #define PARSE_PDEMODELICA     1<<8
+#define PARSE_MODIFIER        1<<9
 #define metamodelica_enabled() (ModelicaParser_flags&PARSE_META_MODELICA)
 #define parmodelica_enabled() (ModelicaParser_flags&PARSE_PARMODELICA)
 #define optimica_enabled() (ModelicaParser_flags&PARSE_OPTIMICA)

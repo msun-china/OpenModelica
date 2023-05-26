@@ -32,13 +32,14 @@
 encapsulated package NFBuiltinCall
   import Absyn;
   import AbsynUtil;
-  import NFCall.Call;
-  import NFCall.CallAttributes;
+  import Call = NFCall;
+  import NFCallAttributes;
   import Expression = NFExpression;
   import NFInstNode.InstNode;
-  import NFPrefixes.Variability;
+  import NFPrefixes.{Variability, Purity};
   import Type = NFType;
   import Subscript = NFSubscript;
+  import System;
 
 protected
   import Config;
@@ -47,23 +48,25 @@ protected
   import Dimension = NFDimension;
   import List;
   import MetaModelica.Dangerous.listReverseInPlace;
-  import NFClass.Class;
+  import Class = NFClass;
   import NFFunction.Function;
   import NFFunction.FunctionMatchKind;
   import NFFunction.MatchedFunction;
   import NFFunction.NamedArg;
   import NFFunction.TypedArg;
-  import NFFunction.TypedNamedArg;
   import NFInstNode.CachedData;
-  import NFTyping.ExpOrigin;
+  import NFTyping.InstContext;
   import Prefixes = NFPrefixes;
   import TypeCheck = NFTypeCheck;
   import Typing = NFTyping;
   import Util;
   import ExpandExp = NFExpandExp;
   import Operator = NFOperator;
-  import NFComponent.Component;
+  import Component = NFComponent;
   import NFPrefixes.ConnectorType;
+  import ClockKind = NFClockKind;
+  import Structural = NFStructural;
+  import Array;
 
 public
   function needSpecialHandling
@@ -89,72 +92,70 @@ public
 
   function typeSpecial
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef cref;
     InstNode fn_node;
     Expression first;
     list<Expression> rest;
     String name;
-    ExpOrigin.Type next_origin;
+    InstContext.Type next_context;
   algorithm
     Call.UNTYPED_CALL(ref = cref) := call;
-    next_origin := ExpOrigin.setFlag(origin, ExpOrigin.SUBEXPRESSION);
+    next_context := InstContext.set(context, NFInstContext.SUBEXPRESSION);
 
-    (callExp, ty, variability) := match ComponentRef.firstName(cref)
-      case "String" then typeStringCall(call, next_origin, info);
-      case "actualStream" then typeActualInStreamCall("actualStream", call, next_origin, info);
-      case "branch" then typeBranchCall(call, next_origin, info);
-      case "cardinality" then typeCardinalityCall(call, next_origin, info);
-      case "cat" then typeCatCall(call, next_origin, info);
-      case "change" then typeChangeCall(call, next_origin, info);
-      case "der" then typeDerCall(call, next_origin, info);
-      case "diagonal" then typeDiagonalCall(call, next_origin, info);
-      case "edge" then typeEdgeCall(call, next_origin, info);
-      case "fill" then typeFillCall(call, next_origin, info);
+    (callExp, ty, variability, purity) := match ComponentRef.firstName(cref)
+      //case "activeState" then typeActiveStateCall(call, next_context, info);
+      case "actualStream" then typeActualInStreamCall("actualStream", call, next_context, info);
+      case "backSample" then typeBackSampleCall(call, next_context, info);
+      case "branch" then typeBranchCall(call, next_context, info);
+      case "cardinality" then typeCardinalityCall(call, next_context, info);
+      case "cat" then typeCatCall(call, next_context, info);
+      case "change" then typeChangeCall(call, next_context, info);
+      case "Clock" then typeClockCall(call, next_context, info);
+      case "der" then typeDerCall(call, next_context, info);
+      case "DynamicSelect" then typeDynamicSelectCall("DynamicSelect", call, next_context, info);
+      case "edge" then typeEdgeCall(call, next_context, info);
+      case "fill" then typeFillCall(call, next_context, info);
       case "getInstanceName" then typeGetInstanceName(call);
-      case "initial" then typeDiscreteCall(call, next_origin, info);
-      case "inStream" then typeActualInStreamCall("inStream", call, next_origin, info);
-      case "isRoot" then typeIsRootCall(call, next_origin, info);
-      case "matrix" then typeMatrixCall(call, next_origin, info);
-      case "max" then typeMinMaxCall("max", call, next_origin, info);
-      case "min" then typeMinMaxCall("min", call, next_origin, info);
-      case "ndims" then typeNdimsCall(call, next_origin, info);
-      case "noEvent" then typeNoEventCall(call, next_origin, info);
-      case "ones" then typeZerosOnesCall("ones", call, next_origin, info);
-      case "potentialRoot" then typePotentialRootCall(call, next_origin, info);
-      case "pre" then typePreCall(call, next_origin, info);
-      case "product" then typeProductCall(call, next_origin, info);
-      case "root" then typeRootCall(call, next_origin, info);
-      case "rooted" then typeRootedCall(call, next_origin, info);
-      case "uniqueRoot" then typeUniqueRootCall(call, next_origin, info);
-      case "uniqueRootIndices" then typeUniqueRootIndicesCall(call, next_origin, info);
-      case "scalar" then typeScalarCall(call, next_origin, info);
-      case "smooth" then typeSmoothCall(call, next_origin, info);
-      case "sum" then typeSumCall(call, next_origin, info);
-      case "symmetric" then typeSymmetricCall(call, next_origin, info);
-      case "terminal" then typeDiscreteCall(call, next_origin, info);
-      case "transpose" then typeTransposeCall(call, next_origin, info);
-      case "vector" then typeVectorCall(call, next_origin, info);
-      case "zeros" then typeZerosOnesCall("zeros", call, next_origin, info);
-      case "Clock" guard Config.synchronousFeaturesAllowed() then typeClockCall(call, next_origin, info);
-      case "sample" then typeSampleCall(call, next_origin, info);
-      case "DynamicSelect" then typeDynamicSelectCall("DynamicSelect", call, next_origin, info);
-      /*
-      case "hold" guard Config.synchronousFeaturesAllowed() then typeHoldCall(call, next_origin, info);
-      case "shiftSample" guard Config.synchronousFeaturesAllowed() then typeShiftSampleCall(call, next_origin, info);
-      case "backSample" guard Config.synchronousFeaturesAllowed() then typeBackSampleCall(call, next_origin, info);
-      case "noClock" guard Config.synchronousFeaturesAllowed() then typeNoClockCall(call, next_origin, info);
-      case "transition" guard Config.synchronousFeaturesAllowed() then typeTransitionCall(call, next_origin, info);
-      case "initialState" guard Config.synchronousFeaturesAllowed() then typeInitialStateCall(call, next_origin, info);
-      case "activeState" guard Config.synchronousFeaturesAllowed() then typeActiveStateCall(call, next_origin, info);
-      case "ticksInState" guard Config.synchronousFeaturesAllowed() then typeTicksInStateCall(call, next_origin, info);
-      case "timeInState" guard Config.synchronousFeaturesAllowed() then typeTimeInStateCall(call, next_origin, info);
-      */
+      //case "initialState" then typeInitialStateCall(call, next_context, info);
+      case "initial" then typeDiscreteCall(call, next_context, info);
+      case "inStream" then typeActualInStreamCall("inStream", call, next_context, info);
+      case "isRoot" then typeIsRootCall(call, next_context, info);
+      case "matrix" then typeMatrixCall(call, next_context, info);
+      case "max" then typeMinMaxCall("max", call, next_context, info);
+      case "min" then typeMinMaxCall("min", call, next_context, info);
+      case "ndims" then typeNdimsCall(call, next_context, info);
+      case "noEvent" then typeNoEventCall(call, next_context, info);
+      case "ones" then typeZerosOnesCall("ones", call, next_context, info);
+      case "potentialRoot" then typePotentialRootCall(call, next_context, info);
+      case "pre" then typePreCall(call, next_context, info);
+      case "promote" then typePromoteCall(call, next_context, info);
+      case "pure" then typePureCall(call, next_context, info);
+      case "rooted" then typeRootedCall(call, next_context, info);
+      case "root" then typeRootCall(call, next_context, info);
+      case "sample" then typeSampleCall(call, next_context, info);
+      case "scalar" then typeScalarCall(call, next_context, info);
+      case "shiftSample" then typeShiftSampleCall(call, next_context, info);
+      case "smooth" then typeSmoothCall(call, next_context, info);
+      case "String" then typeStringCall(call, next_context, info);
+      case "subSample" then typeSubSampleCall(call, next_context, info);
+      case "superSample" then typeSuperSampleCall(call, next_context, info);
+      case "symmetric" then typeSymmetricCall(call, next_context, info);
+      case "terminal" then typeDiscreteCall(call, next_context, info);
+      //case "ticksInState" then typeTicksInStateCall(call, next_context, info);
+      //case "timeInState" then typeTimeInStateCall(call, next_context, info);
+      //case "transition" then typeTransitionCall(call, next_context, info);
+      case "transpose" then typeTransposeCall(call, next_context, info);
+      case "uniqueRootIndices" then typeUniqueRootIndicesCall(call, next_context, info);
+      case "uniqueRoot" then typeUniqueRootCall(call, next_context, info);
+      case "vector" then typeVectorCall(call, next_context, info);
+      case "zeros" then typeZerosOnesCall("zeros", call, next_context, info);
       else
         algorithm
           Error.assertion(false, getInstanceName() + " got unhandled builtin function: " + Call.toString(call), sourceInfo());
@@ -208,7 +209,7 @@ public
       fail();
     end if;
 
-    arrayExp := Expression.makeArray(Type.UNKNOWN(), posArgs);
+    arrayExp := Expression.makeArray(Type.UNKNOWN(), listArray(posArgs));
   end makeArrayExp;
 
   function makeCatExp
@@ -216,6 +217,7 @@ public
     input list<Expression> args;
     input list<Type> tys;
     input Variability variability;
+    input Purity purity;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
@@ -324,7 +326,8 @@ public
     // We have all except dimension n having equal sizes; with matching types
 
     ty := resTy;
-    callExp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.CAT, Expression.INTEGER(n)::res, variability, resTy));
+    callExp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.CAT,
+      Expression.INTEGER(n)::res, variability, purity, resTy));
   end makeCatExp;
 
 protected
@@ -342,54 +345,59 @@ protected
 
   function typeStringCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type outType;
     output Variability var;
+    output Purity purity;
   protected
     Type arg_ty;
     list<TypedArg> args;
-    list<TypedNamedArg> named_args;
+    list<TypedArg> named_args;
+    TypedArg arg;
     Call ty_call;
   algorithm
-    ty_call as Call.ARG_TYPED_CALL(_, args, named_args) := Call.typeNormalCall(call, origin, info);
-    (_, arg_ty, _) :: _ := args;
-    arg_ty := Type.arrayElementType(arg_ty);
+    ty_call as Call.ARG_TYPED_CALL(_, args, named_args) := Call.typeNormalCall(call, context, info);
+    arg := listHead(args);
+    arg_ty := Type.arrayElementType(arg.ty);
 
     if Type.isComplex(arg_ty) then
-      (callExp, outType, var) := typeOverloadedStringCall(arg_ty, args, named_args, ty_call, origin, info);
+      (callExp, outType, var, purity) := typeOverloadedStringCall(arg_ty, args, named_args, ty_call, context, info);
     else
-      (callExp, outType, var) := typeBuiltinStringCall(ty_call, origin, info);
+      (callExp, outType, var, purity) := typeBuiltinStringCall(ty_call, context, info);
     end if;
   end typeStringCall;
 
   function typeBuiltinStringCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var;
+    output Purity purity;
   protected
     Call ty_call;
   algorithm
-    ty_call := Call.matchTypedNormalCall(call, origin, info);
+    ty_call := Call.matchTypedNormalCall(call, context, info);
     ty := Call.typeOf(ty_call);
     var := Call.variability(ty_call);
+    purity := Call.purity(ty_call);
     callExp := Expression.CALL(ty_call);
   end typeBuiltinStringCall;
 
   function typeOverloadedStringCall
     input Type overloadedType;
     input list<TypedArg> args;
-    input list<TypedNamedArg> namedArgs;
+    input list<TypedArg> namedArgs;
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type outType;
     output Variability var = Variability.CONSTANT;
+    output Purity purity = Purity.PURE;
   protected
     ComponentRef fn_ref;
     list<Function> candidates;
@@ -400,14 +408,14 @@ protected
     Type.COMPLEX(cls=recopnode) := overloadedType;
 
     try
-      fn_ref := Function.lookupFunctionSimple("'String'", recopnode);
+      fn_ref := Function.lookupFunctionSimple("'String'", recopnode, context);
     else
       // If there's no 'String' overload, let the normal String handler print the error.
-      typeBuiltinStringCall(call, origin, info);
+      typeBuiltinStringCall(call, context, info);
       fail();
     end try;
 
-    fn_ref := Function.instFunctionRef(fn_ref, InstNode.info(recopnode));
+    fn_ref := Function.instFunctionRef(fn_ref, context, InstNode.info(recopnode));
     candidates := Function.typeRefCache(fn_ref);
     //for fn in candidates loop
     //  TypeCheck.checkValidOperatorOverload("'String'", fn, recopnode);
@@ -426,14 +434,16 @@ protected
       outType := Function.returnType(matchedFunc.func);
 
       for arg in matchedFunc.args loop
-        var := Prefixes.variabilityMax(var, Util.tuple33(arg));
+        var := Prefixes.variabilityMax(var, arg.var);
+        purity := Prefixes.purityMin(purity, arg.purity);
       end for;
 
       callExp := Expression.CALL(
         Call.makeTypedCall(
           matchedFunc.func,
-          list(Util.tuple31(a) for a in matchedFunc.args),
+          list(a.value for a in matchedFunc.args),
           var,
+          purity,
           outType));
       return;
     else
@@ -447,29 +457,31 @@ protected
     "Types a function call that can be typed normally, but which always has
      discrete variability regardless of the variability of the arguments."
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.DISCRETE;
+    output Purity purity = Purity.IMPURE;
   protected
     Call argtycall;
     Function fn;
     list<TypedArg> args;
     TypedArg start,interval;
   algorithm
-    argtycall := Call.typeMatchNormalCall(call, origin, info);
+    argtycall := Call.typeMatchNormalCall(call, context, info);
     ty := Call.typeOf(argtycall);
     callExp := Expression.CALL(Call.unboxArgs(argtycall));
   end typeDiscreteCall;
 
   function typeNdimsCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty = Type.INTEGER();
     output Variability variability = Variability.PARAMETER;
+    output Purity purity = Purity.PURE;
   protected
     list<Expression> args;
     list<NamedArg> named_args;
@@ -487,37 +499,39 @@ protected
 
     // The number of dimensions an expression has is always known,
     // so we might as well evaluate the ndims call here.
-    (_, arg_ty, _) := Typing.typeExp(listHead(args), origin, info);
+    (_, arg_ty, _) := Typing.typeExp(listHead(args), context, info);
     callExp := Expression.INTEGER(Type.dimensionCount(arg_ty));
   end typeNdimsCall;
 
   function typePreCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity = Purity.IMPURE;
   algorithm
-    (callExp, ty, variability) := typePreChangeCall("pre", call, origin, info);
+    (callExp, ty, variability) := typePreChangeCall("pre", call, context, info);
   end typePreCall;
 
   function typeChangeCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity = Purity.IMPURE;
   algorithm
-    (callExp, ty, variability) := typePreChangeCall("change", call, origin, info);
+    (callExp, ty, variability) := typePreChangeCall("change", call, context, info);
     ty := Type.setArrayElementType(ty, Type.BOOLEAN());
   end typeChangeCall;
 
   function typePreChangeCall
     input String name;
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
@@ -540,12 +554,12 @@ protected
     end if;
 
     // pre/change may not be used in a function context.
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
         {ComponentRef.toString(fn_ref)}, info);
     end if;
 
-    (arg, ty, var) := Typing.typeExp(listHead(args), origin, info);
+    (arg, ty, var) := Typing.typeExp(listHead(args), context, info);
 
     if not Expression.isCref(arg) then
       Error.addSourceMessage(Error.ARGUMENT_MUST_BE_VARIABLE,
@@ -560,16 +574,17 @@ protected
     end if;
 
     {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, var, Purity.IMPURE, ty));
   end typePreChangeCall;
 
   function typeDerCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -579,7 +594,7 @@ protected
     Type ety;
   algorithm
     // der may not be used in a function context.
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessage(Error.EXP_INVALID_IN_FUNCTION, {"der"}, info);
       fail();
     end if;
@@ -593,93 +608,65 @@ protected
     end if;
 
     {arg} := args;
-    (arg, ty, variability) := Typing.typeExp(arg, origin, info);
+    (arg, ty, variability) := Typing.typeExp(arg, context, info);
 
+    // The argument of der must be a Real scalar or array.
     ety := Type.arrayElementType(ty);
 
     if Type.isInteger(ety) then
-      ty := Type.setArrayElementType(ty, Type.REAL());
-      arg := Expression.typeCast(arg, Type.REAL());
+      if variability < Variability.DISCRETE then
+        ty := Type.setArrayElementType(ty, Type.REAL());
+        arg := Expression.typeCast(arg, Type.REAL());
+      else
+        Error.addSourceMessageAndFail(Error.DER_OF_NONDIFFERENTIABLE_EXP,
+          {Expression.toString(arg)}, info);
+      end if;
     elseif not Type.isReal(ety) then
       Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
         {"1", ComponentRef.toString(fn_ref), "", Expression.toString(arg),
          Type.toString(ty), "Real"}, info);
     end if;
 
-    {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
-  end typeDerCall;
-
-  function typeDiagonalCall
-    input Call call;
-    input ExpOrigin.Type origin;
-    input SourceInfo info;
-    output Expression callExp;
-    output Type ty;
-    output Variability variability;
-  protected
-    ComponentRef fn_ref;
-    list<Expression> args;
-    list<NamedArg> named_args;
-    Expression arg;
-    Dimension dim;
-    Function fn;
-  algorithm
-    Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
-    assertNoNamedParams("diagonal", named_args, info);
-
-    if listLength(args) <> 1 then
-      Error.addSourceMessageAndFail(Error.NO_MATCHING_FUNCTION_FOUND_NFINST,
-        {Call.toString(call), "diagonal(Any[n]) => Any[n, n]"}, info);
+    // The argument must be differentiable, i.e. not discrete, unless where in a
+    // scope where everything is discrete (like an initial equation).
+    if variability == Variability.DISCRETE and not InstContext.inDiscreteScope(context) then
+      Error.addSourceMessageAndFail(Error.DER_OF_NONDIFFERENTIABLE_EXP,
+        {Expression.toString(arg)}, info);
     end if;
 
-    (arg, ty, variability) := Typing.typeExp(listHead(args), origin, info);
-
-    ty := match ty
-      case Type.ARRAY(dimensions = {dim})
-        then Type.ARRAY(ty.elementType, {dim, dim});
-
-      else
-        algorithm
-          Error.addSourceMessage(Error.ARG_TYPE_MISMATCH,
-            {"1", ComponentRef.toString(fn_ref), "", Expression.toString(arg),
-             Type.toString(ty), "Any[:]"}, info);
-        then
-          fail();
-    end match;
-
     {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
-  end typeDiagonalCall;
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, purity, ty));
+  end typeDerCall;
 
   function typeEdgeCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability = Variability.DISCRETE;
+    output Purity purity = Purity.IMPURE;
   protected
     Call argtycall;
     Function fn;
     list<TypedArg> args;
     TypedArg arg;
     InstNode fn_node;
-    CallAttributes ca;
+    NFCallAttributes ca;
   algorithm
     // edge may not be used in a function context.
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessage(Error.EXP_INVALID_IN_FUNCTION, {"edge"}, info);
       fail();
     end if;
 
-    argtycall as Call.ARG_TYPED_CALL(ComponentRef.CREF(node = fn_node), args, _) := Call.typeNormalCall(call, origin, info);
-    argtycall := Call.matchTypedNormalCall(argtycall, origin, info);
+    argtycall as Call.ARG_TYPED_CALL(ComponentRef.CREF(node = fn_node), args, _) := Call.typeNormalCall(call, context, info);
+    argtycall := Call.matchTypedNormalCall(argtycall, context, info);
     ty := Call.typeOf(argtycall);
     callExp := Expression.CALL(Call.unboxArgs(argtycall));
 
     {arg} := args;
-    if not Expression.isCref(Util.tuple31(arg)) then
+    if not Expression.isCref(arg.value) then
       Error.addSourceMessage(Error.ARGUMENT_MUST_BE_VARIABLE,
             {"First", "edge", "<REMOVE ME>"}, info);
       fail();
@@ -689,11 +676,12 @@ protected
   function typeMinMaxCall
     input String name;
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -703,20 +691,50 @@ protected
     Expression arg1, arg2;
     Type ty1, ty2;
     Variability var1, var2;
+    Purity pur1, pur2;
     TypeCheck.MatchKind mk;
+
+    function is_valid_type
+      input Type ty;
+      output Boolean res;
+    algorithm
+      res := match ty
+        case Type.REAL() then true;
+        case Type.INTEGER() then true;
+        case Type.BOOLEAN() then true;
+        case Type.ENUMERATION() then true;
+        else false;
+      end match;
+    end is_valid_type;
+
+    function invalid_args_error
+      input Call call;
+      input String name;
+      input SourceInfo info;
+    algorithm
+      Error.addSourceMessageAndFail(Error.NO_MATCHING_FUNCTION_FOUND_NFINST,
+        {Call.toString(call),
+         name + "(Real, Real) => Real\n  " +
+         name + "(Integer, Integer) => Integer\n  " +
+         name + "(Boolean, Boolean) => Boolean\n  " +
+         name + "(enumeration(:), enumeration(:)) => enumeration(:)\n  " +
+         name + "(Real[:, ...]) => Real\n  " +
+         name + "(Integer[:, ...]) => Integer\n  " +
+         name + "(Boolean[:, ...]) => Boolean\n  " +
+         name + "(enumeration(:)[:, ...]) => enumeration(:)"}, info);
+    end invalid_args_error;
   algorithm
     Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
     assertNoNamedParams(name, named_args, info);
 
-    (args, ty, var) := match args
+    (args, ty, var, purity) := match args
       case {arg1}
         algorithm
-          (arg1, ty1, var) := Typing.typeExp(arg1, origin, info);
+          (arg1, ty1, var, purity) := Typing.typeExp(arg1, context, info);
           ty := Type.arrayElementType(ty1);
 
-          if not (Type.isArray(ty1) and Type.isBasic(ty)) then
-            Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
-              {"1", name, "", Expression.toString(arg1), Type.toString(ty1), "Any[:, ...]"}, info);
+          if not (Type.isArray(ty1) and is_valid_type(ty)) then
+            invalid_args_error(call, name, info);
           end if;
 
           // If the argument is an array with a single element we can just
@@ -726,113 +744,100 @@ protected
             return;
           end if;
         then
-          ({arg1}, ty, var);
+          ({arg1}, ty, var, purity);
 
       case {arg1, arg2}
         algorithm
-          (arg1, ty1, var1) := Typing.typeExp(arg1, origin, info);
-          (arg2, ty2, var2) := Typing.typeExp(arg2, origin, info);
+          (arg1, ty1, var1, pur1) := Typing.typeExp(arg1, context, info);
+          (arg2, ty2, var2, pur2) := Typing.typeExp(arg2, context, info);
 
-          if not Type.isBasic(ty1) then
-            Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
-              {"1", name, "", Expression.toString(arg1), Type.toString(ty1), "Any"}, info);
-          end if;
-
-          if not Type.isBasic(ty2) then
-            Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
-              {"2", name, "", Expression.toString(arg2), Type.toString(ty2), "Any"}, info);
+          if not (is_valid_type(ty1) and is_valid_type(ty2)) then
+            invalid_args_error(call, name, info);
           end if;
 
           (arg1, arg2, ty, mk) := TypeCheck.matchExpressions(arg1, ty1, arg2, ty2);
 
           if not TypeCheck.isValidArgumentMatch(mk) then
-            Error.addSourceMessage(Error.NO_MATCHING_FUNCTION_FOUND_NFINST,
-              {Call.toString(call), name + "(Any[:, ...]) => Any\n" + name + "(Any, Any) => Any"}, info);
+            invalid_args_error(call, name, info);
           end if;
         then
-          ({arg1, arg2}, ty, Prefixes.variabilityMax(var1, var2));
+          ({arg1, arg2}, ty, Prefixes.variabilityMax(var1, var2), Purity.purityMin(pur1, pur2));
 
       else
         algorithm
-          Error.addSourceMessage(Error.NO_MATCHING_FUNCTION_FOUND_NFINST,
-            {Call.toString(call), name + "(Any[:, ...]) => Any\n" + name + "(Any, Any) => Any"}, info);
+          invalid_args_error(call, name, info);
         then
           fail();
     end match;
 
     fn := listHead(Function.typeRefCache(fn_ref));
-    callExp := Expression.CALL(Call.makeTypedCall(fn, args, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, args, var, purity, ty));
   end typeMinMaxCall;
 
-  function typeSumCall
+  function typePromoteCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
     list<NamedArg> named_args;
-    Expression arg;
+    Expression exp_arg, n_arg;
+    Type exp_ty, n_ty;
+    Variability n_var;
     Function fn;
-    Boolean expanded;
-    Operator op;
+    Integer n;
   algorithm
-    Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
-    assertNoNamedParams("sum", named_args, info);
-
-    if listLength(args) <> 1 then
-      Error.addSourceMessageAndFail(Error.NO_MATCHING_FUNCTION_FOUND_NFINST,
-        {Call.toString(call), "sum(Any[:, ...]) => Any"}, info);
+    if not Config.languageStandardAtLeast(Config.LanguageStandard.experimental) then
+      Error.addSourceMessageAndFail(Error.EXPERIMENTAL_REQUIRED, {"promote"}, info);
     end if;
 
-    (arg, ty, variability) := Typing.typeExp(listHead(args), origin, info);
-    ty := Type.arrayElementType(ty);
-
-    {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
-  end typeSumCall;
-
-  function typeProductCall
-    input Call call;
-    input ExpOrigin.Type origin;
-    input SourceInfo info;
-    output Expression callExp;
-    output Type ty;
-    output Variability variability;
-  protected
-    ComponentRef fn_ref;
-    list<Expression> args;
-    list<NamedArg> named_args;
-    Expression arg;
-    Function fn;
-    Boolean expanded;
-    Operator op;
-  algorithm
     Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
-    assertNoNamedParams("product", named_args, info);
+    assertNoNamedParams("promote", named_args, info);
 
-    if listLength(args) <> 1 then
+    if listLength(args) <> 2 then
       Error.addSourceMessageAndFail(Error.NO_MATCHING_FUNCTION_FOUND_NFINST,
-        {Call.toString(call), "product(Any[:, ...]) => Any"}, info);
+        {Call.toString(call), "promote(Any[...], Integer) => Any[...]"}, info);
     end if;
 
-    (arg, ty, variability) := Typing.typeExp(listHead(args), origin, info);
-    ty := Type.arrayElementType(ty);
+    {exp_arg, n_arg} := args;
+    (exp_arg, exp_ty, variability, purity) := Typing.typeExp(exp_arg, context, info);
+    (n_arg, n_ty, n_var) := Typing.typeExp(n_arg, context, info);
 
-    {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
-  end typeProductCall;
+    if not Type.isInteger(n_ty) then
+      Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
+        {"2", "promote", "", Expression.toString(n_arg), Type.toString(n_ty), "Integer"}, info);
+    end if;
+
+    if n_var > Variability.CONSTANT then
+      Error.addSourceMessageAndFail(Error.INVALID_ARGUMENT_VARIABILITY,
+        {"2", "promote", Prefixes.variabilityString(Variability.CONSTANT),
+         Expression.toString(n_arg), Prefixes.variabilityString(n_var)}, info);
+    end if;
+
+    n_arg := Ceval.evalExp(n_arg, Ceval.EvalTarget.GENERIC(info));
+    n := Expression.integerValue(n_arg);
+
+    if n < Type.dimensionCount(exp_ty) then
+      Error.addSourceMessageAndFail(Error.INVALID_NUMBER_OF_DIMENSIONS_FOR_PROMOTE,
+        {String(n), String(Type.dimensionCount(exp_ty))}, info);
+    end if;
+
+    (callExp, ty) := Expression.promote(exp_arg, Expression.typeOf(exp_arg), Expression.integerValue(n_arg));
+  end typePromoteCall;
 
   function typeSmoothCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -852,8 +857,8 @@ protected
     end if;
 
     {arg1, arg2} := args;
-    (arg1, ty1, var) := Typing.typeExp(arg1, origin, info);
-    (arg2, ty2, variability) := Typing.typeExp(arg2, origin, info);
+    (arg1, ty1, var) := Typing.typeExp(arg1, context, info);
+    (arg2, ty2, variability) := Typing.typeExp(arg2, context, info);
 
     // First argument must be Integer.
     if not Type.isInteger(ty1) then
@@ -881,16 +886,17 @@ protected
     end if;
 
     {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, var, purity, ty));
   end typeSmoothCall;
 
   function typeFillCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -909,44 +915,54 @@ protected
     fill_arg :: args := args;
 
     // Type the first argument, which is the fill value.
-    (fill_arg, ty, _) := Typing.typeExp(fill_arg, origin, info);
-    (callExp, ty, variability) := typeFillCall2(fn_ref, ty, fill_arg, args, origin, info);
+    (fill_arg, ty, variability, purity) := Typing.typeExp(fill_arg, context, info);
+    (callExp, ty, variability, purity) :=
+      typeFillCall2(fn_ref, ty, fill_arg, variability, purity, args, context, info);
   end typeFillCall;
 
   function typeFillCall2
     input ComponentRef fnRef;
     input Type fillType;
     input Expression fillArg;
+    input Variability fillVariability;
+    input Purity fillPurity;
     input list<Expression> dimensionArgs;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
-    output Variability variability = Variability.CONSTANT;
+    output Variability variability = fillVariability;
+    output Purity purity = fillPurity;
   protected
     Expression fill_arg;
     list<Expression> ty_args;
     Variability arg_var;
+    Purity arg_pur;
     Type arg_ty;
     Function fn;
     list<Dimension> dims;
-    Boolean evaluated;
+    Integer index = 1;
   algorithm
     ty_args := {fillArg};
     dims := {};
-    evaluated := true;
 
     // Type the dimension arguments.
     for arg in dimensionArgs loop
-      (arg, arg_ty, arg_var) := Typing.typeExp(arg, origin, info);
+      (arg, arg_ty, arg_var, arg_pur) := Typing.typeExp(arg, context, info);
 
-      if arg_var <= Variability.STRUCTURAL_PARAMETER and
-         not ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) and
-         not Expression.containsIterator(arg, origin) then
-        arg := Ceval.evalExp(arg);
-        arg_ty := Expression.typeOf(arg);
-      else
-        evaluated := false;
+      if not (InstContext.inAlgorithm(context) or InstContext.inFunction(context)) then
+        if arg_var > Variability.PARAMETER then
+          Error.addSourceMessageAndFail(Error.NON_PARAMETER_EXPRESSION_DIMENSION,
+            {Expression.toString(arg), String(index),
+             List.toString(fillArg :: dimensionArgs, Expression.toString,
+                 ComponentRef.toString(fnRef), "(", ", ", ")", true)}, info);
+        end if;
+
+        if arg_pur == Purity.PURE and not Structural.isExpressionNotFixed(arg) then
+          Structural.markExp(arg);
+          arg := Ceval.evalExp(arg);
+          arg_ty := Expression.typeOf(arg);
+        end if;
       end if;
 
       // Each dimension argument must be an Integer expression.
@@ -957,8 +973,10 @@ protected
       end if;
 
       variability := Prefixes.variabilityMax(variability, arg_var);
+      purity := Prefixes.purityMin(purity, arg_pur);
       ty_args := arg :: ty_args;
       dims := Dimension.fromExp(arg, arg_var) :: dims;
+      index := index + 1;
     end for;
 
     ty_args := listReverseInPlace(ty_args);
@@ -967,21 +985,19 @@ protected
     {fn} := Function.typeRefCache(fnRef);
     ty := Type.liftArrayLeftList(fillType, dims);
 
-    if evaluated then
-      callExp := Ceval.evalBuiltinFill(ty_args);
-    else
-      callExp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.FILL_FUNC, ty_args, variability, ty));
-    end if;
+    callExp := Expression.CALL(
+      Call.makeTypedCall(NFBuiltinFuncs.FILL_FUNC, ty_args, variability, purity, ty));
   end typeFillCall2;
 
   function typeZerosOnesCall
     input String name;
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -998,16 +1014,18 @@ protected
     end if;
 
     fill_arg := Expression.INTEGER(if name == "ones" then 1 else 0);
-    (callExp, ty, variability) := typeFillCall2(fn_ref, Type.INTEGER(), fill_arg, args, origin, info);
+    (callExp, ty, variability, purity) :=
+      typeFillCall2(fn_ref, Type.INTEGER(), fill_arg, Variability.CONSTANT, Purity.PURE, args, context, info);
   end typeZerosOnesCall;
 
   function typeScalarCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1024,7 +1042,7 @@ protected
         {Call.toString(call), "scalar(Any[1, ...]) => Any"}, info);
     end if;
 
-    (arg, ty, variability) := Typing.typeExp(listHead(args), origin, info);
+    (arg, ty, variability, purity) := Typing.typeExp(listHead(args), context, info);
 
     // scalar requires all dimensions of the array to be 1.
     for dim in Type.arrayDims(ty) loop
@@ -1048,17 +1066,18 @@ protected
       callExp := listHead(args);
     else
       {fn} := Function.typeRefCache(fn_ref);
-      callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
+      callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, purity, ty));
     end if;
   end typeScalarCall;
 
   function typeVectorCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1077,7 +1096,7 @@ protected
         {Call.toString(call), "vector(Any) => Any[:]\n  vector(Any[:, ...]) => Any[:]"}, info);
     end if;
 
-    (arg, ty, variability) := Typing.typeExp(listHead(args), origin, info);
+    (arg, ty, variability, purity) := Typing.typeExp(listHead(args), context, info);
 
     // vector requires that at most one dimension is > 1, and that dimension
     // determines the type of the vector call.
@@ -1093,18 +1112,25 @@ protected
       end if;
     end for;
 
+    // The array might be empty even if one dimension is larger than 1,
+    // in that case the result will also be an empty array.
+    if Type.isEmptyArray(ty) then
+      vector_dim := Dimension.fromInteger(0);
+    end if;
+
     ty := Type.ARRAY(Type.arrayElementType(ty), {vector_dim});
     {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, purity, ty));
   end typeVectorCall;
 
   function typeMatrixCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1121,10 +1147,10 @@ protected
 
     if listLength(args) <> 1 then
       Error.addSourceMessageAndFail(Error.NO_MATCHING_FUNCTION_FOUND_NFINST,
-        {Call.toString(call), "vector(Any) => Any[:]\n  vector(Any[:, ...]) => Any[:]"}, info);
+        {Call.toString(call), "matrix(Any) => Any[:]\n  matrix(Any[:, ...]) => Any[:]"}, info);
     end if;
 
-    (arg, ty, variability) := Typing.typeExp(listHead(args), origin, info);
+    (arg, ty, variability, purity) := Typing.typeExp(listHead(args), context, info);
     dims := Type.arrayDims(ty);
     ndims := listLength(dims);
 
@@ -1150,17 +1176,18 @@ protected
 
       ty := Type.ARRAY(Type.arrayElementType(ty), {dim1, dim2});
       {fn} := Function.typeRefCache(fn_ref);
-      callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
+      callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, purity, ty));
     end if;
   end typeMatrixCall;
 
   function typeCatCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args, res;
@@ -1168,6 +1195,7 @@ protected
     list<Type> tys;
     Expression arg;
     Variability var;
+    Purity pur;
     TypeCheck.MatchKind mk;
     Function fn;
     Integer n;
@@ -1182,10 +1210,10 @@ protected
 
     arg::args := args;
 
-    (arg, ty, variability) := Typing.typeExp(arg, origin, info);
+    (arg, ty, variability, purity) := Typing.typeExp(arg, context, info);
     (arg, ty, mk) := TypeCheck.matchTypes(ty, Type.INTEGER(), arg);
 
-    if variability > Variability.PARAMETER then
+    if variability > Variability.PARAMETER or purity <> Purity.PURE then
       Error.addSourceMessageAndFail(Error.NF_CAT_FIRST_ARG_EVAL, {Expression.toString(arg), Prefixes.variabilityString(variability)}, info);
     end if;
     Expression.INTEGER(n) := Ceval.evalExp(arg, Ceval.EvalTarget.GENERIC(info));
@@ -1194,22 +1222,24 @@ protected
     tys := {};
 
     for a in args loop
-      (arg, ty, var) := Typing.typeExp(a, origin, info);
+      (arg, ty, var, pur) := Typing.typeExp(a, context, info);
       variability := Prefixes.variabilityMax(var, variability);
+      purity := Prefixes.purityMin(pur, purity);
       res := arg :: res;
       tys := ty :: tys;
     end for;
 
-    (callExp, ty) := makeCatExp(n, listReverse(res), listReverse(tys), variability, info);
+    (callExp, ty) := makeCatExp(n, listReverse(res), listReverse(tys), variability, purity, info);
   end typeCatCall;
 
   function typeSymmetricCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1225,7 +1255,7 @@ protected
         {Call.toString(call), "symmetric(Any[n, n]) => Any[n, n]"}, info);
     end if;
 
-    (arg, ty, variability) := Typing.typeExp(listHead(args), origin, info);
+    (arg, ty, variability, purity) := Typing.typeExp(listHead(args), context, info);
 
     if not Type.isSquareMatrix(ty) then
       Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
@@ -1234,16 +1264,17 @@ protected
     end if;
 
     {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, purity, ty));
   end typeSymmetricCall;
 
   function typeTransposeCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1261,7 +1292,7 @@ protected
         {Call.toString(call), "transpose(Any[n, m, ...]) => Any[m, n, ...]"}, info);
     end if;
 
-    (arg, ty, variability) := Typing.typeExp(listHead(args), origin, info);
+    (arg, ty, variability, purity) := Typing.typeExp(listHead(args), context, info);
 
     ty := match ty
       case Type.ARRAY(dimensions = dim1 :: dim2 :: rest_dims)
@@ -1277,16 +1308,17 @@ protected
     end match;
 
     {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, purity, ty));
   end typeTransposeCall;
 
   function typeCardinalityCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1298,60 +1330,62 @@ protected
     // cardinality may only be used in a condition of an assert or
     // if-statement/equation (the specification says only if-statement,
     // but e.g. the MSL only uses them in if-equations and asserts).
-    if not (ExpOrigin.flagSet(origin, ExpOrigin.CONDITION) and
-       (ExpOrigin.flagSet(origin, ExpOrigin.IF) or
-        ExpOrigin.flagSet(origin, ExpOrigin.ASSERT))) then
+    if not (InstContext.inCondition(context) and
+       (InstContext.inIf(context) or InstContext.inAssert(context))) then
       Error.addSourceMessageAndFail(Error.INVALID_CARDINALITY_CONTEXT, {}, info);
     end if;
 
-    Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
-    assertNoNamedParams("cardinality", named_args, info);
-
-    if listLength(args) <> 1 then
-      Error.addSourceMessageAndFail(Error.NO_MATCHING_FUNCTION_FOUND_NFINST,
-        {Call.toString(call), ComponentRef.toString(fn_ref) + "(Connector) => Integer"}, info);
-    end if;
-
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
-        {ComponentRef.toString(fn_ref)}, info);
+        {AbsynUtil.pathString(Call.functionName(call))}, info);
     end if;
 
-    (arg, ty) := Typing.typeExp(listHead(args), origin, info);
-
-    if not Expression.isCref(arg) then
-      Error.addSourceMessageAndFail(Error.ARGUMENT_MUST_BE_VARIABLE,
-        {"First", ComponentRef.toString(fn_ref), "<REMOVE ME>"}, info);
-    end if;
-
-    node := ComponentRef.node(Expression.toCref(arg));
-
-    if not (Type.isScalar(ty) and InstNode.isComponent(node) and Component.isConnector(InstNode.component(node))) then
-      Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
-        {"1", ComponentRef.toString(fn_ref), "",
-         Expression.toString(arg), Type.toString(ty), "connector"}, info);
-    end if;
-
-    {fn} := Function.typeRefCache(fn_ref);
-    ty := Type.INTEGER();
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, var, ty));
-    // TODO: Check cardinality restrictions, 3.7.2.3.
-
+    (callExp, ty, _, _) := typeBuiltinCallExp(call, context, info, vectorize = false);
     System.setUsesCardinality(true);
   end typeCardinalityCall;
 
+  function typeConnectionsArgs
+    input list<Expression> args;
+    input InstContext.Type context;
+    input SourceInfo info;
+    input ComponentRef fnRef;
+    output list<Expression> outArgs = {};
+  protected
+    Integer index = 1;
+  algorithm
+    for arg in args loop
+      outArgs := typeConnectionsArg(arg, context, info, fnRef, index) :: outArgs;
+      index := index + 1;
+    end for;
+
+    outArgs := listReverseInPlace(outArgs);
+  end typeConnectionsArgs;
+
+  function typeConnectionsArg
+    input Expression arg;
+    input InstContext.Type context;
+    input SourceInfo info;
+    input ComponentRef fnRef;
+    input Integer index;
+    output Expression outArg;
+    output Type outType;
+  algorithm
+    (outArg, outType) := Typing.typeExp(arg, context, info);
+    checkConnectionsArgument(outArg, outType, fnRef, index, info);
+  end typeConnectionsArg;
+
   function typeBranchCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
     list<NamedArg> named_args;
-    Expression arg1, arg2;
     Function fn;
   algorithm
     Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
@@ -1362,35 +1396,29 @@ protected
         {Call.toString(call), ComponentRef.toString(fn_ref) + "(Connector, Connector)"}, info);
     end if;
 
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
         {ComponentRef.toString(fn_ref)}, info);
     end if;
 
-    {arg1, arg2} := args;
-
-    (arg1, ty) := Typing.typeExp(arg1, origin, info);
-    checkConnectionsArgument(arg1, ty, fn_ref, 1, info);
-    (arg2, ty) := Typing.typeExp(arg2, origin, info);
-    checkConnectionsArgument(arg2, ty, fn_ref, 2, info);
-
+    args := typeConnectionsArgs(args, context, info, fn_ref);
     {fn} := Function.typeRefCache(fn_ref);
     ty := Type.NORETCALL();
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, args, var, purity, ty));
   end typeBranchCall;
 
   function typeIsRootCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
     list<NamedArg> named_args;
-    Expression arg;
     Function fn;
   algorithm
     Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
@@ -1401,26 +1429,25 @@ protected
         {Call.toString(call), ComponentRef.toString(fn_ref) + "(Connector)"}, info);
     end if;
 
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
         {ComponentRef.toString(fn_ref)}, info);
     end if;
 
-    (arg, ty) := Typing.typeExp(listHead(args), origin, info);
-    checkConnectionsArgument(arg, ty, fn_ref, 1, info);
-
+    args := typeConnectionsArgs(args, context, info, fn_ref);
     {fn} := Function.typeRefCache(fn_ref);
     ty := Type.BOOLEAN();
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, args, var, purity, ty));
   end typeIsRootCall;
 
   function typePotentialRootCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1429,6 +1456,7 @@ protected
     Function fn;
     Integer args_len;
     String name;
+    Variability arg_var;
   algorithm
     Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
 
@@ -1449,46 +1477,53 @@ protected
         {Call.toString(call), ComponentRef.toString(fn_ref) + "(Connector, Integer = 0)"}, info);
     end if;
 
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
         {ComponentRef.toString(fn_ref)}, info);
     end if;
 
     arg1 :: args := args;
 
-    (arg1, ty) := Typing.typeExp(arg1, origin, info);
-    checkConnectionsArgument(arg1, ty, fn_ref, 1, info);
+    arg1 := typeConnectionsArg(arg1, context, info, fn_ref, 1);
 
     if args_len == 2 then
       arg2 := listHead(args);
-      (arg2, ty) := Typing.typeExp(arg2, origin, info);
+      (arg2, ty, arg_var) := Typing.typeExp(arg2, context, info);
 
       if not Type.isInteger(ty) then
         Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
           {"2", ComponentRef.toString(fn_ref), "", Expression.toString(arg2),
            Type.toString(ty), "Integer"}, info);
       end if;
+
+      if arg_var > Variability.PARAMETER then
+        Error.addSourceMessageAndFail(Error.INVALID_ARGUMENT_VARIABILITY,
+          {"2", ComponentRef.toString(fn_ref), Prefixes.variabilityString(Variability.PARAMETER),
+          Expression.toString(arg2), Prefixes.variabilityString(arg_var)}, info);
+      end if;
+
+      Structural.markExp(arg2);
     else
       arg2 := Expression.INTEGER(0);
     end if;
 
     {fn} := Function.typeRefCache(fn_ref);
     ty := Type.NORETCALL();
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, var, purity, ty));
   end typePotentialRootCall;
 
   function typeRootCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
     list<NamedArg> named_args;
-    Expression arg;
     Function fn;
   algorithm
     Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
@@ -1499,31 +1534,29 @@ protected
         {Call.toString(call), ComponentRef.toString(fn_ref) + "(Connector)"}, info);
     end if;
 
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
         {ComponentRef.toString(fn_ref)}, info);
     end if;
 
-    (arg, ty) := Typing.typeExp(listHead(args), origin, info);
-    checkConnectionsArgument(arg, ty, fn_ref, 1, info);
-
+    args := typeConnectionsArgs(args, context, info, fn_ref);
     {fn} := Function.typeRefCache(fn_ref);
     ty := Type.NORETCALL();
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, args, var, purity, ty));
   end typeRootCall;
 
   function typeRootedCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
     list<NamedArg> named_args;
-    Expression arg;
     Function fn;
   algorithm
     Call.UNTYPED_CALL(ref = fn_ref, arguments = args, named_args = named_args) := call;
@@ -1534,13 +1567,12 @@ protected
         {Call.toString(call), ComponentRef.toString(fn_ref) + "(Connector)"}, info);
     end if;
 
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
         {ComponentRef.toString(fn_ref)}, info);
     end if;
 
-    (arg, ty) := Typing.typeExp(listHead(args), origin, info);
-    checkConnectionsArgument(arg, ty, fn_ref, 1, info);
+    args := typeConnectionsArgs(args, context, info, fn_ref);
 
     if ComponentRef.isSimple(fn_ref) then
       Error.addSourceMessage(Error.DEPRECATED_API_CALL, {"rooted", "Connections.rooted"}, info);
@@ -1548,17 +1580,18 @@ protected
 
     {fn} := Function.typeRefCache(fn_ref);
     ty := Type.BOOLEAN();
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, args, var, purity, ty));
   end typeRootedCall;
 
   function typeUniqueRootCall
     "see also typeUniqueRootIndicesCall"
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1589,19 +1622,18 @@ protected
         {Call.toString(call), ComponentRef.toString(fn_ref) + "(Connector, String = \"\")"}, info);
     end if;
 
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
         {ComponentRef.toString(fn_ref)}, info);
     end if;
 
     arg1 :: args := args;
 
-    (arg1, ty) := Typing.typeExp(arg1, origin, info);
-    checkConnectionsArgument(arg1, ty, fn_ref, 1, info);
+    arg1 := typeConnectionsArg(arg1, context, info, fn_ref, 1);
 
     if args_len == 2 then
       arg2 := listHead(args);
-      (arg2, ty) := Typing.typeExp(arg2, origin, info);
+      (arg2, ty) := Typing.typeExp(arg2, context, info);
 
       if not Type.isString(ty) then
         Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
@@ -1614,7 +1646,7 @@ protected
 
     {fn} := Function.typeRefCache(fn_ref);
     ty := Type.NORETCALL();
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, var, purity, ty));
   end typeUniqueRootCall;
 
   function typeUniqueRootIndicesCall
@@ -1626,11 +1658,12 @@ protected
     http://www.ep.liu.se/ecp/043/041/ecp09430108.pdf
     for a specification of this operator"
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1662,21 +1695,32 @@ protected
         {Call.toString(call), ComponentRef.toString(fn_ref) + "(Connector, Connector, String = \"\")"}, info);
     end if;
 
-    if ExpOrigin.flagSet(origin, ExpOrigin.FUNCTION) then
+    if InstContext.inFunction(context) then
       Error.addSourceMessageAndFail(Error.EXP_INVALID_IN_FUNCTION,
         {ComponentRef.toString(fn_ref)}, info);
     end if;
 
     arg1 :: arg2 :: args := args;
 
-    (arg1, ty1) := Typing.typeExp(arg1, origin, info);
-    checkConnectionsArgument(arg1, ty1, fn_ref, 1, info);
-    (arg2, ty2) := Typing.typeExp(arg2, origin, info);
-    checkConnectionsArgument(arg2, ty2, fn_ref, 1, info);
+    (arg1, ty1) := typeConnectionsArg(arg1, context, info, fn_ref, 1);
+
+    if not Type.isArray(ty1) then
+      Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
+        {"1", ComponentRef.toString(fn_ref), "", Expression.toString(arg1),
+         Type.toString(ty1), "Connector[:]"}, info);
+    end if;
+
+    (arg2, ty2) := typeConnectionsArg(arg2, context, info, fn_ref, 2);
+
+    if not Type.isArray(ty2) then
+      Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
+        {"2", ComponentRef.toString(fn_ref), "", Expression.toString(arg2),
+         Type.toString(ty2), "Connector[:]"}, info);
+    end if;
 
     if args_len == 3 then
       arg3 := listHead(args);
-      (arg3, ty3) := Typing.typeExp(arg3, origin, info);
+      (arg3, ty3) := Typing.typeExp(arg3, context, info);
 
       if not Type.isString(ty3) then
         Error.addSourceMessageAndFail(Error.ARG_TYPE_MISMATCH,
@@ -1684,13 +1728,13 @@ protected
            Type.toString(ty3), "String"}, info);
       end if;
     else
-      arg2 := Expression.STRING("");
+      arg3 := Expression.STRING("");
     end if;
 
     {fn} := Function.typeRefCache(fn_ref);
     assert(listLength(Type.arrayDims(ty1)) == listLength(Type.arrayDims(ty2)), "the first two parameters need to have the same size");
     ty := Type.ARRAY(Type.Type.INTEGER(), Type.arrayDims(ty1));
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, var, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2, arg3}, var, purity, ty));
 
   end typeUniqueRootIndicesCall;
 
@@ -1764,11 +1808,12 @@ protected
 
   function typeNoEventCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability;
+    output Purity purity;
   protected
     ComponentRef fn_ref;
     list<Expression> args;
@@ -1786,10 +1831,10 @@ protected
     end if;
 
     {arg} := args;
-    (arg, ty, variability) := Typing.typeExp(arg, ExpOrigin.setFlag(origin, ExpOrigin.NOEVENT), info);
+    (arg, ty, variability, purity) := Typing.typeExp(arg, InstContext.set(context, NFInstContext.NOEVENT), info);
 
     {fn} := Function.typeRefCache(fn_ref);
-    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, ty));
+    callExp := Expression.CALL(Call.makeTypedCall(fn, {arg}, variability, purity, ty));
   end typeNoEventCall;
 
   function typeGetInstanceName
@@ -1797,27 +1842,29 @@ protected
     output Expression result;
     output Type ty = Type.STRING();
     output Variability var = Variability.CONSTANT;
+    output Purity purity = Purity.PURE;
   protected
     InstNode scope;
   algorithm
     Call.UNTYPED_CALL(call_scope = scope) := call;
-    result := Expression.STRING(AbsynUtil.pathString(InstNode.scopePath(scope, includeRoot = true)));
+    result := Expression.STRING(AbsynUtil.pathString(InstNode.rootPath(scope)));
   end typeGetInstanceName;
 
   function typeClockCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type outType = Type.CLOCK();
     output Variability var = Variability.PARAMETER;
+    output Purity purity = Purity.IMPURE;
   protected
     Call ty_call;
     list<Expression> args;
     Integer args_count;
     Expression e1, e2;
   algorithm
-    Call.TYPED_CALL(arguments = args) := Call.typeMatchNormalCall(call, origin, info);
+    Call.TYPED_CALL(arguments = args) := Call.typeMatchNormalCall(call, context, info, vectorize = false);
     args_count := listLength(args);
 
     callExp := match args
@@ -1830,21 +1877,21 @@ protected
           e2 := Ceval.evalExp(e2);
 
           callExp := match Expression.typeOf(e2)
-            // Clock(intervalCounter, resolution) - integer clock.
+            // Clock(intervalCounter, resolution) - rational clock.
             case Type.INTEGER()
               algorithm
                 Error.assertionOrAddSourceMessage(Expression.integerValue(e2) >= 1,
                   Error.WRONG_VALUE_OF_ARG, {"Clock", "resolution", Expression.toString(e2), "=> 1"}, info);
               then
-                Expression.CLKCONST(Expression.INTEGER_CLOCK(e1, e2));
+                Expression.CLKCONST(ClockKind.RATIONAL_CLOCK(e1, e2));
 
-            // Clock(condition, startInterval) - boolean clock.
+            // Clock(condition, startInterval) - event clock.
             case Type.REAL()
-              then Expression.CLKCONST(Expression.BOOLEAN_CLOCK(e1, e2));
+              then Expression.CLKCONST(ClockKind.EVENT_CLOCK(e1, e2));
 
             // Clock(c, solverMethod) - solver clock.
             case Type.STRING()
-              then Expression.CLKCONST(Expression.SOLVER_CLOCK(e1, e2));
+              then Expression.CLKCONST(ClockKind.SOLVER_CLOCK(e1, e2));
           end match;
         then
           callExp;
@@ -1854,82 +1901,90 @@ protected
 
   function typeSampleCall
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type outType;
     output Variability var;
+    output Purity purity = Purity.IMPURE;
   protected
     Call ty_call;
     Type arg_ty;
     list<TypedArg> args;
-    list<TypedNamedArg> namedArgs;
-    Expression e, e1, e2;
-    Type t, t1, t2;
-    Variability v, v1, v2;
+    list<TypedArg> namedArgs;
+    Expression e1, e2;
+    Type t1, t2;
+    Variability v1, v2;
     ComponentRef fn_ref;
     Function normalSample, clockedSample;
     InstNode recopnode;
   algorithm
-    Call.ARG_TYPED_CALL(fn_ref, args, namedArgs) := Call.typeNormalCall(call, origin, info);
+    Call.ARG_TYPED_CALL(fn_ref, args, namedArgs) := Call.typeNormalCall(call, context, info);
 
     recopnode := ComponentRef.node(fn_ref);
 
-    fn_ref := Function.instFunctionRef(fn_ref, InstNode.info(recopnode));
+    fn_ref := Function.instFunctionRef(fn_ref, context, InstNode.info(recopnode));
     {normalSample, clockedSample} := Function.typeRefCache(fn_ref);
 
     (callExp, outType, var) := match(args, namedArgs)
 
       // sample(start, Real interval) - the usual stuff
-      case ({(e, t, v), (e1, Type.INTEGER(), v1)}, {})
+      case ({TypedArg.TYPED_ARG(value = e1, ty = t1),
+             TypedArg.TYPED_ARG(value = e2, ty = Type.INTEGER())}, {})
         algorithm
-          if valueEq(t, Type.INTEGER()) then
-            e := Expression.CAST(Type.REAL(), e);
+          if Type.isInteger(t1) then
+            e1 := Expression.CAST(Type.REAL(), e1);
           end if;
-          ty_call := Call.makeTypedCall(normalSample, {e, Expression.CAST(Type.REAL(), e1)}, Variability.PARAMETER, Type.BOOLEAN());
+          ty_call := Call.makeTypedCall(normalSample,
+            {e1, Expression.CAST(Type.REAL(), e2)}, Variability.PARAMETER, purity, Type.BOOLEAN());
         then
           (Expression.CALL(ty_call), Type.BOOLEAN(), Variability.PARAMETER);
 
       // sample(start, Real interval) - the usual stuff
-      case ({(e, t, v), (e1, Type.REAL(), v1)}, {})
+      case ({TypedArg.TYPED_ARG(value = e1, ty = t1),
+             TypedArg.TYPED_ARG(value = e2, ty = Type.REAL())}, {})
         algorithm
-          if valueEq(t, Type.INTEGER()) then
-            e := Expression.CAST(Type.REAL(), e);
+          if Type.isInteger(t1) then
+            e1 := Expression.CAST(Type.REAL(), e1);
           end if;
-          ty_call := Call.makeTypedCall(normalSample, {e, e1}, Variability.PARAMETER, Type.BOOLEAN());
+          ty_call := Call.makeTypedCall(normalSample, {e1, e2}, Variability.PARAMETER, purity, Type.BOOLEAN());
         then
           (Expression.CALL(ty_call), Type.BOOLEAN(), Variability.PARAMETER);
 
       // sample(start, Real interval = value) - the usual stuff
-      case ({(e, t, v)}, {("interval", e1, Type.REAL(), v1)})
+      case ({TypedArg.TYPED_ARG(value = e1, ty = t1)},
+            {TypedArg.TYPED_ARG(name = SOME("interval"), value = e2, ty = Type.REAL())})
         algorithm
-          if valueEq(t, Type.INTEGER()) then
-            e := Expression.CAST(Type.REAL(), e);
+          if Type.isInteger(t1) then
+            e1 := Expression.CAST(Type.REAL(), e1);
           end if;
-          ty_call := Call.makeTypedCall(normalSample, {e, e1}, Variability.PARAMETER, Type.BOOLEAN());
+          ty_call := Call.makeTypedCall(normalSample, {e1, e2}, Variability.PARAMETER, purity, Type.BOOLEAN());
         then
           (Expression.CALL(ty_call), Type.BOOLEAN(), Variability.PARAMETER);
 
       // sample(u) - inferred clock
-      case ({(e, t, v)}, {}) guard Config.synchronousFeaturesAllowed()
+      case ({TypedArg.TYPED_ARG(value = e1, ty = t1, var = v1)}, {})
         algorithm
-          ty_call := Call.makeTypedCall(clockedSample, {e, Expression.CLKCONST(Expression.ClockKind.INFERRED_CLOCK())}, v, t);
+          ty_call := Call.makeTypedCall(clockedSample,
+            {e1, Expression.CLKCONST(Expression.ClockKind.INFERRED_CLOCK())}, v1, purity, t1);
         then
-          (Expression.CALL(ty_call), t, v);
+          (Expression.CALL(ty_call), t1, v1);
 
       // sample(u, c) - specified clock
-      case ({(e, t, v), (e1, Type.CLOCK(), v1)}, {}) guard Config.synchronousFeaturesAllowed()
+      case ({TypedArg.TYPED_ARG(value = e1, ty = t1, var = v1),
+             TypedArg.TYPED_ARG(value = e2, ty = Type.CLOCK())}, {})
         algorithm
-          ty_call := Call.makeTypedCall(clockedSample, {e, e1}, v, t);
+          ty_call := Call.makeTypedCall(clockedSample, {e1, e2}, v1, purity, t1);
         then
-          (Expression.CALL(ty_call), t, v);
+          (Expression.CALL(ty_call), t1, v1);
 
       // sample(u, Clock c = c) - specified clock
-      case ({(e, t, v)}, {("c", e1, Type.CLOCK(), v1)}) guard Config.synchronousFeaturesAllowed()
+      case ({TypedArg.TYPED_ARG(value = e1, ty = t1, var = v1)},
+            {TypedArg.TYPED_ARG(name = SOME("c"), value = e2, ty = Type.CLOCK())})
         algorithm
-          ty_call := Call.makeTypedCall(clockedSample, {e, e1}, v, t);
+          ty_call := Call.makeTypedCall(clockedSample, {e1, e2}, v1, purity, t1);
         then
-          (Expression.CALL(ty_call), t, v);
+          (Expression.CALL(ty_call), t1, v1);
 
       else
         algorithm
@@ -1942,11 +1997,12 @@ protected
   function typeActualInStreamCall
     input String name;
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability = Variability.DISCRETE;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref, arg_ref;
     list<Expression> args;
@@ -1964,7 +2020,7 @@ protected
         {Call.toString(call), ComponentRef.toString(fn_ref) + "(stream variable) => Real"}, info);
     end if;
 
-    (arg, ty, var) := Typing.typeExp(listHead(args), origin, info);
+    (arg, ty, var) := Typing.typeExp(listHead(args), context, info);
     arg := ExpandExp.expand(arg);
 
     {fn} := Function.typeRefCache(fn_ref);
@@ -2002,11 +2058,12 @@ protected
             end if;
           end for;
         then
-          Expression.CALL(Call.makeTypedCall(fn, {arg}, var, arg.ty));
+          Expression.CALL(Call.makeTypedCall(fn, {arg}, var, Purity.IMPURE, arg.ty));
 
       case Expression.ARRAY()
         algorithm
-          arg.elements := list(typeActualInStreamCall2(name, fn, e, var, info) for e in arg.elements);
+          arg.elements := Array.map(arg.elements, function
+            typeActualInStreamCall2(name = name, fn = fn, var = var, info = info));
         then
           arg;
 
@@ -2023,11 +2080,12 @@ protected
   function typeDynamicSelectCall
     input String name;
     input Call call;
-    input ExpOrigin.Type origin;
+    input InstContext.Type context;
     input SourceInfo info;
     output Expression callExp;
     output Type ty;
     output Variability variability = Variability.CONTINUOUS;
+    output Purity purity = Purity.IMPURE;
   protected
     ComponentRef fn_ref, arg_ref;
     list<Expression> args;
@@ -2048,13 +2106,13 @@ protected
     end if;
 
     {expStatic, expDynamic} := list(Expression.unbox(arg) for arg in args);
-    (arg1, ty1, var1) := Typing.typeExp(expStatic, origin, info);
+    (arg1, ty1, var1) := Typing.typeExp(expStatic, context, info);
     arg1 := ExpandExp.expand(arg1);
 
     // if we cannot typecheck the dynamic part, ignore it!
     // https://trac.openmodelica.org/OpenModelica/ticket/5631
     try
-      (arg2, ty2, var2) := Typing.typeExp(expDynamic, origin, info);
+      (arg2, ty2, var2) := Typing.typeExp(expDynamic, context, info);
     else
       variability := var1;
       callExp := arg1;
@@ -2068,13 +2126,152 @@ protected
     {fn} := Function.typeRefCache(fn_ref);
 
     if Flags.isSet(Flags.NF_API_DYNAMIC_SELECT) then
-      callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, variability, ty1));
+      callExp := Expression.CALL(Call.makeTypedCall(fn, {arg1, arg2}, variability, purity, ty1));
     else
       variability := var1;
       callExp := arg1;
     end if;
   end typeDynamicSelectCall;
 
+  function typeBackSampleCall
+    input Call call;
+    input InstContext.Type context;
+    input SourceInfo info;
+    output Expression callExp;
+    output Type ty;
+    output Variability var;
+    output Purity purity = Purity.IMPURE;
+  protected
+    Call ty_call;
+    Expression counter, resolution;
+  algorithm
+    ty_call as Call.TYPED_CALL(arguments = {_, counter, resolution}, ty = ty, var = var) :=
+      Call.typeMatchNormalCall(call, context, info, vectorize = false);
+    Structural.markExp(counter);
+    Structural.markExp(resolution);
+    callExp := Expression.CALL(ty_call);
+  end typeBackSampleCall;
+
+  function typeShiftSampleCall
+    input Call call;
+    input InstContext.Type context;
+    input SourceInfo info;
+    output Expression callExp;
+    output Type ty;
+    output Variability var;
+    output Purity purity = Purity.IMPURE;
+  protected
+    Call ty_call;
+    Expression counter, resolution;
+  algorithm
+    ty_call as Call.TYPED_CALL(arguments = {_, counter, resolution}, ty = ty, var = var) :=
+      Call.typeMatchNormalCall(call, context, info, vectorize = false);
+    Structural.markExp(counter);
+    Structural.markExp(resolution);
+    callExp := Expression.CALL(ty_call);
+  end typeShiftSampleCall;
+
+  function typeSubSampleCall
+    input Call call;
+    input InstContext.Type context;
+    input SourceInfo info;
+    output Expression callExp;
+    output Type ty;
+    output Variability var;
+    output Purity purity = Purity.IMPURE;
+  protected
+    Call ty_call;
+    Expression factor;
+  algorithm
+    ty_call as Call.TYPED_CALL(arguments = {_, factor}, ty = ty, var = var) :=
+      Call.typeMatchNormalCall(call, context, info, vectorize = false);
+    Structural.markExp(factor);
+    callExp := Expression.CALL(ty_call);
+  end typeSubSampleCall;
+
+  function typeSuperSampleCall
+    input Call call;
+    input InstContext.Type context;
+    input SourceInfo info;
+    output Expression callExp;
+    output Type ty;
+    output Variability var;
+    output Purity purity = Purity.IMPURE;
+  protected
+    Call ty_call;
+    Expression factor;
+  algorithm
+    ty_call as Call.TYPED_CALL(arguments = {_, factor}, ty = ty, var = var) :=
+      Call.typeMatchNormalCall(call, context, info, vectorize = false);
+    Structural.markExp(factor);
+    callExp := Expression.CALL(ty_call);
+  end typeSuperSampleCall;
+
+  function typePureCall
+    input Call call;
+    input InstContext.Type context;
+    input SourceInfo info;
+    output Expression callExp;
+    output Type ty;
+    output Variability var;
+    output Purity purity = Purity.PURE;
+  protected
+    Expression arg;
+    Call c;
+  algorithm
+    Call.TYPED_CALL(arguments = {arg}, ty = ty, var = var) :=
+      Call.typeMatchNormalCall(call, context, info, vectorize = false);
+    callExp := Expression.unbox(arg);
+
+    callExp := match callExp
+      case Expression.CALL(call = c as Call.TYPED_CALL())
+        algorithm
+          c.purity := Expression.purityList(c.arguments);
+        then
+          Expression.CALL(c);
+
+      else
+        algorithm
+          Error.addSourceMessage(Error.FUNCTION_ARGUMENT_MUST_BE,
+            {"pure", Gettext.translateContent(Error.FUNCTION_CALL_EXPRESSION)}, info);
+        then
+          fail();
+    end match;
+  end typePureCall;
+
+  function typeBuiltinCallExp
+    input Call call;
+    input InstContext.Type context;
+    input SourceInfo info;
+    input Boolean vectorize = true;
+    output Expression outExp;
+    output Type ty;
+    output Variability var;
+    output Purity pur;
+  protected
+    Call c;
+  algorithm
+    (c, ty, var, pur) := typeBuiltinCall(call, context, info, vectorize);
+    outExp := Expression.CALL(c);
+  end typeBuiltinCallExp;
+
+  function typeBuiltinCall
+    input Call call;
+    input InstContext.Type context;
+    input SourceInfo info;
+    input Boolean vectorize = true;
+    output Call outCall;
+    output Type ty;
+    output Variability var;
+    output Purity pur;
+  protected
+    Call c;
+  algorithm
+    outCall := Call.typeMatchNormalCall(call, context, info, vectorize);
+    ty := Call.typeOf(outCall);
+    var := Call.variability(outCall);
+    pur := Call.purity(outCall);
+  end typeBuiltinCall;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFBuiltinCall;

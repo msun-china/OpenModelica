@@ -6,10 +6,10 @@
 /**
 Complete definition for OMCData
 */
-OMC_DLL typedef struct OMCData
+typedef struct OMCData
 {
-    OMCData(threadData_t* threadData);
-    ~OMCData();
+    OMC_DLL OMCData(threadData_t* threadData);
+    OMC_DLL ~OMCData();
     threadData_t* threadData;
 } data;
 
@@ -34,17 +34,25 @@ void OMC_DLL InitMetaOMC()
     mmc_GC_init();
 
 }
-int OMC_DLL InitOMCWithZeroMQ(data** omcDataPtr, const char* compiler, const char* codetarget,const char* openModelicaHome, const char* zeromqOptions)
+int OMC_DLL InitOMCWithZeroMQ(data** omcDataPtr, const char* compiler, const char* codetarget,const char* openModelicaHome, const char* zeromqOptions,int debug)
 {
 	InitOMC(omcDataPtr, compiler,openModelicaHome);
 	OMCData* omcData = *omcDataPtr;
-	std::string options = "--simCodeTarget=Cpp --target=" + std::string(compiler) + std::string(zeromqOptions);
-
+	
+    std::string options = "--simCodeTarget=" +std::string(codetarget) + std::string(" --target=") + std::string(compiler) + std::string(" ") +  std::string(zeromqOptions);
+    
+    if(debug==1)
+    {
+        std::cout << "set omc options: "<<  std::endl;
+        std::cout << "\t" << options << std::endl;
+        std::cout << "set OpenModelica home path: " << std::endl;
+        std::cout << "\t" <<  openModelicaHome;
+    }
     if (SetCommandLineOptions(omcData, options.c_str()) == -1)
     {
         char* errorMsg = 0;
         GetError(omcData, &errorMsg);
-      std::cout << "could not set OpenModelica options: " << options <<" "<< *errorMsg  <<std::endl;
+      std::cout << "could not set OpenModelica options with: " << options <<" "<< *errorMsg  <<std::endl;
       return -1;
     }
    return 1;
@@ -62,6 +70,7 @@ int OMC_DLL InitOMCWithZeroMQ(data** omcDataPtr, const char* compiler, const cha
     void* args = mmc_mk_nil();
     omc_Main_init(threadData, mmc_mk_nil());
     CP_TD();
+    
 #ifdef WIN32
       omc_Main_setWindowsPaths(threadData, mmc_mk_scon(openModelicaHome));
       CP_TD();
@@ -87,7 +96,8 @@ int OMC_DLL InitOMCWithZeroMQ(data** omcDataPtr, const char* compiler, const cha
     std::cout << "set OpenModelica home path " << set_openmodelica_home << result << std::endl;
      */
     
-    std::string options = "+d=execstat"; /* --simCodeTarget=Cpp --target=" + std::string(compiler) + " "+ std::string(zeromqOptions);*/
+
+    std::string options = "-d=newInst"; 
 
 
    
@@ -166,9 +176,11 @@ int LoadFile(data* omcData, const char* fileName)
     modelica_boolean result;
     std::string encoding = "UTF-8";
     modelica_boolean uses = true; //Uses-annotations
+    modelica_boolean notify = false;
+    modelica_boolean requireExactVersion = false;
 
     MMC_TRY_TOP_SET(omcData->threadData)
-      result = omc_OpenModelicaScriptingAPI_loadFile(threadData, mmc_mk_scon(fileName), mmc_mk_scon(encoding.c_str()), uses);
+      result = omc_OpenModelicaScriptingAPI_loadFile(threadData, mmc_mk_scon(fileName), mmc_mk_scon(encoding.c_str()), uses, notify, requireExactVersion);
       CP_TD();
     MMC_CATCH_TOP(return -1)
 

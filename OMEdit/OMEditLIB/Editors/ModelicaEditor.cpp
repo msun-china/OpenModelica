@@ -254,7 +254,7 @@ void ModelicaEditor::getCompletionAnnotations(const QStringList &stack, QList<Co
         QString name = pAnnotation->childAt(i)->getName();
         annotations << CompleterItem(name, name + "(", name, pAnnotation->childAt(i)->getHTMLDescription());
       }
-      QList<ComponentInfo *> components = pAnnotation->getComponentsList();
+      QList<ElementInfo *> components = pAnnotation->getComponentsList();
       for (int i = 0; i < components.size(); ++i) {
         QString componentName = components[i]->getName();
         QString componentValue = components[i]->getParameterValue(MainWindow::instance()->getOMCProxy(), pAnnotation->getNameStructure());
@@ -576,9 +576,7 @@ void ModelicaEditor::contentsHasChanged(int position, int charsRemoved, int char
     } else {
       /* if user is changing, the normal class. */
       if (!mForceSetPlainText) {
-        mpModelWidget->setWindowTitle(QString(mpModelWidget->getLibraryTreeItem()->getName()).append("*"));
-        mpModelWidget->getLibraryTreeItem()->setIsSaved(false);
-        MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->updateLibraryTreeItem(mpModelWidget->getLibraryTreeItem());
+        contentsChanged();
         setTextChanged(true);
       }
       /* Keep the line numbers and the block information for the line breakpoints updated */
@@ -627,7 +625,11 @@ void ModelicaHighlighter::initializeSettings()
   font.setFamily(mpModelicaEditorPage->getOptionsDialog()->getTextEditorPage()->getFontFamilyComboBox()->currentFont().family());
   font.setPointSizeF(mpModelicaEditorPage->getOptionsDialog()->getTextEditorPage()->getFontSizeSpinBox()->value());
   mpPlainTextEdit->document()->setDefaultFont(font);
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+  mpPlainTextEdit->setTabStopDistance((qreal)(mpModelicaEditorPage->getOptionsDialog()->getTextEditorPage()->getTabSizeSpinBox()->value() * QFontMetrics(font).horizontalAdvance(QLatin1Char(' '))));
+#else // QT_VERSION_CHECK
   mpPlainTextEdit->setTabStopWidth(mpModelicaEditorPage->getOptionsDialog()->getTextEditorPage()->getTabSizeSpinBox()->value() * QFontMetrics(font).width(QLatin1Char(' ')));
+#endif // QT_VERSION_CHECK
   // set color highlighting
   mHighlightingRules.clear();
   HighlightingRule rule;

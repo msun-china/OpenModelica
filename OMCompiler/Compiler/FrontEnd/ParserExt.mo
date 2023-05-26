@@ -48,12 +48,13 @@ public function parse "Parse a mo-file"
   input Integer acceptedGram;
   input String encoding;
   input Integer languageStandardInt;
+  input Boolean strict;
   input Boolean runningTestsuite;
   input String libraryPath;
   input Option<Integer> lveInstance;
   output Absyn.Program outProgram;
 
-  external "C" outProgram=ParserExt_parse(filename, infoFilename, acceptedGram, languageStandardInt, encoding, runningTestsuite, libraryPath, lveInstance) annotation(Library = {"omparse","omantlr3","omcruntime"});
+  external "C" outProgram=ParserExt_parse(filename, infoFilename, acceptedGram, languageStandardInt, strict, encoding, runningTestsuite, libraryPath, lveInstance) annotation(Library = {"omparse","omantlr3","omcruntime"});
 end parse;
 
 public function parseexp "Parse a mos-file"
@@ -72,9 +73,10 @@ public function parsestring "Parse a string as if it were a stored definition"
   input String infoFilename = "<interactive>";
   input Integer acceptedGram;
   input Integer languageStandardInt;
+  input Boolean strict;
   input Boolean runningTestsuite;
   output Absyn.Program outProgram;
-  external "C" outProgram=ParserExt_parsestring(str,infoFilename, acceptedGram, languageStandardInt, runningTestsuite) annotation(Library = {"omparse","omantlr3","omcruntime"});
+  external "C" outProgram=ParserExt_parsestring(str,infoFilename, acceptedGram, languageStandardInt, strict, runningTestsuite) annotation(Library = {"omparse","omantlr3","omcruntime"});
 end parsestring;
 
 public function parsestringexp "Parse a string as if it was a sequence of statements"
@@ -107,6 +109,16 @@ public function stringCref
   external "C" cref=ParserExt_stringCref(str, infoFilename, acceptedGram, languageStandardInt, runningTestsuite) annotation(Library = {"omparse","omantlr3","omcruntime"});
 end stringCref;
 
+public function stringMod
+  input String str;
+  input String infoFilename;
+  input Integer acceptedGram;
+  input Integer languageStandardInt;
+  input Boolean runningTestsuite;
+  output Absyn.ElementArg cref;
+  external "C" cref=ParserExt_stringMod(str, infoFilename, acceptedGram, languageStandardInt, runningTestsuite) annotation(Library = {"omparse","omantlr3","omcruntime"});
+end stringMod;
+
 public function startLibraryVendorExecutable "Starts the library vendor executable"
   input String lvePath;
   output Boolean success;
@@ -126,8 +138,9 @@ end checkLVEToolLicense;
 public function checkLVEToolFeature
   input Option<Integer> lveInstance;
   input String feature;
+  output Boolean status;
 
-  external "C" ParserExt_checkLVEToolFeature(lveInstance, feature) annotation(Library = {"omparse","omantlr3","omcruntime"});
+  external "C" status=ParserExt_checkLVEToolFeature(lveInstance, feature) annotation(Library = {"omparse","omantlr3","omcruntime"});
 end checkLVEToolFeature;
 
 public function stopLibraryVendorExecutable

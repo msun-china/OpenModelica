@@ -29,7 +29,6 @@
 #     if the logger should be completely disabled or used                          -DUSE_LOGGER=OFF [default: ON]
 #     specify target platform for compilation                                      -DPLATFORM=<dynamic, static or platform triple> [default: "dynamic"]
 #     use Klu sparse liner solver                                                    -DUSE_KLU [default: OFF]
-#     use NOX non linear solver from trilinos library                              -DUSE_TRILINOS [default: OFF]
 #     Example: "cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo" to create statically linked libraries
 #
 # The used defines are stored in the SYSTEM_CFLAGS variable, which is passed to the ModelicaConfig.inc and written in the PrecompiledHeader.cmake
@@ -56,14 +55,13 @@ OPTION(RUNTIME_PROFILING "RUNTIME_PROFILING" OFF)
 OPTION(FMU_SUNDIALS "FMU_SUNDIALS" OFF)
 OPTION(USE_OMSI "Enable omsi nonlinear and linear solver interface" ON)
 OPTION(KLU_ROOT "KLU ROOT" "")
-OPTION(TRILINOS_ROOT "TRILINOS ROOT" "")
 OPTION(USE_CPP_03 "USE_CPP_03" OFF)
 OPTION(USE_FMILIB "use fmi library" ON)
+OPTION(REDUCE_DAE "Use reduce dae method" OFF)
 
 SET(USE_MICO OFF)
 SET(USE_KLU CACHE BOOL OFF)
-SET(USE_TRILINOS CACHE BOOL OFF)
-SET(REDUCE_DAE OFF)
+
 IF(NOT FMU_TARGET OR FMU_SUNDIALS)
   SET(USE_SUNDIALS ON)
 ENDIF(NOT FMU_TARGET OR FMU_SUNDIALS)
@@ -72,7 +70,7 @@ SET(SIMSTER_BUILD OFF)
 SET(Boost_USE_MULTITHREADED ON)
 
 #Set Variables
-SET(MODELICAEXTERNALCDIR  "${CMAKE_SOURCE_DIR}/../../3rdParty/ModelicaExternalC/C-Sources")
+SET(MODELICAEXTERNALCDIR  "${CMAKE_SOURCE_DIR}/../ModelicaExternalC/C-Sources")
 SET(USERTABDIR  "${CMAKE_SOURCE_DIR}/../../libraries/Resources/Data/Tables")
 
 IF(UNIX)
@@ -125,7 +123,6 @@ OPTION(USE_BOOST_REALPATHS "USE_BOOST_REALPATHS" OFF)
 OPTION(RUNTIME_PROFILING "RUNTIME_PROFILING" OFF)
 OPTION(FMU_SUNDIALS "FMU_SUNDIALS" OFF)
 OPTION(KLU_ROOT "KLU ROOT" "")
-OPTION(TRILINOS_ROOT "TRILINOS ROOT" "")
 OPTION(USE_CPP_03 "USE_CPP_03" OFF)
 OPTION(USE_ZEROMQ "USE zeromq and cppzmq" ON)
 OPTION(USE_PRECOMPILEDHEADER  OFF)
@@ -135,7 +132,7 @@ OPTION(BUILD_BROYDEN ON)
 OPTION(BUILD_PEER ON)
 
 #Set Variables
-SET(MODELICAEXTERNALCDIR  "${CMAKE_SOURCE_DIR}/../../3rdParty/ModelicaExternalC/C-Sources")
+SET(MODELICAEXTERNALCDIR  "${CMAKE_SOURCE_DIR}/../ModelicaExternalC/C-Sources")
 
 IF(NOT FMU_TARGET)
  IF(MSVC)
@@ -154,7 +151,9 @@ ELSE(BUILD_SHARED_LIBS)
   SET(LIBSUFFIX "_static")
 ENDIF(BUILD_SHARED_LIBS)
 SET(SolverName ${LIBPREFIX}Solver${LIBSUFFIX})
-SET(SystemName ${LIBPREFIX}System${LIBSUFFIX})
+SET(SystemBaseName ${LIBPREFIX}SystemBase${LIBSUFFIX})
+SET(SystemOMSIName ${LIBPREFIX}SystemOMSI${LIBSUFFIX})
+SET(ExtendedSystemName ${LIBPREFIX}ExtendedSystem${LIBSUFFIX})
 SET(OMCFactoryName ${LIBPREFIX}OMCFactory${LIBSUFFIX})
 SET(MathName ${LIBPREFIX}Math${LIBSUFFIX})
 
@@ -179,7 +178,6 @@ SET(RTEulerName ${LIBPREFIX}RTEuler${LIBSUFFIX})
 SET(IdaName ${LIBPREFIX}Ida${LIBSUFFIX})
 SET(IdasName ${LIBPREFIX}Idas${LIBSUFFIX})
 SET(KinsolName ${LIBPREFIX}Kinsol${LIBSUFFIX})
-SET(NoxName ${LIBPREFIX}Nox${LIBSUFFIX})
 SET(LinearSolverName ${LIBPREFIX}LinearSolver${LIBSUFFIX})
 SET(DgesvSolverName ${LIBPREFIX}DgesvSolver${LIBSUFFIX})
 SET(ModelicaName ${LIBPREFIX}Modelica${LIBSUFFIX})
@@ -198,7 +196,6 @@ SET(ReduceDAEName ${LIBPREFIX}ReduceDAE) # only static version
 
 SET(USE_MICO OFF)
 SET(USE_KLU CACHE BOOL OFF)
-SET(USE_TRILINOS CACHE BOOL OFF)
 
 IF(NOT FMU_TARGET OR FMU_SUNDIALS)
   SET(USE_SUNDIALS ON)
@@ -208,12 +205,14 @@ SET(SIMSTER_BUILD OFF)
 
 SET(Boost_USE_MULTITHREADED ON)
 
+
 #Currently only mingw is supported for the model reduction algorithm
-IF(MINGW)
-    SET(REDUCE_DAE ON)
-ELSE()
-    SET(REDUCE_DAE OFF)
-ENDIF()
+#IF(MINGW)
+#    SET(REDUCE_DAE ON)
+#ELSE()
+#    SET(REDUCE_DAE OFF)
+#ENDIF()
+
 
 IF(USE_BOOST_REALPATHS)
   MESSAGE(STATUS "Using boost real paths")
@@ -322,16 +321,15 @@ ENDIF(OMC_BUILD)
 # Handle OMDEV
 #  - On windows boost,blas,lapack and sundial solvers from omdev are used else the installed versions are used
 IF(WIN32)
-set(Boost_DEBUG 1)
+  SET(Boost_DEBUG 1)
 
- 
   MESSAGE(STATUS "MINGW:")
   MESSAGE(STATUS ${IS_MINGW32})
   MESSAGE(STATUS ${IS_MINGW64})
   IF(IS_MINGW32)
-    SET(BOOST_ROOT $ENV{OMDEV}"/tools/mingw32/include")
+    SET(BOOST_ROOT $ENV{OMDEV}"/tools/mingw32/")
   ELSEIF(IS_MINGW64)
-    SET(BOOST_ROOT $ENV{OMDEV}"/tools/mingw64/include")
+    SET(BOOST_ROOT $ENV{OMDEV}"/tools/mingw64/")
   ELSE()
      if(MSVC_VERSION GREATER 1800)
         MESSAGE(STATUS "USE MSVC 2015 and greater:")
@@ -344,8 +342,8 @@ set(Boost_DEBUG 1)
         SET(BOOST_ROOT $ENV{OMDEV}"/lib/3rdParty/boost-1_55/")
      endif()
   ENDIF(IS_MINGW32)
-  MESSAGE(STATUS "Boost root:")
-  MESSAGE(STATUS ${BOOST_ROOT})
+  MESSAGE(STATUS "Boost root for omsicpp runtime:")
+  MESSAGE(STATUS ${BOOST_ROOT} )
   SET(BLAS_blas_LIBRARY $ENV{OMDEV}/lib/3rdParty/Lapack/Lib/blas_win32.dll CACHE FILEPATH "Blas library")
   SET(LAPACK_lapack_LIBRARY  $ENV{OMDEV}/lib/3rdParty/Lapack/Lib/lapack_win32.dll CACHE FILEPATH "Lapack library")
   SET(BLAS_DIRY "$ENV{OMDEV}/lib/3rdParty/Lapack/Lib/" CACHE LOCATION "where was yarp built?")
@@ -481,9 +479,19 @@ IF(FMU_TARGET AND NOT MSVC)
   ADD_DEFINITIONS(-D_GLIBCXX_USE_CXX11_ABI=0)
 ENDIF(FMU_TARGET AND NOT MSVC)
 
+IF(WIN32)
+SET(CPPTHREADS_LIBRARY)
+SET(CPPTHREADS_LIBRARY_FLAG)
+ELSE(WIN32)
+find_package(Threads REQUIRED)
+SET(CPPTHREADS_LIBRARY Threads::Threads)
+SET(CPPTHREADS_LIBRARY_FLAG ${CMAKE_THREAD_LIBS_INIT})
+ENDIF(WIN32)
+
 SET(Boost_LIBRARIES_TMP ${Boost_LIBRARIES_TMP} ${Boost_LIBRARIES})
 SET(Boost_LIBRARIES ${Boost_LIBRARIES_TMP})
-MESSAGE(STATUS "Boost Libraries")
+MESSAGE(STATUS "using boost include for omsicpp runtime:  ${Boost_INCLUDE_DIR}")
+MESSAGE(STATUS "Boost Libraries for omsicpp runtime")
 MESSAGE(STATUS ${Boost_LIBRARIES})
 
 # Find Lapack and Blas
@@ -546,10 +554,10 @@ ENDIF(REDUCE_DAE)
 IF(USE_SUNDIALS)
   #set sundials solvers include and library directories
   IF(MSVC)
-    SET(SUNDIALS_INLCUDE_HOME  "${CMAKE_SOURCE_DIR}/../../3rdParty/sundials/build_msvc/include/")
-    SET(SUNDIALS_LIBRARY_RELEASE_HOME "${CMAKE_SOURCE_DIR}/../../3rdParty/sundials/build_msvc/lib/")
+    SET(SUNDIALS_INLCUDE_HOME  "${CMAKE_SOURCE_DIR}/../../3rdParty/sundials-5.4.0/build_msvc/include/sundials")
+    SET(SUNDIALS_LIBRARY_RELEASE_HOME "${CMAKE_SOURCE_DIR}/../../3rdParty/sundials-5.4.0/build_msvc/lib/")
   ELSE(MSVC)
-    SET(SUNDIALS_INLCUDE_HOME  ${CMAKE_INSTALL_PREFIX}/include/omc/c/sundials)
+    SET(SUNDIALS_INLCUDE_HOME  ${CMAKE_INSTALL_PREFIX}/include/omc/sundials)
     SET(SUNDIALS_LIBRARY_RELEASE_HOME ${CMAKE_INSTALL_PREFIX}/${LIB_OMC})
   ENDIF(MSVC)
 
@@ -557,10 +565,10 @@ IF(USE_SUNDIALS)
   MESSAGE(STATUS "${SUNDIALS_INLCUDE_HOME}")
   MESSAGE(STATUS "Sundials library for omsicpp:")
   MESSAGE(STATUS "${SUNDIALS_LIBRARY_RELEASE_HOME}")
-   MESSAGE(STATUS "${CMAKE_INSTALL_PREFIX}/${LIB_OMC}")
+  MESSAGE(STATUS "${CMAKE_INSTALL_PREFIX}/${LIB_OMC}")
 
 
-    SET(SUNDIALS_INCLUDE_DIR "${SUNDIALS_INLCUDE_HOME}")
+  SET(SUNDIALS_INCLUDE_DIR "${SUNDIALS_INLCUDE_HOME}")
   IF (NOT EXISTS "${SUNDIALS_INLCUDE_HOME}/cvode/cvode.h")
     MESSAGE(FATAL_ERROR "Could not find Sundials; compile omc first")
   ENDIF()
@@ -572,21 +580,18 @@ IF(USE_SUNDIALS)
   ENDIF()
   FILE(READ "${SUNDIALS_CONFIG_FILE}" SUNDIALS_CONFIG_FILE_CONTENT)
   MESSAGE(STATUS "Found config file ${SUNDIALS_CONFIG_FILE}")
-  STRING(REGEX MATCH "#define SUNDIALS_PACKAGE_VERSION .([0-9]+)\\.([0-9]+)\\.([0-9]+)." SUNDIALS_CONFIG_FILE_CONTENT ${SUNDIALS_CONFIG_FILE_CONTENT})
-  STRING(REGEX REPLACE "#define SUNDIALS_PACKAGE_VERSION .([0-9]+)\\.([0-9]+)\\.([0-9]+)." "\\1;\\2;\\3" SUNDIALS_CONFIG_FILE_VERSION ${SUNDIALS_CONFIG_FILE_CONTENT})
-  LIST(GET SUNDIALS_CONFIG_FILE_VERSION 0 SUNDIALS_MAJOR_VERSION)
-  IF(SUNDIALS_MAJOR_VERSION)
+  STRING(REGEX MATCH "#define SUNDIALS_VERSION .([0-9]+)\\.([0-9]+)\\.([0-9]+)." _ ${SUNDIALS_CONFIG_FILE_CONTENT})
+
+  IF(DEFINED CMAKE_MATCH_1 AND DEFINED CMAKE_MATCH_2 AND DEFINED CMAKE_MATCH_3)
+    SET(SUNDIALS_MAJOR_VERSION "${CMAKE_MATCH_1}")
+    SET(SUNDIALS_MINOR_VERSION "${CMAKE_MATCH_2}")
+    SET(SUNDIALS_PATCH_VERSION "${CMAKE_MATCH_3}")
+
     ADD_DEFINITIONS("-DSUNDIALS_MAJOR_VERSION=${SUNDIALS_MAJOR_VERSION}")
-  ELSE()
-    MESSAGE(FATAL_ERROR "Could not determine sundials version")
-  ENDIF()
-  LIST(GET SUNDIALS_CONFIG_FILE_VERSION 1 SUNDIALS_MINOR_VERSION)
-  IF(SUNDIALS_MINOR_VERSION)
     ADD_DEFINITIONS("-DSUNDIALS_MINOR_VERSION=${SUNDIALS_MINOR_VERSION}")
   ELSE()
     MESSAGE(FATAL_ERROR "Could not determine sundials version")
   ENDIF()
-  LIST(GET SUNDIALS_CONFIG_FILE_VERSION 2 SUNDIALS_PATCH_VERSION)
   MESSAGE(STATUS "Using sundials ${SUNDIALS_MAJOR_VERSION}.${SUNDIALS_MINOR_VERSION}.${SUNDIALS_PATCH_VERSION}")
 
 
@@ -641,7 +646,7 @@ IF(USE_OMSI)
 
   IF(MSVC)
     SET(FMILIB_INLCUDE_HOME "${CMAKE_SOURCE_DIR}/../../3rdParty/FMIL/install_msvc/include")
-    SET(FMILIB_LIBRARY_RELEASE_HOME "${CMAKE_SOURCE_DIR}/../../3rdParty/FMIL/install_msvc/lib")
+    SET(FMILIB_LIBRARY_RELEASE_HOME "${CMAKE_SOURCE_DIR}/../../3rdParty/FMIL/install_msvc/${LIB_OMC}")
     SET(OMSIBASELIB_LIBRARY_RELEASE_HOME "${CMAKE_INSTALL_PREFIX}/lib/omc/omsi/msvc")
   ELSEIF(WIN32)
     SET(FMILIB_INLCUDE_HOME "${CMAKE_INSTALL_PREFIX}/include/omc/fmil")
@@ -724,15 +729,15 @@ IF(USE_KLU)
   IF(MSVC)
     SET(Klu_Path "${CMAKE_SOURCE_DIR}/../../3rdParty/SuiteSparse/install_msvc")
 
-#            SET(KLU_INLCUDE_HOME  ${Klu_Path}/include/omc/c/suitesparse/Include)
+#            SET(KLU_INLCUDE_HOME  ${Klu_Path}/include/omc/c/suitesparse)
 #    SET(KLU_LIBRARY_RELEASE_HOME  ${Klu_Path}/lib/omc)
   ELSE(MSVC)
     SET(Klu_Path "${CMAKE_SOURCE_DIR}/../../3rdParty/SuiteSparse")
-    #SET(Klu_Path ${CMAKE_SOURCE_DIR}/../../../build/include/omc/c/suitesparse/Include) #"${CMAKE_SOURCE_DIR}/../../3rdParty/SuiteSparse")
+    #SET(Klu_Path ${CMAKE_SOURCE_DIR}/../../../build/include/omc/c/suitesparse) #"${CMAKE_SOURCE_DIR}/../../3rdParty/SuiteSparse")
   ENDIF(MSVC)
 
   IF(MSVC)
-  SET(KLU_INLCUDE_HOME ${Klu_Path}/include/omc/c/suitesparse/Include) #${Klu_Path}/KLU/Include)
+  SET(KLU_INLCUDE_HOME ${Klu_Path}/include/omc/c/suitesparse) #${Klu_Path}/KLU/Include)
   SET(KLU_LIBRARY_RELEASE_HOME ${Klu_Path}/lib/omc) #${Klu_Path}/build)
   ELSE(MSVC)
   SET(KLU_INLCUDE_HOME ${Klu_Path}/KLU/Include) #${Klu_Path}/KLU/Include)
@@ -779,96 +784,6 @@ IF(USE_KLU)
 ENDIF(USE_KLU)
 
 
-
-# Find Trilinos/Nox solvers
-IF(USE_TRILINOS)
-  IF(MSVC)
-    SET(Trilinos_Path "${CMAKE_SOURCE_DIR}/../../3rdParty/trilinos-nox/build_msvc")
-  ELSE(MSVC)
-    SET(Trilinos_Path "${CMAKE_SOURCE_DIR}/../../3rdParty/trilinos-nox/build")
-  ENDIF(MSVC)
-  SET(TRILINOS_INLCUDE_HOME  ${Trilinos_Path}/include)
-  IF(WIN32)
-    SET(TRILINOS_LIBRARY_RELEASE_HOME  ${Trilinos_Path}/bin)
-  ELSE(WIN32)
-    SET(TRILINOS_LIBRARY_RELEASE_HOME  ${Trilinos_Path}/lib)
-  ENDIF(WIN32)
-  MESSAGE(STATUS "Trilinos include:")
-  MESSAGE(STATUS "${TRILINOS_INLCUDE_HOME}")
-  MESSAGE(STATUS "Trilinos library:")
-  MESSAGE(STATUS "${TRILINOS_LIBRARY_RELEASE_HOME}")
-
-  FIND_PATH(TRILINOS_INCLUDE_DIR NOX.H PATHS ${TRILINOS_INLCUDE_HOME} $ENV{TRILINOS_ROOT}/include)
-  IF (NOT TRILINOS_INCLUDE_DIR)
-    MESSAGE(FATAL_ERROR "Could not find Trilinos, specify environment variable TRILINOS_ROOT")
-  ELSE(NOT TRILINOS_INCLUDE_DIR)
-    INCLUDE_DIRECTORIES(${TRILINOS_INCLUDE_DIR})
-  ENDIF(NOT TRILINOS_INCLUDE_DIR)
-
-  FIND_LIBRARY(NOX_LIB "nox" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT NOX_LIB)
-    MESSAGE(FATAL_ERROR "Could not find nox library!")
-  ENDIF()
-
-  FIND_LIBRARY(NOXLAPACK_LIB "noxlapack" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT NOXLAPACK_LIB)
-    MESSAGE(FATAL_ERROR "Could not find noxlapack library!")
-  ENDIF()
-
-  FIND_LIBRARY(BELOS_LIB "belos" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT BELOS_LIB)
-    MESSAGE(FATAL_ERROR "Could not find belos library!")
-  ENDIF()
-
-  FIND_LIBRARY(LOCA_LIB "loca" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT LOCA_LIB)
-    MESSAGE(FATAL_ERROR "Could not find loca library!")
-  ENDIF()
-
-  FIND_LIBRARY(LOCALAPACK_LIB "localapack" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT LOCALAPACK_LIB)
-    MESSAGE(FATAL_ERROR "Could not find localapack library!")
-  ENDIF()
-
-  FIND_LIBRARY(ML_LIB "ml" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT ML_LIB)
-    MESSAGE(FATAL_ERROR "Could not find ml library!")
-  ENDIF()
-
-  FIND_LIBRARY(TEUCHOSCOMM_LIB "teuchoscomm" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT TEUCHOSCOMM_LIB)
-    MESSAGE(FATAL_ERROR "Could not find teuchoscomm library!")
-  ENDIF()
-
-  FIND_LIBRARY(TEUCHOSCORE_LIB "teuchoscore" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT TEUCHOSCORE_LIB)
-    MESSAGE(FATAL_ERROR "Could not find teuchoscore library!")
-  ENDIF()
-
-  FIND_LIBRARY(TEUCHOSNUMERICS_LIB "teuchosnumerics" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT TEUCHOSNUMERICS_LIB)
-    MESSAGE(FATAL_ERROR "Could not find teuchosnumerics library!")
-  ENDIF()
-
-  FIND_LIBRARY(TEUCHOSPARAMETERLIST_LIB "teuchosparameterlist" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT TEUCHOSPARAMETERLIST_LIB)
-    MESSAGE(FATAL_ERROR "Could not find teuchosparameterlist library!")
-  ENDIF()
-
-  FIND_LIBRARY(TEUCHOSREMAINDER_LIB "teuchosremainder" NO_DEFAULT_PATH NO_SYSTEM_ENVIRONMENT_PATH PATHS ${TRILINOS_LIBRARY_RELEASE_HOME} $ENV{TRILINOS_ROOT}/lib)
-  IF(NOT TEUCHOSREMAINDER_LIB)
-    MESSAGE(FATAL_ERROR "Could not find teuchosremainder library!")
-  ENDIF()
-
-  SET(TRILINOS_LIBRARIES ${NOX_LIB} ${NOXLAPACK_LIB} ${BELOS_LIB} ${LOCA_LIB} ${LOCALAPACK_LIB} ${ML_LIB} ${TEUCHOSCOMM_LIB} ${TEUCHOSCORE_LIB} ${TEUCHOSNUMERICS_LIB} ${TEUCHOSPARAMETERLIST_LIB} ${TEUCHOSREMAINDER_LIB} )
-
-  MESSAGE(STATUS "Trilinos Libraries:")
-  MESSAGE(STATUS "${TRILINOS_LIBRARIES}")
-
-  ADD_DEFINITIONS(-Dtrilinos)
-ENDIF(USE_TRILINOS)
-
-
 #Handle umfpack
 #FIND_PACKAGE(SuiteSparse)
 IF(SUITESPARSE_UMFPACK_FOUND)
@@ -893,7 +808,7 @@ IF(USE_MICO)
   MESSAGE(STATUS ${MICO_LIBRARY})
   MESSAGE(STATUS ${MICO_INCLUDE_DIR})
 ENDIF(USE_MICO)
-#Handle ZeroMQ 
+#Handle ZeroMQ
 
 
  IF(MSVC)
@@ -915,17 +830,18 @@ IF(ZeroMQ_FOUND AND cppzmq_FOUND)
     IF((MSVC) AND (CMAKE_BUILD_TYPE MATCHES Debug))# workarround, find_package(ZeroMQ)  fails because wrong filename under windows and VS projects
       get_target_property(ZeroMQ_LIB libzmq  IMPORTED_IMPLIB_DEBUG)
        message (STATUS "Using workarround for ${ZeroMQ_LIB} " )
-    ELSE()
+    ELSE((MSVC) AND (CMAKE_BUILD_TYPE MATCHES Debug))
       set(ZeroMQ_LIB  ${ZeroMQ_LIBRARY})
-    ENDIF(MSVC)
+    ENDIF((MSVC) AND (CMAKE_BUILD_TYPE MATCHES Debug))
 
     message (STATUS "Using ZMQ library ${ZeroMQ_LIBRARY} ${ZeroMQ_LIB} " )
-    message(STATUS "cppzmq version ${cppzmq_VERSION}")
+    message (STATUS "cppzmq version ${cppzmq_VERSION}")
     message (STATUS "Using ZMQ Header ${ZeroMQ_INCLUDE_DIR}" )
     message (STATUS "Using CPPZMQ Header ${cppzmq_INCLUDE_DIR}" )
 ELSE(ZeroMQ_found AND cppzmq_found)
     SET(USE_ZEROMQ OFF)
-ENDIF(ZeroMQ_found AND cppzmq_found)
+    message (STATUS "Using not ZMQ library " )
+ENDIF(ZeroMQ_FOUND AND cppzmq_FOUND)
 
 #Write the defines into the ADDITIONAL_DEFINES variable
 # GET_DIRECTORY_PROPERTY(ADDITIONAL_DEFINES DEFINITIONS)
@@ -959,7 +875,7 @@ ELSE(BUILD_SHARED_LIBS)
   SET(LIBSUFFIX "_static")
 ENDIF(BUILD_SHARED_LIBS)
 SET(SolverName ${LIBPREFIX}Solver${LIBSUFFIX})
-SET(SystemName ${LIBPREFIX}System${LIBSUFFIX})
+
 SET(OMCFactoryName ${LIBPREFIX}OMCFactory${LIBSUFFIX})
 SET(MathName ${LIBPREFIX}Math${LIBSUFFIX})
 SET(ModelicaExternalName ModelicaExternalC) # only static version
@@ -981,7 +897,6 @@ SET(RTEulerName ${LIBPREFIX}RTEuler${LIBSUFFIX})
 SET(IdaName ${LIBPREFIX}Ida${LIBSUFFIX})
 SET(IdasName ${LIBPREFIX}Idas${LIBSUFFIX})
 SET(KinsolName ${LIBPREFIX}Kinsol${LIBSUFFIX})
-SET(NoxName ${LIBPREFIX}Nox${LIBSUFFIX})
 SET(LinearSolverName ${LIBPREFIX}LinearSolver${LIBSUFFIX})
 SET(DgesvSolverName ${LIBPREFIX}DgesvSolver${LIBSUFFIX})
 SET(ModelicaName ${LIBPREFIX}Modelica${LIBSUFFIX})
@@ -1037,15 +952,6 @@ IF(USE_SUNDIALS)
   #set(IDA_LIB ${libIdaName})
 ENDIF(USE_SUNDIALS)
 
-IF(USE_TRILINOS)
-  ADD_SUBDIRECTORY(Solver/Nox)
-
-  GET_TARGET_PROPERTY(libNox ${NoxName} LOCATION)
-  GET_FILENAME_COMPONENT(libNoxName ${libNox} NAME)
-
-  SET(NOX_LIB ${libNoxName})
-ENDIF(USE_TRILINOS)
-
 GET_TARGET_PROPERTY(libLinearSolver ${LinearSolverName} LOCATION)
 GET_FILENAME_COMPONENT(libLinearSolverName ${libLinearSolver} NAME)
 
@@ -1093,8 +999,14 @@ GET_FILENAME_COMPONENT(libSetFactoryName ${libSetFactory} NAME)
 GET_TARGET_PROPERTY(libModelica ${ModelicaName} LOCATION)
 GET_FILENAME_COMPONENT(libModelicaName ${libModelica} NAME)
 
-GET_TARGET_PROPERTY(libSystem ${SystemName} LOCATION)
-GET_FILENAME_COMPONENT(libSystemName ${libSystem} NAME)
+GET_TARGET_PROPERTY(libSystemBase ${SystemBaseName} LOCATION)
+GET_FILENAME_COMPONENT(libSystemBaseName ${libSystemBase} NAME)
+
+GET_TARGET_PROPERTY(libSystemOMSI ${SystemOMSIName} LOCATION)
+GET_FILENAME_COMPONENT(libSystemOMSIName ${libSystemOMSI} NAME)
+
+GET_TARGET_PROPERTY(libExtendedSystem ${ExtendedSystemName} LOCATION)
+GET_FILENAME_COMPONENT(libExtendedSystemName ${libExtendedSystem} NAME)
 
 GET_TARGET_PROPERTY(libSolver ${SolverName} LOCATION)
 GET_FILENAME_COMPONENT(libSolverName ${libSolver} NAME)
@@ -1129,7 +1041,9 @@ set (BROYDEN_LIB ${libBroydenName})
 set (PEER_LIB ${libPeerName})
 set (CPPDASSL_LIB ${libCppDASSLName})
 set (RTRK_LIB ${libRTRKName})
-set (SYSTEM_LIB ${libSystemName})
+set (SYSTEMBASE_LIB ${libSystemBaseName})
+set (SYSTEMOMSI_LIB ${libSystemOMSIName})
+set (EXTENDEDSYSTEM_LIB ${libExtendedSystemName})
 set (SOLVER_LIB ${libSolverName})
 SET (LINEARSOLVER_LIB ${libLinearSolverName})
 SET (DGESVSOLVER_LIB ${libDgesvSolverName})
@@ -1153,16 +1067,6 @@ configure_file (
 
 # omsu simulation
 ADD_SUBDIRECTORY(omsi)
-
-
-
-GET_TARGET_PROPERTY(libOSU ${OSUName} LOCATION)
-GET_FILENAME_COMPONENT(OSUName ${libOSU} NAME)
-set (OSU_LIB ${OSUName})
-configure_file (
-  "${PROJECT_SOURCE_DIR}/runtime/src/LibrariesConfig.h.in"
-  "${PROJECT_BINARY_DIR}/LibrariesConfig.h"
-  )
 
 
 

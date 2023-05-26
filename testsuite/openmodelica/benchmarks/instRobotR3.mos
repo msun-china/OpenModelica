@@ -2,11 +2,12 @@
 // keywords: multibody, balancing, instantiation, expandable
 // status:   correct
 // teardown_command: rm -f *.so *.dll *.log *.c* *.makefile *.libs
+// cflags: -d=-newInst
 // 
 // Modelica MultiBody 3.x: instantiation and balance checking
 //
 
-loadModel(Modelica); getErrorString();
-loadModel(ModelicaServices); getErrorString();
+loadModel(Modelica, {"3.2.3"}); getErrorString();
+loadModel(ModelicaServices, {"3.2.3"}); getErrorString();
 instantiateModel(Modelica.Mechanics.MultiBody.Examples.Systems.RobotR3.fullRobot); getErrorString();
 

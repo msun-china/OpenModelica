@@ -1889,6 +1889,7 @@ package DAE
     record GIVEN end GIVEN;
     record SOUGHT end SOUGHT;
     record REFINE end REFINE;
+    record PROPAGATE end PROPAGATE;
   end Uncertainty;
 
   uniontype Distribution
@@ -2008,6 +2009,11 @@ package DAE
       Option<Absyn.Path> defaultDerivative "if conditions fails, use default derivative if exists";
       list<Absyn.Path> lowerOrderDerivatives;
     end FUNCTION_DER_MAPPER;
+
+    record FUNCTION_INVERSE "A function inverse declaration"
+      ComponentRef inputParam "The input parameter the inverse is for";
+      Exp inverseCall "The inverse function call";
+    end FUNCTION_INVERSE;
   end FunctionDefinition;
 
   uniontype derivativeCond "Different conditions on derivatives"

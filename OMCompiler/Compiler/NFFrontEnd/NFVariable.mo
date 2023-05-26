@@ -30,20 +30,27 @@
  */
 
 encapsulated uniontype NFVariable
-  import NFBinding.Binding;
-  import NFComponent.Component;
+  import Attributes = NFAttributes;
+  import Binding = NFBinding;
+  import Component = NFComponent;
   import ComponentRef = NFComponentRef;
   import Expression = NFExpression;
   import NFInstNode.InstNode;
   import NFPrefixes.Visibility;
   import NFPrefixes.Variability;
   import NFPrefixes.ConnectorType;
+  import NFPrefixes.Direction;
   import Type = NFType;
+  import BackendExtension = NFBackendExtension;
+  import NFBackendExtension.BackendInfo;
 
 protected
-  import Variable = NFVariable;
+  import ExpandExp = NFExpandExp;
+  import FlatModelicaUtil = NFFlatModelicaUtil;
   import IOStream;
   import Util;
+  import Variable = NFVariable;
+  import MetaModelica.Dangerous.listReverseInPlace;
 
 public
   record VARIABLE
@@ -51,35 +58,148 @@ public
     Type ty;
     Binding binding;
     Visibility visibility;
-    Component.Attributes attributes;
+    Attributes attributes;
     list<tuple<String, Binding>> typeAttributes;
+    list<Variable> children;
     Option<SCode.Comment> comment;
     SourceInfo info;
+    BackendInfo backendinfo "NFBackendExtension.DUMMY_BACKEND_INFO for all of frontend. Only used in Backend.";
   end VARIABLE;
 
   function fromCref
     input ComponentRef cref;
     output Variable variable;
   protected
+    list<ComponentRef> crefs;
     InstNode node;
     Component comp;
     Type ty;
     Binding binding;
     Visibility vis;
-    Component.Attributes attr;
+    Attributes attr;
     Option<SCode.Comment> cmt;
     SourceInfo info;
   algorithm
     node := ComponentRef.node(cref);
     comp := InstNode.component(node);
     ty := ComponentRef.getSubscriptedType(cref);
-    binding := Component.getBinding(comp);
     vis := InstNode.visibility(node);
     attr := Component.getAttributes(comp);
     cmt := Component.comment(comp);
     info := InstNode.info(node);
-    variable := VARIABLE(cref, ty, binding, vis, attr, {}, cmt, info);
+    // kabdelhak: add dummy backend info, will be changed to actual value in
+    // conversion to backend process (except for iterators). NBackendDAE.lower
+    if ComponentRef.isIterator(cref) then
+      binding := NFBinding.EMPTY_BINDING;
+      variable := VARIABLE(cref, ty, binding, vis, attr, {}, {}, cmt, info, BackendExtension.BACKEND_INFO(BackendExtension.ITERATOR(), NFBackendExtension.EMPTY_VAR_ATTR_REAL));
+    else
+      binding := Component.getImplicitBinding(comp);
+      variable := VARIABLE(cref, ty, binding, vis, attr, {}, {}, cmt, info, NFBackendExtension.DUMMY_BACKEND_INFO);
+    end if;
   end fromCref;
+
+  function size
+    input Variable var;
+    output Integer s = Type.sizeOf(var.ty);
+  end size;
+
+  function hash
+    input Variable var;
+    output Integer i = ComponentRef.hash(var.name);
+  end hash;
+
+  function equalName
+    input Variable var1;
+    input Variable var2;
+    output Boolean b = ComponentRef.isEqual(var1.name, var2.name);
+  end equalName;
+
+  function expand
+    "Expands an array variable into its scalar elements."
+    input Variable var;
+    input Boolean backend = false;
+    output list<Variable> vars;
+  protected
+    list<ComponentRef> crefs;
+    Variable v;
+    Binding binding;
+    Variability bind_var;
+    Binding.Source bind_src;
+    Expression bind_exp, exp;
+    list<Expression> expl;
+    Integer crefs_len, expl_len;
+  algorithm
+    if Type.isArray(var.ty) then
+      // Expand the name.
+      exp := Expression.fromCref(var.name);
+      exp := ExpandExp.expandCref(exp, backend);
+      expl := Expression.arrayScalarElements(exp);
+      crefs := list(Expression.toCref(e) for e in expl);
+
+      v := var;
+      v.ty := Type.arrayElementType(v.ty);
+      vars := {};
+      binding := var.binding;
+
+      // If the variable has a binding we need to expand it too.
+      if Binding.isBound(binding) then
+        bind_exp := Binding.getTypedExp(binding);
+        expl := Expression.arrayScalarElements(ExpandExp.expand(bind_exp));
+
+        crefs_len := listLength(crefs);
+        expl_len := listLength(expl);
+
+        // If the binding has fewer dimensions than the variable, 'multiply' the
+        // list of binding expression until they match.
+        if expl_len < crefs_len then
+          if intMod(crefs_len, expl_len) <> 0 then
+            Error.assertion(false, getInstanceName() + " failed to expand " +
+              ComponentRef.toString(var.name), sourceInfo());
+          end if;
+
+          expl := List.flatten(List.fill(expl, intDiv(crefs_len, expl_len)));
+        end if;
+
+        bind_var := Binding.variability(binding);
+        bind_src := Binding.source(binding);
+
+        for cr in crefs loop
+          v.name := cr;
+          exp :: expl := expl;
+          v.binding := Binding.makeFlat(exp, bind_var, bind_src);
+          vars := v :: vars;
+        end for;
+      else
+        for cr in crefs loop
+          v.name := cr;
+          vars := v :: vars;
+        end for;
+      end if;
+      vars := listReverseInPlace(vars);
+    else
+      vars := {var};
+    end if;
+  end expand;
+
+  function expandChildren
+    "Expands a variable into itself and its children if its complex."
+    input Variable var;
+    output list<Variable> children;
+  algorithm
+    children := if (isComplex(var) or isComplexArray(var))
+      then var :: List.flatten(list(expandChildren(v) for v in var.children))
+      else {var};
+  end expandChildren;
+
+  function isComplex
+    input Variable var;
+    output Boolean b = Type.isComplex(var.ty);
+  end isComplex;
+
+  function isComplexArray
+    input Variable var;
+    output Boolean b = Type.isComplexArray(var.ty);
+  end isComplexArray;
 
   function isStructural
     input Variable variable;
@@ -91,6 +211,11 @@ public
     input Variable variable;
     output Variability variability = variable.attributes.variability;
   end variability;
+
+  function visibility
+    input Variable variable;
+    output Visibility visibility = variable.visibility;
+  end visibility;
 
   function isEmptyArray
     input Variable variable;
@@ -112,6 +237,47 @@ public
     output Boolean present = not ConnectorType.isPotentiallyPresent(variable.attributes.connectorType);
   end isPresent;
 
+  function isPotential
+    input Variable variable;
+    output Boolean potential = ConnectorType.isPotential(variable.attributes.connectorType);
+  end isPotential;
+
+  function isFlow
+    input Variable variable;
+    output Boolean potential = ConnectorType.isFlow(variable.attributes.connectorType);
+  end isFlow;
+
+  function isStream
+    input Variable variable;
+    output Boolean potential = ConnectorType.isStream(variable.attributes.connectorType);
+  end isStream;
+
+  function isInput
+    input Variable variable;
+    output Boolean b = variable.attributes.direction == Direction.INPUT;
+  end isInput;
+
+  function isTopLevelInput
+    input Variable variable;
+    output Boolean topInput = ComponentRef.isSimple(variable.name) and
+                              variable.attributes.direction == Direction.INPUT;
+  end isTopLevelInput;
+
+  function isPublic
+    input Variable variable;
+    output Boolean isPublic = variable.visibility == Visibility.PUBLIC;
+  end isPublic;
+
+  function isProtected
+    input Variable variable;
+    output Boolean isProtected = variable.visibility == Visibility.PROTECTED;
+  end isProtected;
+
+  function isEncrypted
+    input Variable variable;
+    output Boolean isEncrypted = Util.endsWith(variable.info.fileName, ".moc");
+  end isEncrypted;
+
   function lookupTypeAttribute
     input String name;
     input Variable var;
@@ -126,6 +292,66 @@ public
 
     binding := NFBinding.EMPTY_BINDING;
   end lookupTypeAttribute;
+
+  function propagateAnnotation
+    input String name;
+    input Boolean overwrite;
+    input output Variable var;
+  protected
+    InstNode node;
+    Option<SCode.SubMod> mod;
+  protected
+    SCode.Annotation anno;
+  algorithm
+    if ComponentRef.isCref(var.name) then
+      node := ComponentRef.node(var.name);
+      // InstNode.getAnnotation is recursive and returns the first annotation found.
+      // if the original is supposed to be overwritten, skip the node itself and look at the parent
+      if overwrite then
+        mod := match node
+          case InstNode.COMPONENT_NODE() then InstNode.getAnnotation(name, node.parent);
+          else NONE();
+        end match;
+      else
+        mod := InstNode.getAnnotation(name, node);
+      end if;
+
+      if isSome(mod) then
+        anno := SCode.ANNOTATION(modification = SCode.MOD(
+          finalPrefix = SCode.NOT_FINAL(),
+          eachPrefix  = SCode.NOT_EACH(),
+          subModLst   = {Util.getOption(mod)},
+          binding     = NONE(),
+          info        = sourceInfo()));
+        var.comment := SCodeUtil.appendAnnotationToCommentOption(anno, var.comment, true);
+      end if;
+    end if;
+  end propagateAnnotation;
+
+    partial function MapFn
+      input output Expression exp;
+    end MapFn;
+
+  function mapExp
+    input output Variable var;
+    input MapFn fn;
+  algorithm
+    var.binding := Binding.mapExp(var.binding, fn);
+    var.typeAttributes := list(
+      (Util.tuple21(a), Binding.mapExp(Util.tuple22(a), fn)) for a in var.typeAttributes);
+    var.children := list(mapExp(v, fn) for v in var.children);
+    var.backendinfo := BackendExtension.BackendInfo.map(var.backendinfo, fn);
+  end mapExp;
+
+  function mapExpShallow
+    input output Variable var;
+    input MapFn fn;
+  algorithm
+    var.binding := Binding.mapExpShallow(var.binding, fn);
+    var.typeAttributes := list(
+      (Util.tuple21(a), Binding.mapExpShallow(Util.tuple22(a), fn)) for a in var.typeAttributes);
+    var.children := list(mapExpShallow(v, fn) for v in var.children);
+  end mapExpShallow;
 
   function toString
     input Variable var;
@@ -156,7 +382,7 @@ public
       s := IOStream.append(s, "protected ");
     end if;
 
-    s := IOStream.append(s, Component.Attributes.toString(var.attributes, var.ty));
+    s := IOStream.append(s, Attributes.toString(var.attributes, var.ty));
     s := IOStream.append(s, Type.toString(var.ty));
     s := IOStream.append(s, " ");
     s := IOStream.append(s, ComponentRef.toString(var.name));
@@ -211,42 +437,11 @@ public
   algorithm
     s := IOStream.append(s, indent);
 
-    if var.visibility == Visibility.PROTECTED then
-      s := IOStream.append(s, "protected ");
-    end if;
-
-    s := IOStream.append(s, Component.Attributes.toFlatString(var.attributes, var.ty));
+    s := Attributes.toFlatStream(var.attributes, var.ty, s, ComponentRef.isSimple(var.name));
     s := IOStream.append(s, Type.toFlatString(var.ty));
     s := IOStream.append(s, " ");
     s := IOStream.append(s, ComponentRef.toFlatString(var.name));
-
-    if not listEmpty(var.typeAttributes) then
-      s := IOStream.append(s, "(");
-
-      first := true;
-      var_dims := Type.dimensionCount(var.ty);
-
-      for a in var.typeAttributes loop
-        if first then
-          first := false;
-        else
-          s := IOStream.append(s, ", ");
-        end if;
-
-        b := Util.tuple22(a);
-        binding_dims := Type.dimensionCount(Expression.typeOf(Expression.getBindingExp(Binding.getExp(b))));
-
-        if var_dims > binding_dims then
-          s := IOStream.append(s, "each ");
-        end if;
-
-        s := IOStream.append(s, Util.tuple21(a));
-        s := IOStream.append(s, " = ");
-        s := IOStream.append(s, Binding.toFlatString(b));
-      end for;
-
-      s := IOStream.append(s, ")");
-    end if;
+    s := Component.typeAttrsToFlatStream(var.typeAttributes, var.ty, s);
 
     if Binding.isBound(var.binding) then
       s := IOStream.append(s, " = ");
@@ -259,6 +454,8 @@ public
 
       s := IOStream.append(s, Binding.toFlatString(var.binding));
     end if;
+
+    s := FlatModelicaUtil.appendComment(var.comment, s);
   end toFlatStream;
 
   annotation(__OpenModelica_Interface="frontend");

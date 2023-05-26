@@ -1,6 +1,7 @@
 // name: optSimpleSolveDAEdump
 // keywords: omc debug dump
 // status: correct
+// cflags: -d=-newInst
 //
 // omc debug dump: +d=optdaedump
 //
@@ -134,7 +135,7 @@ buildModel(testOptdaedump); getErrorString();
 //
 //
 // ########################################
-// created initial system
+// created initialization system
 // ########################################
 //
 //
@@ -143,9 +144,9 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (3)
 // ========================================
-// 1: z:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
 // 2: y:VARIABLE()  type: Real
-// 3: x:VARIABLE()  type: Real
+// 3: z:VARIABLE()  type: Real
 //
 //
 // Equations (3, 3)
@@ -164,7 +165,7 @@ buildModel(testOptdaedump); getErrorString();
 //
 //
 // ########################################
-// partitioned initial system
+// partitioned initialization system
 // ########################################
 //
 //
@@ -173,9 +174,9 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (3)
 // ========================================
-// 1: z:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
 // 2: y:VARIABLE()  type: Real
-// 3: x:VARIABLE()  type: Real
+// 3: z:VARIABLE()  type: Real
 //
 //
 // Equations (3, 3)
@@ -189,15 +190,15 @@ buildModel(testOptdaedump); getErrorString();
 // ========================================
 // number of rows: 3
 // 1: 3 2 1
-// 2: 3 2
-// 3: 3
+// 2: 2 1
+// 3: 1
 //
 // Transposed Adjacency Matrix (row: variable)
 // ========================================
 // number of rows: 3
-// 1: 1
+// 1: 3 2 1
 // 2: 2 1
-// 3: 3 2 1
+// 3: 1
 //
 // no matching
 //
@@ -217,9 +218,9 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (3)
 // ========================================
-// 1: z:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
 // 2: y:VARIABLE()  type: Real
-// 3: x:VARIABLE()  type: Real
+// 3: z:VARIABLE()  type: Real
 //
 //
 // Equations (3, 3)
@@ -232,16 +233,16 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 3 variables and equations
-// var 1 is solved in eqn 1
+// var 1 is solved in eqn 3
 // var 2 is solved in eqn 2
-// var 3 is solved in eqn 3
+// var 3 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {3:3}
+// {3:1}
 // {2:2}
-// {1:1}
+// {1:3}
 //
 //
 //
@@ -259,9 +260,9 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (3)
 // ========================================
-// 1: z:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
 // 2: y:VARIABLE()  type: Real
-// 3: x:VARIABLE()  type: Real
+// 3: z:VARIABLE()  type: Real
 //
 //
 // Equations (3, 3)
@@ -274,16 +275,16 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 3 variables and equations
-// var 1 is solved in eqn 1
+// var 1 is solved in eqn 3
 // var 2 is solved in eqn 2
-// var 3 is solved in eqn 3
+// var 3 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {3:3}
+// {3:1}
 // {2:2}
-// {1:1}
+// {1:3}
 //
 //
 //
@@ -301,9 +302,9 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (3)
 // ========================================
-// 1: z:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
 // 2: y:VARIABLE()  type: Real
-// 3: x:VARIABLE()  type: Real
+// 3: z:VARIABLE()  type: Real
 //
 //
 // Equations (3, 3)
@@ -316,16 +317,16 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 3 variables and equations
-// var 1 is solved in eqn 1
+// var 1 is solved in eqn 3
 // var 2 is solved in eqn 2
-// var 3 is solved in eqn 3
+// var 3 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {3:3}
+// {3:1}
 // {2:2}
-// {1:1}
+// {1:3}
 //
 //
 //
@@ -343,9 +344,9 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (3)
 // ========================================
-// 1: z:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
 // 2: y:VARIABLE()  type: Real
-// 3: x:VARIABLE()  type: Real
+// 3: z:VARIABLE()  type: Real
 //
 //
 // Equations (3, 3)
@@ -358,16 +359,16 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 3 variables and equations
-// var 1 is solved in eqn 1
+// var 1 is solved in eqn 3
 // var 2 is solved in eqn 2
-// var 3 is solved in eqn 3
+// var 3 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {3:3}
+// {3:1}
 // {2:2}
-// {1:1}
+// {1:3}
 //
 //
 //
@@ -385,9 +386,9 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (3)
 // ========================================
-// 1: z:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
 // 2: y:VARIABLE()  type: Real
-// 3: x:VARIABLE()  type: Real
+// 3: z:VARIABLE()  type: Real
 //
 //
 // Equations (3, 3)
@@ -400,16 +401,16 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 3 variables and equations
-// var 1 is solved in eqn 1
+// var 1 is solved in eqn 3
 // var 2 is solved in eqn 2
-// var 3 is solved in eqn 3
+// var 3 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {3:3}
+// {3:1}
 // {2:2}
-// {1:1}
+// {1:3}
 //
 //
 //
@@ -427,9 +428,9 @@ buildModel(testOptdaedump); getErrorString();
 //
 // Variables (3)
 // ========================================
-// 1: z:VARIABLE()  type: Real
+// 1: x:VARIABLE()  type: Real
 // 2: y:VARIABLE()  type: Real
-// 3: x:VARIABLE()  type: Real
+// 3: z:VARIABLE()  type: Real
 //
 //
 // Equations (3, 3)
@@ -442,16 +443,16 @@ buildModel(testOptdaedump); getErrorString();
 // Matching
 // ========================================
 // 3 variables and equations
-// var 1 is solved in eqn 1
+// var 1 is solved in eqn 3
 // var 2 is solved in eqn 2
-// var 3 is solved in eqn 3
+// var 3 is solved in eqn 1
 //
 //
 // StrongComponents
 // ========================================
-// {3:3}
+// {3:1}
 // {2:2}
-// {1:1}
+// {1:3}
 //
 //
 //

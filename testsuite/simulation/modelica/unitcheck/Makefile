@@ -18,10 +18,17 @@ UnitCheck14.mos \
 UnitCheck15.mos \
 UnitCheck16.mos \
 UnitCheck17.mos \
+UnitCheck18.mos \
+UnitCheck19.mos \
+UnitCheck20.mos \
+UnitCheck21.mos \
+UnitCheck22.mos \
+UnitCheck23.mos \
+UnitCheck24.mos \
 ticket3631.mos \
 
 
-# test that currently fail. Move up when fixed.
+# Tests that currently fail. Move up when fixed.
 # Run make failingtest
 FAILINGTESTFILES = \
 
@@ -32,6 +39,7 @@ DEPENDENCIES = \
 *.mo \
 *.mos \
 Makefile \
+OFunitcheck \
 
 CLEAN = `ls | grep -w -v -f deps.tmp`
 

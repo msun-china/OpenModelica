@@ -42,6 +42,7 @@ import DAE;
 import ConnectionSets = NFConnectionSets.ConnectionSets;
 import Equation = NFEquation;
 import CardinalityTable = NFCardinalityTable;
+import Variable = NFVariable;
 
 protected
 import ComponentReference;
@@ -51,25 +52,28 @@ import ElementSource;
 import Expression = NFExpression;
 import Face = NFConnector.Face;
 import List;
-import NFPrefixes.ConnectorType;
-import NFPrefixes.Variability;
+import NFPrefixes.{Variability, Purity, ConnectorType};
 import Operator = NFOperator;
 import Type = NFType;
-import NFCall.Call;
+import Call = NFCall;
 import NFBuiltinFuncs;
 import NFInstNode.InstNode;
-import NFClass.Class;
-import NFBinding.Binding;
+import Class = NFClass;
+import Binding = NFBinding;
 import NFFunction.Function;
 import Global;
 import BuiltinCall = NFBuiltinCall;
 import ComplexType = NFComplexType;
 import ExpandExp = NFExpandExp;
 import Prefixes = NFPrefixes;
-import NFComponent.Component;
+import Component = NFComponent;
 import Ceval = NFCeval;
 import MetaModelica.Dangerous.listReverseInPlace;
 import SimplifyExp = NFSimplifyExp;
+import UnorderedMap;
+import Flatten = NFFlatten;
+import Subscript = NFSubscript;
+import Structural = NFStructural;
 
 constant Expression EQ_ASSERT_STR =
   Expression.STRING("Connected constants/parameters must be equal");
@@ -77,11 +81,14 @@ constant Expression EQ_ASSERT_STR =
 public
 function generateEquations
   input array<list<Connector>> sets;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output list<Equation> equations = {};
+  output UnorderedSet<ComponentRef> connectedLocalIOs;
 protected
   partial function potFunc
     input list<Connector> elements;
     output list<Equation> equations;
+    input output UnorderedSet<ComponentRef> connectedLocalIOs;
   end potFunc;
 
   list<Equation> set_eql;
@@ -90,7 +97,7 @@ protected
   ConnectorType.Type cty;
 algorithm
   setGlobalRoot(Global.isInStream, NONE());
-
+  connectedLocalIOs := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
   //potfunc := if Config.orderConnections() then
   //  generatePotentialEquationsOrdered else generatePotentialEquations;
   potfunc := generatePotentialEquations;
@@ -100,11 +107,11 @@ algorithm
     cty := getSetType(set);
 
     if ConnectorType.isPotential(cty) then
-      set_eql := potfunc(set);
+      (set_eql, connectedLocalIOs) := potfunc(set, connectedLocalIOs);
     elseif ConnectorType.isFlow(cty) then
       set_eql := generateFlowEquations(set);
     elseif ConnectorType.isStream(cty) then
-      set_eql := generateStreamEquations(set, flowThreshold);
+      set_eql := generateStreamEquations(set, flowThreshold, variables);
     else
       Error.addInternalError(getInstanceName() + " got connection set with invalid type '" +
         ConnectorType.toDebugString(cty) + "': " +
@@ -120,6 +127,7 @@ function evaluateOperators
   input Expression exp;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
+  input UnorderedMap<ComponentRef, Variable> variables;
   input CardinalityTable.Table ctable;
   output Expression evalExp;
 
@@ -135,43 +143,47 @@ algorithm
         case Call.TYPED_CALL()
           then match Function.name(call.fn)
             case Absyn.IDENT("inStream")
-              then evaluateInStream(Expression.toCref(listHead(call.arguments)), sets, setsArray, ctable);
+              then evaluateInStream(Expression.toCref(listHead(call.arguments)), sets, setsArray, variables, ctable);
             case Absyn.IDENT("actualStream")
-              then evaluateActualStream(Expression.toCref(listHead(call.arguments)), sets, setsArray, ctable);
+              algorithm
+                evalExp :=
+                evaluateActualStream(Expression.toCref(listHead(call.arguments)), sets, setsArray, variables, ctable);
+              then
+                evalExp;
             case Absyn.IDENT("cardinality")
               then CardinalityTable.evaluateCardinality(listHead(call.arguments), ctable);
             else Expression.mapShallow(exp,
-              function evaluateOperators(sets = sets, setsArray = setsArray, ctable = ctable));
+              function evaluateOperators(sets = sets, setsArray = setsArray, variables = variables, ctable = ctable));
           end match;
 
         // inStream/actualStream can't handle non-literal subscripts, so reductions and array
         // constructors containing such calls needs to be expanded to get rid of the iterators.
         case Call.TYPED_REDUCTION()
           guard Expression.contains(call.exp, isStreamCall)
-          then evaluateOperatorReductionExp(exp, sets, setsArray, ctable);
+          then evaluateOperatorReductionExp(exp, sets, setsArray, variables, ctable);
 
         case Call.TYPED_ARRAY_CONSTRUCTOR()
           guard Expression.contains(call.exp, isStreamCall)
-          then evaluateOperatorArrayConstructorExp(exp, sets, setsArray, ctable);
+          then evaluateOperatorArrayConstructorExp(exp, sets, setsArray, variables, ctable);
 
         else Expression.mapShallow(exp,
-          function evaluateOperators(sets = sets, setsArray = setsArray, ctable = ctable));
+          function evaluateOperators(sets = sets, setsArray = setsArray, variables = variables, ctable = ctable));
       end match;
 
     case Expression.BINARY(exp1 = Expression.CREF(),
                            operator = Operator.OPERATOR(op = Op.MUL),
                            exp2 = Expression.CALL(call = call as Call.TYPED_CALL()))
       guard AbsynUtil.isNamedPathIdent(Function.name(call.fn), "actualStream")
-      then evaluateActualStreamMul(exp.exp1, listHead(call.arguments), exp.operator, sets, setsArray, ctable);
+      then evaluateActualStreamMul(exp.exp1, listHead(call.arguments), exp.operator, sets, setsArray, variables, ctable);
 
     case Expression.BINARY(exp1 = Expression.CALL(call = call as Call.TYPED_CALL()),
                            operator = Operator.OPERATOR(op = Op.MUL),
                            exp2 = Expression.CREF())
       guard AbsynUtil.isNamedPathIdent(Function.name(call.fn), "actualStream")
-      then evaluateActualStreamMul(exp.exp2, listHead(call.arguments), exp.operator, sets, setsArray, ctable);
+      then evaluateActualStreamMul(exp.exp2, listHead(call.arguments), exp.operator, sets, setsArray, variables, ctable);
 
     else Expression.mapShallow(exp,
-      function evaluateOperators(sets = sets, setsArray = setsArray, ctable = ctable));
+      function evaluateOperators(sets = sets, setsArray = setsArray, variables = variables, ctable = ctable));
   end match;
 end evaluateOperators;
 
@@ -191,6 +203,7 @@ function generatePotentialEquations
    will be X = Y.A and X = Z.B."
   input list<Connector> elements;
   output list<Equation> equations;
+  input output UnorderedSet<ComponentRef> connectedLocalIOs;
 protected
   Connector c1;
 algorithm
@@ -199,6 +212,15 @@ algorithm
   if Connector.variability(c1) > Variability.PARAMETER then
     equations := list(makeEqualityEquation(c1.name, c1.source, c2.name, c2.source)
       for c2 in listRest(elements));
+    // collect inputs and outputs that are inside in connections if --nonStdExposeLocalIOs > 0
+    // strip array indices so that the variables will be found later
+    if Flags.getConfigInt(Flags.EXPOSE_LOCAL_IOS) > 0 then
+      for c in elements loop
+        if (Connector.isInside(c) and (ComponentRef.isInput(c.name) or ComponentRef.isOutput(c.name))) then
+          UnorderedSet.add(ComponentRef.stripSubscripts(c.name), connectedLocalIOs);
+        end if;
+      end for;
+    end if;
   else
     equations := list(makeEqualityAssert(c1.name, c1.source, c2.name, c2.source)
       for c2 in listRest(elements));
@@ -254,7 +276,7 @@ protected
 algorithm
   source := ElementSource.mergeSources(lhsSource, rhsSource);
   //source := ElementSource.addElementSourceConnect(source, (lhsCref, rhsCref));
-  equalityEq := Equation.CREF_EQUALITY(lhsCref, rhsCref, source);
+  equalityEq := Equation.makeCrefEquality(lhsCref, rhsCref, InstNode.EMPTY_NODE(), source);
 end makeEqualityEquation;
 
 function makeEqualityAssert
@@ -271,22 +293,22 @@ algorithm
   source := ElementSource.mergeSources(lhsSource, rhsSource);
   //source := ElementSource.addElementSourceConnect(source, (lhsCref, rhsCref));
 
-  ty := ComponentRef.getComponentType(lhsCref);
   lhs_exp := Expression.fromCref(lhsCref);
   rhs_exp := Expression.fromCref(rhsCref);
+  ty := Expression.typeOf(lhs_exp);
 
   if Type.isReal(ty) then
     // Modelica doesn't allow == for Reals, so to keep the flat Modelica
     // somewhat valid we use 'abs(lhs - rhs) <= 0' instead.
     exp := Expression.BINARY(lhs_exp, Operator.makeSub(ty), rhs_exp);
-    exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.ABS_REAL, {exp}, Expression.variability(exp)));
+    exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.ABS_REAL, {exp}, Expression.variability(exp), Purity.PURE));
     exp := Expression.RELATION(exp, Operator.makeLessEq(ty), Expression.REAL(0.0));
   else
     // For any other type, generate assertion for 'lhs == rhs'.
     exp := Expression.RELATION(lhs_exp, Operator.makeEqual(ty), rhs_exp);
   end if;
 
-  equalityAssert := Equation.ASSERT(exp, EQ_ASSERT_STR, NFBuiltin.ASSERTIONLEVEL_ERROR, source);
+  equalityAssert := Equation.ASSERT(exp, EQ_ASSERT_STR, NFBuiltin.ASSERTIONLEVEL_ERROR, InstNode.EMPTY_NODE(), source);
 end makeEqualityAssert;
 
 //protected function shouldFlipPotentialEquation
@@ -318,9 +340,19 @@ protected
   list<Connector> c_rest;
   DAE.ElementSource src;
   Expression sum;
+  list<InstNode> iterators = {};
+  list<Expression> ranges = {};
+  list<Subscript> subs = {};
+  Equation eq;
 algorithm
   c :: c_rest := elements;
   src := c.source;
+
+  if Connector.isArray(c) then
+    (iterators, ranges, subs) := Flatten.makeIterators(c.name, Type.arrayDims(c.ty));
+    subs := listReverseInPlace(subs);
+    c :: c_rest := list(Connector.addSubscripts(subs, e) for e in elements);
+  end if;
 
   if listEmpty(c_rest) then
     sum := Expression.fromCref(c.name);
@@ -333,7 +365,13 @@ algorithm
     end for;
   end if;
 
-  equations := {Equation.EQUALITY(sum, Expression.REAL(0.0), c.ty, src)};
+  equations := {Equation.EQUALITY(sum, Expression.REAL(0.0), Type.arrayElementType(c.ty), InstNode.EMPTY_NODE(), src)};
+
+  while not listEmpty(iterators) loop
+    equations := {Equation.FOR(listHead(iterators), SOME(listHead(ranges)), equations, InstNode.EMPTY_NODE(), src)};
+    iterators := listRest(iterators);
+    ranges := listRest(ranges);
+  end while;
 end generateFlowEquations;
 
 function makeFlowExp
@@ -357,28 +395,30 @@ function generateStreamEquations
   "Generates the equations for a stream connection set."
   input list<Connector> elements;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output list<Equation> equations;
+protected
+  ComponentRef cr1, cr2;
+  DAE.ElementSource src, src1, src2;
+  Expression cref1, cref2, e1, e2;
+  list<Connector> inside, outside;
+  Variability var1, var2;
 algorithm
-  equations := match elements
-    local
-      ComponentRef cr1, cr2;
-      DAE.ElementSource src, src1, src2;
-      Expression cref1, cref2, e1, e2;
-      list<Connector> inside, outside;
-      Variability var1, var2;
+  (outside, inside) := List.splitOnTrue(elements, Connector.isOutside);
+  inside := list(s for s guard not isNoFlowInside(s, variables) in inside);
 
+  equations := match (inside, outside)
     // Unconnected stream connector, do nothing.
-    case ({Connector.CONNECTOR(face = Face.INSIDE)}) then {};
+    case ({_}, {}) then {};
 
     // Both inside, do nothing.
-    case ({Connector.CONNECTOR(face = Face.INSIDE),
-           Connector.CONNECTOR(face = Face.INSIDE)}) then {};
+    case ({_, _}, {}) then {};
 
     // Both outside:
     // cr1 = inStream(cr2);
     // cr2 = inStream(cr1);
-    case ({Connector.CONNECTOR(name = cr1, face = Face.OUTSIDE, source = src1),
-           Connector.CONNECTOR(name = cr2, face = Face.OUTSIDE, source = src2)})
+    case ({}, {Connector.CONNECTOR(name = cr1, source = src1),
+               Connector.CONNECTOR(name = cr2, source = src2)})
       algorithm
         cref1 := Expression.fromCref(cr1);
         cref2 := Expression.fromCref(cr2);
@@ -386,24 +426,20 @@ algorithm
         e2 := makeInStreamCall(cref1);
         src := ElementSource.mergeSources(src1, src2);
       then
-        {Equation.EQUALITY(cref1, e1, Type.REAL(), src),
-         Equation.EQUALITY(cref2, e2, Type.REAL(), src)};
+        {Equation.EQUALITY(cref1, e1, Type.REAL(), InstNode.EMPTY_NODE(), src),
+         Equation.EQUALITY(cref2, e2, Type.REAL(), InstNode.EMPTY_NODE(), src)};
 
     // One inside, one outside:
     // cr1 = cr2;
-    case ({Connector.CONNECTOR(name = cr1, source = src1),
-           Connector.CONNECTOR(name = cr2, source = src2)})
+    case ({Connector.CONNECTOR(name = cr1, source = src1)},
+          {Connector.CONNECTOR(name = cr2, source = src2)})
       algorithm
         src := ElementSource.mergeSources(src1, src2);
       then
-        {Equation.CREF_EQUALITY(cr1, cr2, src)};
+        {Equation.makeCrefEquality(cr1, cr2, InstNode.EMPTY_NODE(), src)};
 
     // The general case with N inside connectors and M outside:
-    else
-      algorithm
-        (outside, inside) := List.splitOnTrue(elements, Connector.isOutside);
-      then
-        streamEquationGeneral(outside, inside, flowThreshold);
+    else streamEquationGeneral(outside, inside, flowThreshold, variables);
 
   end match;
 end generateStreamEquations;
@@ -413,18 +449,27 @@ function streamEquationGeneral
   input list<Connector> outsideElements;
   input list<Connector> insideElements;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output list<Equation> equations = {};
 protected
-  list<Connector> outside = outsideElements;
+  list<Connector> reduced_outside, outside;
   Expression cref_exp, res;
   DAE.ElementSource src;
 algorithm
+  reduced_outside := list(s for s guard not isNoFlowOutside(s, variables) in outsideElements);
+
   for e in outsideElements loop
     cref_exp := Expression.fromCref(e.name);
-    outside := removeStreamSetElement(e.name, outsideElements);
-    res := streamSumEquationExp(outside, insideElements, flowThreshold);
+    outside := removeStreamSetElement(e.name, reduced_outside);
+
+    if listEmpty(outside) and listEmpty(insideElements) then
+      res := Expression.INTEGER(0);
+    else
+      res := streamSumEquationExp(outside, insideElements, flowThreshold, variables);
+    end if;
+
     src := ElementSource.addAdditionalComment(e.source, " equation generated from stream connection");
-    equations := Equation.EQUALITY(cref_exp, res, Type.REAL(), src) :: equations;
+    equations := Equation.EQUALITY(cref_exp, res, Type.REAL(), InstNode.EMPTY_NODE(), src) :: equations;
   end for;
 end streamEquationGeneral;
 
@@ -442,26 +487,27 @@ function streamSumEquationExp
   input list<Connector> outsideElements;
   input list<Connector> insideElements;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output Expression sumExp;
 protected
   Expression outside_sum1, outside_sum2, inside_sum1, inside_sum2, res;
 algorithm
   if listEmpty(outsideElements) then
     // No outside components.
-    inside_sum1 := sumMap(insideElements, sumInside1, flowThreshold);
-    inside_sum2 := sumMap(insideElements, sumInside2, flowThreshold);
+    inside_sum1 := sumMap(insideElements, sumInside1, flowThreshold, variables);
+    inside_sum2 := sumMap(insideElements, sumInside2, flowThreshold, variables);
     sumExp := Expression.BINARY(inside_sum1, Operator.makeDiv(Type.REAL()), inside_sum2);
   elseif listEmpty(insideElements) then
     // No inside components.
-    outside_sum1 := sumMap(outsideElements, sumOutside1, flowThreshold);
-    outside_sum2 := sumMap(outsideElements, sumOutside2, flowThreshold);
+    outside_sum1 := sumMap(outsideElements, sumOutside1, flowThreshold, variables);
+    outside_sum2 := sumMap(outsideElements, sumOutside2, flowThreshold, variables);
     sumExp := Expression.BINARY(outside_sum1, Operator.makeDiv(Type.REAL()), outside_sum2);
   else
     // Both outside and inside components.
-    outside_sum1 := sumMap(outsideElements, sumOutside1, flowThreshold);
-    outside_sum2 := sumMap(outsideElements, sumOutside2, flowThreshold);
-    inside_sum1 := sumMap(insideElements, sumInside1, flowThreshold);
-    inside_sum2 := sumMap(insideElements, sumInside2, flowThreshold);
+    outside_sum1 := sumMap(outsideElements, sumOutside1, flowThreshold, variables);
+    outside_sum2 := sumMap(outsideElements, sumOutside2, flowThreshold, variables);
+    inside_sum1 := sumMap(insideElements, sumInside1, flowThreshold, variables);
+    inside_sum2 := sumMap(insideElements, sumInside2, flowThreshold, variables);
     sumExp := Expression.BINARY(
       Expression.BINARY(outside_sum1, Operator.makeAdd(Type.REAL()), inside_sum1),
       Operator.makeDiv(Type.REAL()),
@@ -475,17 +521,19 @@ function sumMap
   input list<Connector> elements;
   input FuncType func;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output Expression exp;
 
   partial function FuncType
     input Connector element;
     input Expression flowThreshold;
+    input UnorderedMap<ComponentRef, Variable> variables;
     output Expression exp;
   end FuncType;
 algorithm
-  exp := func(listHead(elements), flowThreshold);
+  exp := func(listHead(elements), flowThreshold, variables);
   for e in listRest(elements) loop
-    exp := Expression.BINARY(func(e, flowThreshold), Operator.makeAdd(Type.REAL()), exp);
+    exp := Expression.BINARY(func(e, flowThreshold, variables), Operator.makeAdd(Type.REAL()), exp);
   end for;
 end sumMap;
 
@@ -519,12 +567,13 @@ function sumOutside1
    given a stream set element."
   input Connector element;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output Expression exp;
 protected
   Expression stream_exp, flow_exp;
 algorithm
   (stream_exp, flow_exp) := streamFlowExp(element);
-  exp := Expression.BINARY(makePositiveMaxCall(flow_exp, element, flowThreshold),
+  exp := Expression.BINARY(makePositiveMaxCall(flow_exp, element, flowThreshold, variables),
     Operator.makeMul(Type.REAL()), makeInStreamCall(stream_exp));
 end sumOutside1;
 
@@ -534,13 +583,14 @@ function sumInside1
    given a stream set element."
   input Connector element;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output Expression exp;
 protected
   Expression stream_exp, flow_exp, flow_threshold;
 algorithm
   (stream_exp, flow_exp) := streamFlowExp(element);
   flow_exp := Expression.UNARY(Operator.makeUMinus(Type.REAL()), flow_exp);
-  exp := Expression.BINARY(makePositiveMaxCall(flow_exp, element, flowThreshold),
+  exp := Expression.BINARY(makePositiveMaxCall(flow_exp, element, flowThreshold, variables),
     Operator.makeMul(Type.REAL()), stream_exp);
 end sumInside1;
 
@@ -550,12 +600,13 @@ function sumOutside2
    given a stream set element."
   input Connector element;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output Expression exp;
 protected
   Expression flow_exp;
 algorithm
   flow_exp := flowExp(element);
-  exp := makePositiveMaxCall(flow_exp, element, flowThreshold);
+  exp := makePositiveMaxCall(flow_exp, element, flowThreshold, variables);
 end sumOutside2;
 
 function sumInside2
@@ -564,13 +615,14 @@ function sumInside2
    given a stream set element."
   input Connector element;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output Expression exp;
 protected
   Expression flow_exp;
 algorithm
   flow_exp := flowExp(element);
   flow_exp := Expression.UNARY(Operator.makeUMinus(Type.REAL()), flow_exp);
-  exp := makePositiveMaxCall(flow_exp, element, flowThreshold);
+  exp := makePositiveMaxCall(flow_exp, element, flowThreshold, variables);
 end sumInside2;
 
 function makeInStreamCall
@@ -580,7 +632,7 @@ function makeInStreamCall
   annotation(__OpenModelica_EarlyInline = true);
 algorithm
   inStreamCall := Expression.CALL(Call.makeTypedCall(
-    NFBuiltinFuncs.IN_STREAM, {streamExp}, Expression.variability(streamExp)));
+    NFBuiltinFuncs.IN_STREAM, {streamExp}, Expression.variability(streamExp), Purity.PURE));
 end makeInStreamCall;
 
 function makePositiveMaxCall
@@ -588,25 +640,26 @@ function makePositiveMaxCall
   input Expression flowExp;
   input Connector element;
   input Expression flowThreshold;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output Expression positiveMaxCall;
 protected
-  InstNode flow_node;
+  //InstNode flow_node;
+  ComponentRef flow_name;
   Option<Expression> nominal_oexp;
   Expression nominal_exp, flow_threshold;
 algorithm
-  flow_node := ComponentRef.node(associatedFlowCref(Connector.name(element)));
-  nominal_oexp := Class.lookupAttributeValue("nominal", InstNode.getClass(flow_node));
+  flow_name := associatedFlowCref(Connector.name(element));
+  nominal_oexp := lookupVarAttr(flow_name, "nominal", variables);
 
   if isSome(nominal_oexp) then
     SOME(nominal_exp) := nominal_oexp;
-    nominal_exp := Expression.getBindingExp(nominal_exp);
     flow_threshold := Expression.BINARY(flowThreshold, Operator.makeMul(Type.REAL()), nominal_exp);
   else
     flow_threshold := flowThreshold;
   end if;
 
   positiveMaxCall := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.POSITIVE_MAX_REAL,
-    {flowExp, flow_threshold}, Connector.variability(element)));
+    {flowExp, flow_threshold}, Connector.variability(element), Purity.PURE));
 
   setGlobalRoot(Global.isInStream, SOME(true));
 end makePositiveMaxCall;
@@ -634,6 +687,7 @@ function evaluateOperatorReductionExp
   input Expression exp;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
+  input UnorderedMap<ComponentRef, Variable> variables;
   input CardinalityTable.Table ctable;
   output Expression evalExp;
 protected
@@ -665,17 +719,18 @@ algorithm
         iters := listReverseInPlace(iters);
         arg := ExpandExp.expandArrayConstructor(call.exp, ty, iters);
       then
-        Expression.CALL(Call.makeTypedCall(call.fn, {arg}, call.var, call.ty));
+        Expression.CALL(Call.makeTypedCall(call.fn, {arg}, call.var, Purity.PURE, call.ty));
 
   end match;
 
-  evalExp := evaluateOperators(evalExp, sets, setsArray, ctable);
+  evalExp := evaluateOperators(evalExp, sets, setsArray, variables, ctable);
 end evaluateOperatorReductionExp;
 
 function evaluateOperatorArrayConstructorExp
   input Expression exp;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
+  input UnorderedMap<ComponentRef, Variable> variables;
   input CardinalityTable.Table ctable;
   output Expression evalExp;
 protected
@@ -689,7 +744,7 @@ algorithm
       Expression.toString(exp), sourceInfo());
   end if;
 
-  evalExp := evaluateOperators(evalExp, sets, setsArray, ctable);
+  evalExp := evaluateOperators(evalExp, sets, setsArray, variables, ctable);
 end evaluateOperatorArrayConstructorExp;
 
 function evaluateInStream
@@ -697,14 +752,17 @@ function evaluateInStream
   input ComponentRef cref;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
+  input UnorderedMap<ComponentRef, Variable> variables;
   input CardinalityTable.Table ctable;
   output Expression exp;
 protected
   Connector c;
   list<Connector> sl;
   Integer set;
+  ComponentRef cr;
 algorithm
-  c := Connector.CONNECTOR(cref, Type.UNKNOWN(), Face.INSIDE,
+  cr := ComponentRef.evaluateSubscripts(cref);
+  c := Connector.CONNECTOR(cr, Type.UNKNOWN(), Face.INSIDE,
     ConnectorType.STREAM, DAE.emptyElementSource);
 
   try
@@ -714,7 +772,7 @@ algorithm
     sl := {c};
   end try;
 
-  exp := generateInStreamExp(cref, sl, sets, setsArray, ctable,
+  exp := generateInStreamExp(cr, sl, sets, setsArray, variables, ctable,
     Flags.getConfigReal(Flags.FLOW_THRESHOLD));
 end evaluateInStream;
 
@@ -725,6 +783,7 @@ function generateInStreamExp
   input list<Connector> streams;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
+  input UnorderedMap<ComponentRef, Variable> variables;
   input CardinalityTable.Table ctable;
   input Real flowThreshold;
   output Expression exp;
@@ -733,7 +792,7 @@ protected
   ComponentRef cr;
   Face f1, f2;
 algorithm
-  reducedStreams := list(s for s guard not isZeroFlowMinMax(s, streamCref) in streams);
+  reducedStreams := list(s for s guard not isNoFlowMinMax(s, streamCref, variables) in streams);
 
   exp := match reducedStreams
     // Unconnected stream connector:
@@ -760,63 +819,97 @@ algorithm
         {Connector.CONNECTOR(name = cr)} :=
           removeStreamSetElement(streamCref, reducedStreams);
       then
-        evaluateInStream(cr, sets, setsArray, ctable);
+        evaluateInStream(cr, sets, setsArray, variables, ctable);
 
     // The general case:
     else
       algorithm
         (outside, inside) := List.splitOnTrue(reducedStreams, Connector.isOutside);
         inside := removeStreamSetElement(streamCref, inside);
-        exp := streamSumEquationExp(outside, inside, Expression.REAL(flowThreshold));
+        exp := streamSumEquationExp(outside, inside, Expression.REAL(flowThreshold), variables);
         // Evaluate any inStream calls that were generated.
-        exp := evaluateOperators(exp, sets, setsArray, ctable);
+        exp := evaluateOperators(exp, sets, setsArray, variables, ctable);
       then
         exp;
 
   end match;
 end generateInStreamExp;
 
-function isZeroFlowMinMax
+function isNoFlowMinMax
   "Returns true if the given flow attribute of a connector is zero."
   input Connector conn;
   input ComponentRef streamCref;
-  output Boolean isZero;
+  input UnorderedMap<ComponentRef, Variable> variables;
+  output Boolean noFlow;
 algorithm
   if ComponentRef.isEqual(streamCref, conn.name) then
-    isZero := false;
+    noFlow := false;
   elseif Connector.isOutside(conn) then
-    isZero := isZeroFlow(conn, "max");
+    noFlow := isNoFlowOutside(conn, variables);
   else
-    isZero := isZeroFlow(conn, "min");
+    noFlow := isNoFlowInside(conn, variables);
   end if;
-end isZeroFlowMinMax;
+end isNoFlowMinMax;
 
-function isZeroFlow
-  "Returns true if the given flow attribute of a connector is zero."
+function isNoFlowOutside
+  "Returns true if the given outside stream connector has no flow, which occurs
+   when its max attribute <= 0."
+  input Connector conn;
+  input UnorderedMap<ComponentRef, Variable> variables;
+  output Boolean noFlow;
+algorithm
+  noFlow := isNoFlow(conn, "max", Expression.isNonPositive, variables);
+end isNoFlowOutside;
+
+function isNoFlowInside
+  "Returns true if the given inside stream connector has no flow, which occurs
+   when its min attribute >= 0."
+  input Connector conn;
+  input UnorderedMap<ComponentRef, Variable> variables;
+  output Boolean noFlow;
+algorithm
+  noFlow := isNoFlow(conn, "min", Expression.isNonNegative, variables);
+end isNoFlowInside;
+
+function isNoFlow
+  "Returns true if a given stream connector has no flow."
   input Connector element;
   input String attr;
-  output Boolean isZero;
+  input FlowPred pred;
+  input UnorderedMap<ComponentRef, Variable> variables;
+  output Boolean noFlow;
+
+  partial function FlowPred
+    input Expression exp;
+    output Boolean res;
+  end FlowPred;
 protected
+  ComponentRef flow_name;
   Option<Expression> attr_oexp;
-  Expression flow_exp, attr_exp;
-  InstNode flow_node;
+  Expression attr_exp;
+  Variability var;
 algorithm
-  flow_exp := flowExp(element);
-  flow_node := ComponentRef.node(Expression.toCref(flow_exp));
-  attr_oexp := Class.lookupAttributeValue(attr, InstNode.getClass(flow_node));
+  flow_name := Expression.toCref(flowExp(element));
+  attr_oexp := lookupVarAttr(flow_name, attr, variables);
 
   if isSome(attr_oexp) then
     SOME(attr_exp) := attr_oexp;
+    var := Expression.variability(attr_exp);
 
-    if Expression.variability(attr_exp) <= Variability.STRUCTURAL_PARAMETER then
+    if var == Variability.PARAMETER and not Structural.isExpressionNotFixed(attr_exp) then
+      Structural.markExp(attr_exp);
+      var := Variability.STRUCTURAL_PARAMETER;
+    end if;
+
+    if var <= Variability.STRUCTURAL_PARAMETER then
       attr_exp := Ceval.evalExp(attr_exp);
     end if;
 
-    isZero := Expression.isZero(Expression.getBindingExp(attr_exp));
+    noFlow := pred(attr_exp);
   else
-    isZero := false;
+    noFlow := false;
   end if;
-end isZeroFlow;
+end isNoFlow;
 
 protected function evaluateActualStream
   "This function evaluates the actualStream operator for a component reference,
@@ -824,39 +917,37 @@ protected function evaluateActualStream
   input ComponentRef streamCref;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
+  input UnorderedMap<ComponentRef, Variable> variables;
   input CardinalityTable.Table ctable;
-  input Option<ComponentRef> mulCref = NONE();
   output Expression exp;
+  output ComponentRef flowCref;
 protected
+  ComponentRef stream_cref;
   Integer flow_dir;
-  ComponentRef flow_cr;
   Expression flow_exp, stream_exp, instream_exp;
   Operator op;
 algorithm
-  flow_cr := associatedFlowCref(streamCref);
-  flow_dir := evaluateFlowDirection(flow_cr);
+  stream_cref := ComponentRef.evaluateSubscripts(streamCref);
+  flowCref := associatedFlowCref(stream_cref);
+  flow_dir := evaluateFlowDirection(flowCref, variables);
 
   // Select a branch if we know the flow direction, otherwise generate the whole
   // if-equation.
   if flow_dir == 1 then
-    exp := evaluateInStream(streamCref, sets, setsArray, ctable);
+    exp := evaluateInStream(stream_cref, sets, setsArray, variables, ctable);
   elseif flow_dir == -1 then
-    exp := Expression.fromCref(streamCref);
+    exp := Expression.fromCref(stream_cref);
   else
-    // actualStream(stream_var) = smooth(0, if flow_var > 0 then inStream(stream_var)
-    //                                                      else stream_var);
-    flow_exp := Expression.fromCref(flow_cr);
-    stream_exp := Expression.fromCref(streamCref);
-    instream_exp := evaluateInStream(streamCref, sets, setsArray, ctable);
-    op := Operator.makeGreater(ComponentRef.nodeType(flow_cr));
+    // actualStream(stream_var) = if flow_var > 0 then inStream(stream_var) else stream_var);
+    flow_exp := Expression.fromCref(flowCref);
+    stream_exp := Expression.fromCref(stream_cref);
+    instream_exp := evaluateInStream(stream_cref, sets, setsArray, variables, ctable);
+    op := Operator.makeGreater(ComponentRef.nodeType(flowCref));
 
     exp := Expression.IF(
+      Type.REAL(),
       Expression.RELATION(flow_exp, op, Expression.REAL(0.0)),
       instream_exp, stream_exp);
-
-    if isNone(mulCref) or not ComponentRef.isEqual(flow_cr, Util.getOption(mulCref)) then
-      exp := makeSmoothCall(exp, 0);
-    end if;
   end if;
 end evaluateActualStream;
 
@@ -868,36 +959,36 @@ function evaluateActualStreamMul
   input Operator op;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
+  input UnorderedMap<ComponentRef, Variable> variables;
   input CardinalityTable.Table ctable;
   output Expression outExp;
 protected
   Expression e1, e2;
   ComponentRef cr, flow_cr;
 algorithm
-  e1 as Expression.CREF(cref = cr) := evaluateOperators(crefExp, sets, setsArray, ctable);
-  e2 := evaluateActualStream(Expression.toCref(actualStreamArg), sets, setsArray, ctable, SOME(cr));
+  e1 as Expression.CREF(cref = cr) := evaluateOperators(crefExp, sets, setsArray, variables, ctable);
+  (e2, flow_cr) := evaluateActualStream(Expression.toCref(actualStreamArg), sets, setsArray, variables, ctable);
   outExp := Expression.BINARY(e1, op, e2);
 
   // Wrap the expression in smooth if the result would be flow_cr * (if flow_cr > 0 then ...)
   outExp := match e2
-    case Expression.IF() then makeSmoothCall(outExp, 0);
+    case Expression.IF() guard ComponentRef.isEqual(cr, flow_cr) then makeSmoothCall(outExp, 0);
     else outExp;
   end match;
 end evaluateActualStreamMul;
 
 function evaluateFlowDirection
   input ComponentRef flowCref;
+  input UnorderedMap<ComponentRef, Variable> variables;
   output Integer direction = 0;
 protected
-  Class flow_cls;
   Option<Expression> omin, omax;
   Real min_val, max_val;
 algorithm
-  flow_cls := InstNode.getClass(ComponentRef.node(flowCref));
-  omin := Class.lookupAttributeValue("min", flow_cls);
-  omin := SimplifyExp.simplifyOpt(Util.applyOption(omin, Expression.getBindingExp));
-  omax := Class.lookupAttributeValue("max", flow_cls);
-  omax := SimplifyExp.simplifyOpt(Util.applyOption(omax, Expression.getBindingExp));
+  omin := lookupVarAttr(flowCref, "min", variables);
+  omin := SimplifyExp.simplifyOpt(omin);
+  omax := lookupVarAttr(flowCref, "max", variables);
+  omax := SimplifyExp.simplifyOpt(omax);
 
   direction := match (omin, omax)
     // No attributes, flow direction can't be decided.
@@ -927,7 +1018,7 @@ function makeSmoothCall
   output Expression callExp;
 algorithm
   callExp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.SMOOTH,
-    {DAE.INTEGER(order), arg}, Expression.variability(arg)));
+    {Expression.INTEGER(order), arg}, Expression.variability(arg), Purity.PURE));
 end makeSmoothCall;
 
 protected function removeStreamSetElement
@@ -969,6 +1060,32 @@ algorithm
     else associatedFlowCref(rest_cr);
   end match;
 end associatedFlowCref;
+
+function lookupVarAttr
+  input ComponentRef varName;
+  input String attrName;
+  input UnorderedMap<ComponentRef, Variable> variables;
+  output Option<Expression> attrValue;
+protected
+  Option<Variable> ovar;
+  Variable var;
+  Binding binding;
+algorithm
+  ovar := UnorderedMap.get(varName, variables);
+
+  if isNone(ovar) then
+    ovar := UnorderedMap.get(ComponentRef.stripSubscriptsAll(varName), variables);
+  end if;
+
+  if isNone(ovar) then
+    Error.addInternalError(getInstanceName() + " could not find the variable " +
+      ComponentRef.toString(varName) + "\n", sourceInfo());
+  end if;
+
+  SOME(var) := ovar;
+  binding := Variable.lookupTypeAttribute(attrName, var);
+  attrValue := Binding.typedExp(binding);
+end lookupVarAttr;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFConnectEquations;

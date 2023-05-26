@@ -77,6 +77,7 @@ MatchShadowing.mo \
 OptimizeContinue.mo \
 OptimizeMatchToIfExp.mo \
 OptionInteractive.mos \
+PackageConst1.mos \
 PartialFn1.mo \
 PartialFn2.mo \
 PartialFn3.mos \
@@ -97,6 +98,9 @@ PartialFnDefaultBinding.mos \
 PatternMatchInvalidType.mo \
 Polymorphic.mos \
 Polymorphic2.mos \
+PolymorphicCallTypeSpec1.mos \
+PolymorphicCallTypeSpec2.mos \
+PolymorphicCallTypeSpec3.mos \
 PolymorphicReduction.mos \
 Recursive.mos \
 ReturnInTryBlock.mos \
@@ -131,11 +135,14 @@ Uniontype12.mos \
 Uniontype13.mos \
 Uniontype14.mos \
 Uniontype15.mos \
-UniontypeFunc1.mos
-
+UniontypeFunc1.mos \
+UniontypeConst1.mos \
+UniontypeConst2.mos \
+UniontypeConst3.mos \
+UniontypeNestedSingelton.mos
 # test that currently fail. Move up when fixed.
 # Run make testfailing
-FAILINGTESTFILES= \
+FAILINGTESTFILES=
 
 # Dependency files that are not .mo .mos or Makefile
 # Add them here or they will be cleaned.

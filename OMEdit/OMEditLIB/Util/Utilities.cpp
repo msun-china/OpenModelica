@@ -40,7 +40,11 @@
 #include "Editors/BaseEditor.h"
 
 #include <QApplication>
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+#include <QScreen>
+#else // QT_VERSION_CHECK
 #include <QDesktopWidget>
+#endif // QT_VERSION_CHECK
 #include <QGridLayout>
 #include <QStylePainter>
 #include <QPainter>
@@ -65,15 +69,36 @@ TreeSearchFilters::TreeSearchFilters(QWidget *pParent)
   // create the filter text box
   mpFilterTextBox = new QLineEdit;
   mpFilterTextBox->installEventFilter(this);
+  mpFilterTextBox->setClearButtonEnabled(true);
+  connect(this, SIGNAL(clearFilter(QString)), mpFilterTextBox, SIGNAL(textEdited(QString)));
   // filter timer
-  mpFilterTimer = new QTimer;
+  mpFilterTimer = new QTimer(this);
   mpFilterTimer->setSingleShot(true);
+  mpScrollToActiveButton = new QToolButton;
+  QString scrollToActiveButtonText = tr("Scroll to Active");
+  mpScrollToActiveButton->setText(scrollToActiveButtonText);
+  mpScrollToActiveButton->setIcon(QIcon(":/Resources/icons/step-into.svg"));
+  mpScrollToActiveButton->setToolTip(scrollToActiveButtonText);
+  mpScrollToActiveButton->setAutoRaise(true);
+  mpScrollToActiveButton->hide();
+  // expand all button
+  mpExpandAllButton = new QToolButton;
+  mpExpandAllButton->setText(Helper::expandAll);
+  mpExpandAllButton->setIcon(QIcon(":/Resources/icons/bottom.svg"));
+  mpExpandAllButton->setToolTip(Helper::expandAll);
+  mpExpandAllButton->setAutoRaise(true);
+  // collapse all button
+  mpCollapseAllButton = new QToolButton;
+  mpCollapseAllButton->setText(Helper::collapseAll);
+  mpCollapseAllButton->setIcon(QIcon(":/Resources/icons/top.svg"));
+  mpCollapseAllButton->setToolTip(Helper::collapseAll);
+  mpCollapseAllButton->setAutoRaise(true);
   // show hide button
   mpShowHideButton = new QToolButton;
-  QString text = tr("Show/hide filters");
-  mpShowHideButton->setText(text);
+  QString showHideButtonText = tr("Show/hide filters");
+  mpShowHideButton->setText(showHideButtonText);
   mpShowHideButton->setIcon(QIcon(":/Resources/icons/down.svg"));
-  mpShowHideButton->setToolTip(text);
+  mpShowHideButton->setToolTip(showHideButtonText);
   mpShowHideButton->setAutoRaise(true);
   mpShowHideButton->setCheckable(true);
   connect(mpShowHideButton, SIGNAL(toggled(bool)), SLOT(showHideFilters(bool)));
@@ -83,41 +108,39 @@ TreeSearchFilters::TreeSearchFilters(QWidget *pParent)
   mpCaseSensitiveCheckBox = new QCheckBox(tr("Case Sensitive"));
   // create the search syntax combobox
   mpSyntaxComboBox = new QComboBox;
+  QStringList syntaxDescriptions;
+  syntaxDescriptions << tr("A rich Perl-like pattern matching syntax.")
+                      << tr("A simple pattern matching syntax similar to that used by shells (command interpreters) for \"file globbing\".")
+                      << tr("Fixed string matching.");
   mpSyntaxComboBox->addItem(tr("Regular Expression"), QRegExp::RegExp);
-  mpSyntaxComboBox->setItemData(0, tr("A rich Perl-like pattern matching syntax."), Qt::ToolTipRole);
   mpSyntaxComboBox->addItem(tr("Wildcard"), QRegExp::Wildcard);
-  mpSyntaxComboBox->setItemData(1, tr("A simple pattern matching syntax similar to that used by shells (command interpreters) for \"file globbing\"."), Qt::ToolTipRole);
   mpSyntaxComboBox->addItem(tr("Fixed String"), QRegExp::FixedString);
-  mpSyntaxComboBox->setItemData(2, tr("Fixed string matching."), Qt::ToolTipRole);
-  // expand all button
-  mpExpandAllButton = new QPushButton(Helper::expandAll);
-  mpExpandAllButton->setAutoDefault(false);
-  // collapse all button
-  mpCollapseAllButton = new QPushButton(Helper::collapseAll);
-  mpCollapseAllButton->setAutoDefault(false);
+  Utilities::setToolTip(mpSyntaxComboBox, "Filters", syntaxDescriptions);
   // create the layout
   QGridLayout *pFiltersWidgetLayout = new QGridLayout;
   pFiltersWidgetLayout->setContentsMargins(0, 0, 0, 0);
   pFiltersWidgetLayout->setAlignment(Qt::AlignTop);
   pFiltersWidgetLayout->addWidget(mpCaseSensitiveCheckBox, 0, 0);
   pFiltersWidgetLayout->addWidget(mpSyntaxComboBox, 0, 1);
-  pFiltersWidgetLayout->addWidget(mpExpandAllButton, 1, 0);
-  pFiltersWidgetLayout->addWidget(mpCollapseAllButton, 1, 1);
   mpFiltersWidget->setLayout(pFiltersWidgetLayout);
   mpFiltersWidget->hide();
   // create the layout
   QGridLayout *pMainLayout = new QGridLayout;
   pMainLayout->setContentsMargins(0, 0, 0, 0);
+  pMainLayout->setSpacing(0);
   pMainLayout->setAlignment(Qt::AlignTop);
   pMainLayout->addWidget(mpFilterTextBox, 0, 0);
-  pMainLayout->addWidget(mpShowHideButton, 0, 1);
-  pMainLayout->addWidget(mpFiltersWidget, 1, 0, 1, 2);
+  pMainLayout->addWidget(mpScrollToActiveButton, 0, 1);
+  pMainLayout->addWidget(mpExpandAllButton, 0, 2);
+  pMainLayout->addWidget(mpCollapseAllButton, 0, 3);
+  pMainLayout->addWidget(mpShowHideButton, 0, 4);
+  pMainLayout->addWidget(mpFiltersWidget, 1, 0, 1, 5);
   setLayout(pMainLayout);
 }
 
 /*!
  * \brief TreeSearchFilters::eventFilter
- * Handles the ESC key press for search text box
+ * Handles the ESC key press for filter text box
  * \param pObject
  * \param pEvent
  * \return
@@ -125,13 +148,17 @@ TreeSearchFilters::TreeSearchFilters(QWidget *pParent)
 bool TreeSearchFilters::eventFilter(QObject *pObject, QEvent *pEvent)
 {
   /* Ticket #3987
-   * Clear contents of search field by clicking ESC key.
+   * Clear contents of filter field by clicking ESC key.
    */
-  QLineEdit *pSearchTextBox = qobject_cast<QLineEdit*>(pObject);
-  if (pSearchTextBox && pEvent->type() == QEvent::KeyPress) {
+  QLineEdit *pFilterTextBox = qobject_cast<QLineEdit*>(pObject);
+  if (pFilterTextBox && pEvent->type() == QEvent::KeyPress) {
     QKeyEvent *pKeyEvent = static_cast<QKeyEvent*>(pEvent);
     if (pKeyEvent && pKeyEvent->key() == Qt::Key_Escape) {
-      pSearchTextBox->clear();
+      pFilterTextBox->clear();
+      /* Ticket #5998
+       * Emit clearFilter signal which calls textEdited signal of mpFilterTextBox to reset filter.
+       */
+      emit clearFilter("");
       return true;
     }
   }
@@ -221,20 +248,37 @@ Label::Label(const QString &text, QWidget *parent, Qt::WindowFlags flags)
 
 QSize Label::minimumSizeHint() const
 {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
+  if (!pixmap(Qt::ReturnByValue).isNull() || mElideMode == Qt::ElideNone) {
+#else // QT_VERSION_CHECK
   if (pixmap() != NULL || mElideMode == Qt::ElideNone) {
+#endif // QT_VERSION_CHECK
     return QLabel::minimumSizeHint();
   }
   const QFontMetrics &fm = fontMetrics();
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+  QSize size(fm.horizontalAdvance("..."), fm.height()+5);
+#else // QT_VERSION_CHECK
   QSize size(fm.width("..."), fm.height()+5);
+#endif // QT_VERSION_CHECK
   return size;
 }
 
 QSize Label::sizeHint() const
 {
-  if (pixmap() != NULL || mElideMode == Qt::ElideNone)
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
+  if (!pixmap(Qt::ReturnByValue).isNull() || mElideMode == Qt::ElideNone) {
+#else // QT_VERSION_CHECK
+  if (pixmap() != NULL || mElideMode == Qt::ElideNone) {
+#endif // QT_VERSION_CHECK
     return QLabel::sizeHint();
+  }
   const QFontMetrics& fm = fontMetrics();
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+  QSize size(fm.horizontalAdvance(mText), fm.height()+5);
+#else // QT_VERSION_CHECK
   QSize size(fm.width(mText), fm.height()+5);
+#endif // QT_VERSION_CHECK
   return size;
 }
 
@@ -366,71 +410,133 @@ ListWidgetItem::ListWidgetItem(QString text, QColor color, QListWidget *pParentL
   setForeground(mColor);
 }
 
-CodeColorsWidget::CodeColorsWidget(QWidget *pParent)
-  : QWidget(pParent)
+/*!
+ * \brief QDetachableProcess::QDetachableProcess
+ * Implementation from https://stackoverflow.com/questions/42051405/qprocess-with-cmd-command-does-not-result-in-command-line-window
+ * \param pParent
+ */
+QDetachableProcess::QDetachableProcess(QObject *pParent)
+  : QProcess(pParent)
 {
-  // colors groupbox
-  mpColorsGroupBox = new QGroupBox(Helper::Colors);
-  // Item color label and pick color button
-  mpItemColorLabel = new Label(tr("Item Color:"));
-  mpItemColorPickButton = new QPushButton(Helper::pickColor);
-  mpItemColorPickButton->setAutoDefault(false);
-  connect(mpItemColorPickButton, SIGNAL(clicked()), SLOT(pickColor()));
-  // Items list
-  mpItemsLabel = new Label(tr("Items:"));
-  mpItemsListWidget = new QListWidget;
-  mpItemsListWidget->setItemDelegate(new ItemDelegate(mpItemsListWidget));
-  mpItemsListWidget->setMaximumHeight(90);
-  // text (black)
-  new ListWidgetItem("Text", QColor(0, 0, 0), mpItemsListWidget);
-  // make first item in the list selected
-  mpItemsListWidget->setCurrentRow(0, QItemSelectionModel::Select);
-  // preview textbox
-  mpPreviewLabel = new Label(tr("Preview:"));
-  mpPreviewPlainTextEdit = new PreviewPlainTextEdit;
-  mpPreviewPlainTextEdit->setTabStopWidth(Helper::tabWidth);
-  // set colors groupbox layout
-  QGridLayout *pColorsGroupBoxLayout = new QGridLayout;
-  pColorsGroupBoxLayout->addWidget(mpItemsLabel, 1, 0);
-  pColorsGroupBoxLayout->addWidget(mpItemColorLabel, 1, 1);
-  pColorsGroupBoxLayout->addWidget(mpItemsListWidget, 2, 0);
-  pColorsGroupBoxLayout->addWidget(mpItemColorPickButton, 2, 1, Qt::AlignTop);
-  pColorsGroupBoxLayout->addWidget(mpPreviewLabel, 3, 0, 1, 2);
-  pColorsGroupBoxLayout->addWidget(mpPreviewPlainTextEdit, 4, 0, 1, 2);
-  mpColorsGroupBox->setLayout(pColorsGroupBoxLayout);
-  // set the layout
-  QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
-  pMainLayout->addWidget(mpColorsGroupBox);
-  setLayout(pMainLayout);
+#ifdef Q_OS_WIN
+  setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
+    args->flags |= CREATE_NEW_CONSOLE;
+    args->startupInfo->dwFlags &=~ STARTF_USESTDHANDLES;
+  });
+#endif
 }
 
 /*!
- * \brief CodeColorsWidget::pickColor
- * Picks a color for one of the Text Settings rules.
- * This method is called when mpColorPickButton clicked SIGNAL raised.
+ * \brief QDetachableProcess::start
+ * Starts a process and detaches from it.
+ * \param program
+ * \param arguments
+ * \param mode
  */
-void CodeColorsWidget::pickColor()
+void QDetachableProcess::start(const QString &program, const QStringList &arguments, QIODevice::OpenMode mode)
 {
-  QListWidgetItem *pItem = mpItemsListWidget->currentItem();
-  ListWidgetItem *pListWidgetItem = dynamic_cast<ListWidgetItem*>(pItem);
-  if (!pListWidgetItem) {
-    return;
+  QProcess::start(program, arguments, mode);
+  waitForStarted();
+  setProcessState(QProcess::NotRunning);
+}
+
+#if (QT_VERSION < QT_VERSION_CHECK(5, 15, 0))
+/*!
+ * \brief QDetachableProcess::start
+ * Starts a process and detaches from it.
+ * \param command
+ * \param mode
+ */
+void QDetachableProcess::start(const QString &command, QIODevice::OpenMode mode)
+{
+  QProcess::start(command, mode);
+  waitForStarted();
+  setProcessState(QProcess::NotRunning);
+}
+#endif
+
+
+JsonDocument::JsonDocument(QObject *pParent)
+  : QObject(pParent)
+{
+  result.clear();
+  errorString = "";
+}
+
+bool JsonDocument::parse(const QString &fileName)
+{
+  bool success = true;
+  QFile file(fileName);
+  if (file.exists()) {
+    if (file.open(QIODevice::ReadOnly)) {
+      QJsonParseError jsonParserError;
+      QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &jsonParserError);
+      if (doc.isNull()) {
+        errorString = QString("Failed to parse file %1 with error %2").arg(file.fileName(), jsonParserError.errorString());
+        success = false;
+      } else {
+        result = doc.toVariant();
+      }
+      file.close();
+    } else {
+      errorString = GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(file.fileName(), file.errorString());
+      success = false;
+    }
   }
-  QColor color = QColorDialog::getColor(pListWidgetItem->getColor());
-  if (!color.isValid()) {
-    return;
+  return success;
+}
+
+bool JsonDocument::parse(const QByteArray &jsonData)
+{
+  bool success = true;
+  QString msg("Failed to parse json %1 with error %2");
+  QJsonParseError jsonParserError;
+  QJsonDocument doc = QJsonDocument::fromJson(jsonData, &jsonParserError);
+  if (doc.isNull()) {
+    errorString = QString(msg).arg(jsonData, jsonParserError.errorString());
+    success = false;
+  } else {
+    result = doc.toVariant();
   }
-  pListWidgetItem->setColor(color);
-  pListWidgetItem->setForeground(color);
-  emit colorUpdated();
+  return success;
+}
+
+VariableNode::VariableNode(const QVector<QVariant> &variableNodeData)
+{
+  mVariableNodeData = variableNodeData;
+  mEditable = false;
+  mVariability = "";
+  mChildren.clear();
+}
+
+VariableNode::~VariableNode()
+{
+  qDeleteAll(mChildren);
+  mChildren.clear();
+}
+
+VariableNode* VariableNode::findVariableNode(const QString &name, VariableNode *pParentVariableNode)
+{
+  VariableNode *pVariableNode = pParentVariableNode->mChildren.value(name, 0);
+  if (pVariableNode) {
+    return pVariableNode;
+  } else {
+    QHash<QString, VariableNode*>::const_iterator iterator = pParentVariableNode->mChildren.constBegin();
+    while (iterator != pParentVariableNode->mChildren.constEnd()) {
+      if (VariableNode *node = VariableNode::findVariableNode(name, iterator.value())) {
+        return node;
+      }
+      ++iterator;
+    }
+  }
+  return 0;
 }
 
 QString Utilities::escapeForHtmlNonSecure(const QString &str)
 {
   return QString(str)
-     .replace("& ", "&amp;") // should be the first replacement
-     .replace("< ", "&lt;");
+      .replace("& ", "&amp;") // should be the first replacement
+      .replace("< ", "&lt;");
 }
 
 /*!
@@ -444,15 +550,21 @@ QString& Utilities::tempDirectory()
   static QString tmpPath;
   if (!init) {
     init = 1;
-#ifdef WIN32
+#if defined(_WIN32)
     tmpPath = QDir::tempPath() + "/OpenModelica/OMEdit/";
 #else // UNIX environment
     char *user = getenv("USER");
     tmpPath = QDir::tempPath() + "/OpenModelica_" + QString(user ? user : "nobody") + "/OMEdit/";
 #endif
     tmpPath.remove("\"");
-    if (!QDir().exists(tmpPath))
-      QDir().mkpath(tmpPath);
+    if (!QDir().exists(tmpPath)) {
+      if (!QDir().mkpath(tmpPath)) {
+        qDebug() << "Failed to create the tempDirectory" << tmpPath
+                 << "will use" << QDir::tempPath() << "instead.";
+        tmpPath = QDir::tempPath();
+        tmpPath.remove("\"");
+      }
+    }
   }
   return tmpPath;
 }
@@ -714,7 +826,7 @@ qint64 Utilities::getProcessId(QProcess *pProcess)
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 3, 0))
   processId = pProcess->processId();
 #else /* Qt4 */
-#ifdef WIN32
+#if defined(_WIN32)
   _PROCESS_INFORMATION *procInfo = pProcess->pid();
   if (procInfo) {
     processId = procInfo->dwProcessId;
@@ -726,7 +838,24 @@ qint64 Utilities::getProcessId(QProcess *pProcess)
   return processId;
 }
 
-#ifdef WIN32
+/*!
+ * \brief Utilities::formatExitCode
+ * Returns the given process exit code as a string in an OS appropriate format.
+ * \param code
+ * \return
+ */
+QString Utilities::formatExitCode(int code)
+{
+#if defined(_WIN32)
+  // Use 0xXXXXXXXX format on Windows.
+  return QStringLiteral("0x%1").arg(code, 8, 16, QChar('0'));
+#else
+  // Use normal decimal on other OS.
+  return QString::number(code);
+#endif
+}
+
+#if defined(_WIN32)
 /* adrpo: found this on http://stackoverflow.com/questions/1173342/terminate-a-process-tree-c-for-windows
  * thanks go to: mjmarsh & Firas Assaad
  * adapted to recurse on children ids
@@ -815,39 +944,6 @@ bool Utilities::isModelicaFile(QString extension)
 }
 
 /*!
- * \brief Utilities::insertText
- * Inserts the text to QPlainTextEdit.
- * \param pPlainTextEdit
- * \param text
- * \param color
- */
-void Utilities::insertText(QPlainTextEdit *pPlainTextEdit, QString text, QTextCharFormat format)
-{
-  // move the cursor down before adding to the logger.
-  QTextCursor textCursor = pPlainTextEdit->textCursor();
-  const bool atBottom = pPlainTextEdit->verticalScrollBar()->value() == pPlainTextEdit->verticalScrollBar()->maximum();
-  if (!textCursor.atEnd()) {
-    textCursor.movePosition(QTextCursor::End);
-  }
-  // insert the text
-  textCursor.beginEditBlock();
-  if (format.isValid()) {
-    textCursor.insertText(text, format);
-  } else {
-    textCursor.insertText(text);
-  }
-  textCursor.endEditBlock();
-  // move the cursor
-  if (atBottom) {
-    pPlainTextEdit->verticalScrollBar()->setValue(pPlainTextEdit->verticalScrollBar()->maximum());
-    // QPlainTextEdit destroys the first calls value in case of multiline
-    // text, so make sure that the scroll bar actually gets the value set.
-    // Is a noop if the first call succeeded.
-    pPlainTextEdit->verticalScrollBar()->setValue(pPlainTextEdit->verticalScrollBar()->maximum());
-  }
-}
-
-/*!
  * \brief Utilities::getRotationMatrix
  * Computes the corresponding rotation matrix for specified rotation vector
  * \param rotation Rotation vector with Euler angles
@@ -872,9 +968,9 @@ QGenericMatrix<3,3, double> Utilities::getRotationMatrix(QGenericMatrix<3,1,doub
   return R;
 }
 
-#ifdef WIN32
 QString Utilities::getGDBPath()
 {
+#if defined(_WIN32)
 #if defined(__MINGW32__) && !defined(__MINGW64__)
   const char *sgdb = "/tools/msys/mingw32/bin/gdb.exe";
 #endif
@@ -888,8 +984,10 @@ QString Utilities::getGDBPath()
     QString qOMDEV = QString(OMDEV).replace("\\", "/");
     return QString(qOMDEV).append(sgdb);
   }
-}
+#else
+  return "gdb";
 #endif
+}
 
 Utilities::FileIconProvider::FileIconProviderImplementation *instance()
 {
@@ -969,7 +1067,11 @@ bool Utilities::containsWord(QString text, int index, QString keyword, bool chec
  */
 qreal Utilities::convertMMToPixel(qreal value)
 {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+  return (QApplication::primaryScreen()->logicalDotsPerInchX() * value) / 25.4;
+#else // QT_VERSION_CHECK
   return (QApplication::desktop()->screen()->logicalDpiX() * value) / 25.4;
+#endif // QT_VERSION_CHECK
 }
 
 /*!
@@ -1086,8 +1188,7 @@ void Utilities::removeDirectoryRecursivly(QString path)
   QFileInfo fileInfo(path);
   if (fileInfo.isDir()) {
     QDir dir(path);
-    QStringList filesList = dir.entryList(QDir::AllDirs | QDir::Files | QDir::NoSymLinks |
-                                          QDir::NoDotAndDotDot | QDir::Writable | QDir::CaseSensitive);
+    QStringList filesList = dir.entryList(QDir::AllDirs | QDir::Files | QDir::NoSymLinks | QDir::NoDotAndDotDot | QDir::Writable | QDir::CaseSensitive);
     for (int i = 0 ; i < filesList.count() ; ++i) {
       removeDirectoryRecursivly(QString("%1/%2").arg(path, filesList.at(i)));
     }
@@ -1120,4 +1221,110 @@ QStringList Utilities::variantListToStringList(const QVariantList lst)
     strs << v.toString().trimmed();
   }
   return strs;
+}
+
+/*!
+ * \brief Utilities::addDefaultDisplayUnit
+ * \param unit
+ * \param displayUnit
+ */
+void Utilities::addDefaultDisplayUnit(const QString &unit, QStringList &displayUnit)
+{
+  /* Issue #5447
+   * For angular speeds always add in the menu in the unit column, in addition to the standard "rad/s" also "rpm"
+   * For energies always add in the menu in the Display Unit column, in addition to standard "J", also "Wh" (prefixes such as kWh, MWh, GWh will be obtained automatically)
+   */
+  /* Issue #8758
+   * Whenever unit = "K", we also add "degC" even if it is not defined as displayUnits.
+   */
+  if (unit.compare(QStringLiteral("rad/s")) == 0) {
+    displayUnit << "rpm";
+  } else if (unit.compare(QStringLiteral("J")) == 0) {
+    displayUnit << "Wh";
+  } else if (unit.compare(QStringLiteral("K")) == 0) {
+    displayUnit << "degC";
+  }
+}
+
+/*!
+ * \brief Utilities::convertUnitToSymbol
+ * Converts the unit to a symbol.
+ * \param displayUnit
+ * \return
+ */
+QString Utilities::convertUnitToSymbol(const QString &displayUnit)
+{
+  if (displayUnit.compare(QStringLiteral("Ohm")) == 0) {
+    return QChar(937);
+  } else if (displayUnit.compare(QStringLiteral("degC")) == 0) {
+    return QString("%1C").arg(QChar(176));
+  } else {
+    return displayUnit;
+  }
+}
+
+/*!
+ * \brief Utilities::convertSymbolToUnit
+ * Converts the symbol to unit.
+ * \param symbol
+ * \return
+ */
+QString Utilities::convertSymbolToUnit(const QString &symbol)
+{
+  // Greek Omega
+  if (symbol.compare(QChar(937)) == 0) {
+    return "Ohm";
+  } else if (symbol.compare(QString("%1C").arg(QChar(176))) == 0) {
+    return "degC";
+  } else {
+    return symbol;
+  }
+}
+
+/*!
+ * \brief Utilities::adjustRectangle
+ * Adjusts the scene rectangle.
+ * \param rectangle
+ * \param factor
+ * \return
+ */
+QRectF Utilities::adjustSceneRectangle(const QRectF sceneRectangle, const qreal factor)
+{
+  // Yes the top of the rectangle is bottom for us since the coordinate system is inverted.
+  qreal left = sceneRectangle.left();
+  qreal bottom = sceneRectangle.top();
+  qreal right = sceneRectangle.right();
+  qreal top = sceneRectangle.bottom();
+  QRectF rectangle(left, bottom, qFabs(left - right), qFabs(bottom - top));
+  /* Ticket:4340 Extend vertical space
+   * Make the drawing area 25% bigger than the actual size. So we can better use the panning feature.
+   */
+  const qreal widthFactor = sceneRectangle.width() * factor;
+  const qreal heightFactor = sceneRectangle.width() * factor;
+  rectangle.adjust(-widthFactor, -heightFactor, widthFactor, heightFactor);
+  return rectangle;
+}
+
+/*!
+ * \brief Utilities::setToolTip
+ * Sets the tooltip for Combobox and its items.
+ * \param pComboBox
+ * \param description
+ * \param optionsDescriptions
+ */
+void Utilities::setToolTip(QComboBox *pComboBox, const QString &description, const QStringList &optionsDescriptions)
+{
+  QString itemsToolTip;
+  for (int i = 0; i < pComboBox->count(); ++i) {
+    // skip empty items
+    if (!pComboBox->itemText(i).isEmpty()) {
+      itemsToolTip.append(QString("<li><i>%1</i>").arg(pComboBox->itemText(i)));
+      if (optionsDescriptions.size() > i && !optionsDescriptions.at(i).isEmpty()) {
+        itemsToolTip.append(QString(": %1").arg(optionsDescriptions.at(i)));
+        pComboBox->setItemData(i, optionsDescriptions.at(i), Qt::ToolTipRole);
+      }
+      itemsToolTip.append("</li>");
+    }
+  }
+  pComboBox->setToolTip(QString("<html><head/><body><p>%1</p><ul>%2</ul></body></html>").arg(description, itemsToolTip));
 }

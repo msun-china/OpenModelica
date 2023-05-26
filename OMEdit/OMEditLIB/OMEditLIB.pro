@@ -33,6 +33,9 @@ greaterThan(QT_MAJOR_VERSION, 4) {
   QT += printsupport widgets webkitwidgets concurrent
 }
 
+# Set the C++ standard.
+CONFIG += c++14
+
 TARGET = OMEdit
 TEMPLATE = lib
 CONFIG += staticlib
@@ -54,6 +57,33 @@ evil_hack_to_fool_lupdate {
 
 # Windows libraries and includes
 win32 {
+
+  _cxx = $$(CXX)
+  contains(_cxx, clang++) {
+    message("Found clang++ on windows in $CXX, removing unknown flags: -fno-keep-inline-dllexport -mthreads")
+    QMAKE_CFLAGS -= -fno-keep-inline-dllexport
+    QMAKE_CXXFLAGS -= -fno-keep-inline-dllexport
+    QMAKE_CXXFLAGS_EXCEPTIONS_ON -= -mthreads
+  }
+
+
+CONFIG(release, debug|release) { # release
+  # required for backtrace
+  # In order to get the stack trace in Windows we must add -g flag. Qt automatically adds the -O2 flag for optimization.
+  # We should also unset the QMAKE_LFLAGS_RELEASE define because it is defined as QMAKE_LFLAGS_RELEASE = -Wl,-s in qmake.conf file for MinGW
+  # -s will remove all symbol table and relocation information from the executable.
+  QMAKE_CXXFLAGS += -g -DUA_DYNAMIC_LINKING
+  QMAKE_LFLAGS_RELEASE =
+}
+
+# On older msys the include directory for binutils is in binutils
+# On recent (November 2022) MSYS2 this is no longer needed.
+contains(QT_ARCH, i386) { # 32-bit
+  INCLUDEPATH += $$(OMDEV)/tools/msys/mingw32/include/binutils
+} else { # 64-bit
+  INCLUDEPATH += $$(OMDEV)/tools/msys/mingw64/include/binutils
+}
+
   OPENMODELICAHOME = $$(OMBUILDDIR)
   host_short =
 
@@ -62,7 +92,7 @@ win32 {
   include(OMEditLIB.unix.config.pri)
 }
 
-INCLUDEPATH += ../ \
+INCLUDEPATH += . ../ \
   $$OPENMODELICAHOME/include \
   $$OPENMODELICAHOME/include/omplot \
   $$OPENMODELICAHOME/include/omplot/qwt \
@@ -71,7 +101,8 @@ INCLUDEPATH += ../ \
   $$OPENMODELICAHOME/include/omc/c \
   $$OPENMODELICAHOME/include/omc/c/util \
   $$OPENMODELICAHOME/include/omc/fmil \
-  ../qjson/build/include
+  $$OPENMODELICAHOME/../OMParser/ \
+  $$OPENMODELICAHOME/../OMParser/3rdParty/antlr4/runtime/Cpp/runtime/src
 
 # Don't show the warnings from included headers.
 # Don't add a space between for and open parenthesis below. Qt4 complains about it.
@@ -82,9 +113,11 @@ for(path, INCLUDEPATH) {
 SOURCES += Util/Helper.cpp \
   Util/Utilities.cpp \
   Util/StringHandler.cpp \
+  Util/OutputPlainTextEdit.cpp \
   MainWindow.cpp \
   $$OPENMODELICAHOME/include/omc/scripting-API/OpenModelicaScriptingAPIQt.cpp \
   OMC/OMCProxy.cpp \
+  Modeling/Model.cpp \
   Modeling/MessagesWidget.cpp \
   Modeling/ItemDelegate.cpp \
   Modeling/LibraryTreeWidget.cpp \
@@ -93,6 +126,7 @@ SOURCES += Util/Helper.cpp \
   Modeling/ModelWidgetContainer.cpp \
   Modeling/ModelicaClassDialog.cpp \
   Modeling/FunctionArgumentDialog.cpp \
+  Modeling/InstallLibraryDialog.cpp \
   Search/SearchWidget.cpp \
   Options/OptionsDialog.cpp \
   Editors/BaseEditor.cpp \
@@ -105,24 +139,40 @@ SOURCES += Util/Helper.cpp \
   Editors/MetaModelicaEditor.cpp \
   Editors/HTMLEditor.cpp \
   Plotting/PlotWindowContainer.cpp \
-  Component/Component.cpp \
+  Element/Element.cpp \
   Annotations/ShapeAnnotation.cpp \
-  Component/CornerItem.cpp \
+  Element/CornerItem.cpp \
   Annotations/LineAnnotation.cpp \
   Annotations/PolygonAnnotation.cpp \
   Annotations/RectangleAnnotation.cpp \
   Annotations/EllipseAnnotation.cpp \
   Annotations/TextAnnotation.cpp \
   Annotations/BitmapAnnotation.cpp \
-  Component/ComponentProperties.cpp \
-  Component/Transformation.cpp \
+  Annotations/DynamicAnnotation.cpp \
+  Annotations/BooleanAnnotation.cpp \
+  Annotations/PointAnnotation.cpp \
+  Annotations/RealAnnotation.cpp \
+  Annotations/ColorAnnotation.cpp \
+  Annotations/LinePatternAnnotation.cpp \
+  Annotations/FillPatternAnnotation.cpp \
+  Annotations/PointArrayAnnotation.cpp \
+  Annotations/ArrowAnnotation.cpp \
+  Annotations/SmoothAnnotation.cpp \
+  Annotations/ExtentAnnotation.cpp \
+  Annotations/BorderPatternAnnotation.cpp \
+  Annotations/EllipseClosureAnnotation.cpp \
+  Annotations/StringAnnotation.cpp \
+  Annotations/TextAlignmentAnnotation.cpp \
+  Annotations/TextStyleAnnotation.cpp \
+  Element/ElementProperties.cpp \
+  Element/Transformation.cpp \
   Modeling/DocumentationWidget.cpp \
   Simulation/TranslationFlagsWidget.cpp \
   Simulation/SimulationDialog.cpp \
   Simulation/SimulationOutputWidget.cpp \
-  Simulation/SimulationProcessThread.cpp \
   Simulation/SimulationOutputHandler.cpp \
   Simulation/OpcUaClient.cpp \
+  Simulation/ArchivedSimulationsWidget.cpp \
   TLM/FetchInterfaceDataDialog.cpp \
   TLM/FetchInterfaceDataThread.cpp \
   TLM/TLMCoSimulationDialog.cpp \
@@ -163,18 +213,23 @@ SOURCES += Util/Helper.cpp \
   OMS/BusDialog.cpp \
   OMS/ElementPropertiesDialog.cpp \
   OMS/SystemSimulationInformationDialog.cpp \
-  OMS/InstantiateDialog.cpp \
   OMS/OMSSimulationDialog.cpp \
   OMS/OMSSimulationOutputWidget.cpp \
   Animation/TimeManager.cpp \
-  Util/ResourceCache.cpp
+  Util/ResourceCache.cpp \
+  Util/NetworkAccessManager.cpp \
+  FlatModelica/Expression.cpp \
+  FlatModelica/ExpressionFuncs.cpp \
+  FlatModelica/Parser.cpp
 
 HEADERS  += Util/Helper.h \
   Util/Utilities.h \
   Util/StringHandler.h \
+  Util/OutputPlainTextEdit.h \
   MainWindow.h \
   $$OPENMODELICAHOME/include/omc/scripting-API/OpenModelicaScriptingAPIQt.h \
   OMC/OMCProxy.h \
+  Modeling/Model.h \
   Modeling/MessagesWidget.h \
   Modeling/ItemDelegate.h \
   Modeling/LibraryTreeWidget.h \
@@ -183,7 +238,9 @@ HEADERS  += Util/Helper.h \
   Modeling/ModelWidgetContainer.h \
   Modeling/ModelicaClassDialog.h \
   Modeling/FunctionArgumentDialog.h \
+  Modeling/InstallLibraryDialog.h \
   Search/SearchWidget.h \
+  Options/OptionsDefaults.h \
   Options/OptionsDialog.h \
   Editors/BaseEditor.h \
   Editors/ModelicaEditor.h \
@@ -195,25 +252,41 @@ HEADERS  += Util/Helper.h \
   Editors/MetaModelicaEditor.h \
   Editors/HTMLEditor.h \
   Plotting/PlotWindowContainer.h \
-  Component/Component.h \
+  Element/Element.h \
   Annotations/ShapeAnnotation.h \
-  Component/CornerItem.h \
+  Element/CornerItem.h \
   Annotations/LineAnnotation.h \
   Annotations/PolygonAnnotation.h \
   Annotations/RectangleAnnotation.h \
   Annotations/EllipseAnnotation.h \
   Annotations/TextAnnotation.h \
   Annotations/BitmapAnnotation.h \
-  Component/ComponentProperties.h \
-  Component/Transformation.h \
+  Annotations/DynamicAnnotation.h \
+  Annotations/BooleanAnnotation.h \
+  Annotations/PointAnnotation.h \
+  Annotations/RealAnnotation.h \
+  Annotations/ColorAnnotation.h \
+  Annotations/LinePatternAnnotation.h \
+  Annotations/FillPatternAnnotation.h \
+  Annotations/PointArrayAnnotation.h \
+  Annotations/ArrowAnnotation.h \
+  Annotations/SmoothAnnotation.h \
+  Annotations/ExtentAnnotation.h \
+  Annotations/BorderPatternAnnotation.h \
+  Annotations/EllipseClosureAnnotation.h \
+  Annotations/StringAnnotation.h \
+  Annotations/TextAlignmentAnnotation.h \
+  Annotations/TextStyleAnnotation.h \
+  Element/ElementProperties.h \
+  Element/Transformation.h \
   Modeling/DocumentationWidget.h \
   Simulation/SimulationOptions.h \
   Simulation/TranslationFlagsWidget.h \
   Simulation/SimulationDialog.h \
   Simulation/SimulationOutputWidget.h \
-  Simulation/SimulationProcessThread.h \
   Simulation/SimulationOutputHandler.h \
   Simulation/OpcUaClient.h \
+  Simulation/ArchivedSimulationsWidget.h \
   TLM/FetchInterfaceDataDialog.h \
   TLM/FetchInterfaceDataThread.h \
   TLM/TLMCoSimulationOptions.h \
@@ -255,14 +328,16 @@ HEADERS  += Util/Helper.h \
   OMS/BusDialog.h \
   OMS/ElementPropertiesDialog.h \
   OMS/SystemSimulationInformationDialog.h \
-  OMS/InstantiateDialog.h \
-  OMS/OMSSimulationOptions.h \
   OMS/OMSSimulationDialog.h \
   OMS/OMSSimulationOutputWidget.h \
   Animation/TimeManager.h \
   Interfaces/InformationInterface.h \
   Interfaces/ModelInterface.h \
-  Util/ResourceCache.h
+  Util/ResourceCache.h \
+  Util/NetworkAccessManager.h \
+  FlatModelica/Expression.h \
+  FlatModelica/ExpressionFuncs.h \
+  FlatModelica/Parser.h
 
 CONFIG(osg) {
 
@@ -279,13 +354,15 @@ SOURCES += Animation/AbstractAnimationWindow.cpp \
   Animation/AnimationWindow.cpp \
   Animation/ThreeDViewer.cpp \
   Animation/ExtraShapes.cpp \
-  Animation/Visualizer.cpp \
-  Animation/VisualizerMAT.cpp \
-  Animation/VisualizerCSV.cpp \
-  Animation/VisualizerFMU.cpp \
+  Animation/Visualization.cpp \
+  Animation/VisualizationMAT.cpp \
+  Animation/VisualizationCSV.cpp \
+  Animation/VisualizationFMU.cpp \
   Animation/FMUSettingsDialog.cpp \
   Animation/FMUWrapper.cpp \
-  Animation/Shapes.cpp
+  Animation/AbstractVisualizer.cpp \
+  Animation/Shape.cpp \
+  Animation/Vector.cpp
 
 greaterThan(QT_MAJOR_VERSION, 4):greaterThan(QT_MINOR_VERSION, 3) { # if Qt 5.4 or greater
   HEADERS += Animation/OpenGLWidget.h
@@ -298,13 +375,15 @@ HEADERS += Animation/AbstractAnimationWindow.h \
   Animation/ThreeDViewer.h \
   Animation/AnimationUtil.h \
   Animation/ExtraShapes.h \
-  Animation/Visualizer.h \
-  Animation/VisualizerMAT.h \
-  Animation/VisualizerCSV.h \
-  Animation/VisualizerFMU.h \
+  Animation/Visualization.h \
+  Animation/VisualizationMAT.h \
+  Animation/VisualizationCSV.h \
+  Animation/VisualizationFMU.h \
   Animation/FMUSettingsDialog.h \
   Animation/FMUWrapper.h \
-  Animation/Shapes.h \
+  Animation/AbstractVisualizer.h \
+  Animation/Shape.h \
+  Animation/Vector.h \
   Animation/rapidxml.hpp
 }
 
@@ -319,7 +398,10 @@ OTHER_FILES += Resources/css/stylesheet.qss \
 CONFIG += warn_on
 # Only disable the unused variable/function/parameter warning
 win32 {
-  QMAKE_CXXFLAGS += -Wno-clobbered
+  # -Wno-clobbered is not recognized by clang
+  !contains(_cxx, clang++) {
+    QMAKE_CXXFLAGS += -Wno-clobbered
+  }
 }
 
 RESOURCES += resource_omedit.qrc

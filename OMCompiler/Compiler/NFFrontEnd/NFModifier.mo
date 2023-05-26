@@ -43,16 +43,17 @@ public
 import Absyn;
 import AbsynUtil;
 import BaseAvlTree;
-import NFBinding.Binding;
-import NFComponent.Component;
+import Binding = NFBinding;
 import NFInstNode.InstNode;
 import SCode;
 import Inst = NFInst;
+import Subscript = NFSubscript;
 
 protected
 import Error;
 import List;
 import SCodeUtil;
+import IOStream;
 
 constant Modifier EMPTY_MOD = NOMOD();
 
@@ -118,6 +119,16 @@ uniontype ModifierScope
     end match;
   end name;
 
+  function isClass
+    input ModifierScope scope;
+    output Boolean res;
+  algorithm
+    res := match scope
+      case CLASS() then true;
+      else false;
+    end match;
+  end isClass;
+
   function toString
     input ModifierScope scope;
     output String string;
@@ -144,7 +155,10 @@ uniontype Modifier
     SCode.Final finalPrefix;
     SCode.Each eachPrefix;
     InstNode element;
-    Modifier mod;
+    Modifier innerMod;
+    Modifier outerMod;
+    Modifier constrainingMod;
+    list<Subscript> propagatedSubs;
   end REDECLARE;
 
   record NOMOD end NOMOD;
@@ -154,7 +168,6 @@ public
     input SCode.Mod mod;
     input String name;
     input ModifierScope modScope;
-    input list<InstNode> parents;
     input InstNode scope;
     output Modifier newMod;
   algorithm
@@ -167,16 +180,15 @@ public
         SCode.Mod smod;
         Boolean is_each;
         InstNode node;
-        list<InstNode> pars;
+        Modifier cc_mod;
 
       case SCode.NOMOD() then NOMOD();
 
       case SCode.MOD()
         algorithm
           is_each := SCodeUtil.eachBool(mod.eachPrefix);
-          binding := Binding.fromAbsyn(mod.binding, is_each, parents, scope, mod.info);
-          pars := if is_each then {} else parents;
-          submod_lst := list((m.ident, createSubMod(m, modScope, pars, scope)) for m in mod.subModLst);
+          binding := Binding.fromAbsyn(mod.binding, is_each, ModifierScope.isClass(modScope), scope, mod.info);
+          submod_lst := list((m.ident, createSubMod(m, modScope, scope)) for m in mod.subModLst);
           submod_table := ModTable.fromList(submod_lst,
             function mergeLocal(scope = modScope, prefix = {}));
         then
@@ -189,11 +201,33 @@ public
           if InstNode.isClass(node) then
             Inst.partialInstClass(node);
           end if;
+
+          cc_mod := createConstrainingMod(elem, scope);
         then
-          REDECLARE(mod.finalPrefix, mod.eachPrefix, node, NOMOD());
+          REDECLARE(mod.finalPrefix, mod.eachPrefix, node, NOMOD(), NOMOD(), cc_mod, {});
 
     end match;
   end create;
+
+  function createConstrainingMod
+    input SCode.Element element;
+    input InstNode scope;
+    output Modifier mod;
+  protected
+    SCode.Mod smod;
+  algorithm
+    mod := match element
+      case SCode.Element.CLASS(prefixes = SCode.Prefixes.PREFIXES(replaceablePrefix =
+          SCode.Replaceable.REPLACEABLE(cc = SOME(SCode.ConstrainClass.CONSTRAINCLASS(modifier = smod)))))
+        then create(smod, element.name, ModifierScope.CLASS(element.name), scope);
+
+      case SCode.Element.COMPONENT(prefixes = SCode.Prefixes.PREFIXES(replaceablePrefix =
+          SCode.Replaceable.REPLACEABLE(cc = SOME(SCode.ConstrainClass.CONSTRAINCLASS(modifier = smod)))))
+        then create(smod, element.name, ModifierScope.COMPONENT(element.name), scope);
+
+      else NOMOD();
+    end match;
+  end createConstrainingMod;
 
   function stripSCodeMod
     input output SCode.Element elem;
@@ -226,7 +260,6 @@ public
 
   function fromElement
     input SCode.Element element;
-    input list<InstNode> parents;
     input InstNode scope;
     output Modifier mod;
   algorithm
@@ -236,19 +269,19 @@ public
         SCode.Mod smod;
 
       case SCode.EXTENDS()
-        then create(element.modifications, "", ModifierScope.EXTENDS(element.baseClassPath), parents, scope);
+        then create(element.modifications, "", ModifierScope.EXTENDS(element.baseClassPath), scope);
 
       case SCode.COMPONENT()
         algorithm
           smod := patchElementModFinal(element.prefixes, element.info, element.modifications);
         then
-          create(smod, element.name, ModifierScope.COMPONENT(element.name), parents, scope);
+          create(smod, element.name, ModifierScope.COMPONENT(element.name), scope);
 
       case SCode.CLASS(classDef = def as SCode.DERIVED())
-        then create(def.modifications, element.name, ModifierScope.CLASS(element.name), parents, scope);
+        then create(def.modifications, element.name, ModifierScope.CLASS(element.name), scope);
 
       case SCode.CLASS(classDef = def as SCode.CLASS_EXTENDS())
-        then create(def.modifications, element.name, ModifierScope.CLASS(element.name), parents, scope);
+        then create(def.modifications, element.name, ModifierScope.CLASS(element.name), scope);
 
       else NOMOD();
     end match;
@@ -283,48 +316,6 @@ public
       end match;
     end if;
   end patchElementModFinal;
-
-  function addParent
-    input InstNode parent;
-    input Modifier mod;
-    output Modifier outMod;
-  algorithm
-    outMod := match mod
-      local
-        Binding binding;
-
-      case MODIFIER(binding = binding)
-        algorithm
-          mod.binding := Binding.addParent(parent, binding);
-        then
-          map(mod, function addParent_work(parent = parent));
-
-      else mod;
-    end match;
-  end addParent;
-
-  function addParent_work
-    input String name;
-    input InstNode parent;
-    input Modifier mod;
-    output Modifier outMod;
-  algorithm
-    outMod := match mod
-      local
-        Binding binding;
-
-      case MODIFIER(binding = binding)
-        algorithm
-          mod.binding := Binding.addParent(parent, binding);
-        then
-          if not Binding.isEach(binding) then
-            map(mod, function addParent_work(parent = parent))
-          else
-            mod;
-
-      else mod;
-    end match;
-  end addParent_work;
 
   function lookupModifier
     input String modName;
@@ -418,15 +409,19 @@ public
 
       case (REDECLARE(), MODIFIER())
         algorithm
-          outerMod.mod := merge(outerMod.mod, innerMod);
+          outerMod.innerMod := merge(outerMod.innerMod, innerMod);
         then
           outerMod;
 
       case (MODIFIER(), REDECLARE())
         algorithm
-          innerMod.mod := merge(outerMod, innerMod.mod);
+          innerMod.outerMod := merge(outerMod, innerMod.outerMod);
         then
           innerMod;
+
+      case (REDECLARE(constrainingMod = NOMOD()), REDECLARE(constrainingMod = MODIFIER()))
+        then REDECLARE(outerMod.finalPrefix, outerMod.eachPrefix, outerMod.element,
+          outerMod.innerMod, outerMod.outerMod, innerMod.constrainingMod, outerMod.propagatedSubs);
 
       case (REDECLARE(), _) then outerMod;
       case (_, REDECLARE()) then innerMod;
@@ -440,6 +435,77 @@ public
 
     end match;
   end merge;
+
+  function propagate
+    "Adds subscript placeholders to a modifier to simulate it being split when
+     applied to an array. The origin node is the node that contains the modifier,
+     while the parent is the node the modifier is applied to. These are usually
+     the same node, but can be different when the modifier comes from a short
+     class declaration (the origin) but is applied to a component (the parent)."
+    input Modifier mod;
+    input InstNode origin;
+    input InstNode parent;
+    output Modifier outMod = propagateSubs(mod, {Subscript.SPLIT_PROXY(origin, parent)});
+  end propagate;
+
+  function propagateSubs
+    input output Modifier mod;
+    input list<Subscript> subs;
+  algorithm
+    () := match mod
+      case MODIFIER()
+        algorithm
+          mod.subModifiers := ModTable.map(mod.subModifiers, function propagateSubMod(subs = subs));
+        then
+          ();
+
+      else ();
+    end match;
+  end propagateSubs;
+
+  function propagateBinding
+    input output Modifier mod;
+    input InstNode origin;
+    input InstNode parent;
+  protected
+    list<Subscript> subs;
+  algorithm
+    () := match mod
+      case MODIFIER()
+        algorithm
+          subs := {Subscript.SPLIT_PROXY(origin, parent)};
+          mod.binding := Binding.propagate(mod.binding, subs);
+        then
+          ();
+
+      else ();
+    end match;
+  end propagateBinding;
+
+  function propagateSubMod
+    input String name;
+    input output Modifier submod;
+    input list<Subscript> subs;
+  algorithm
+    () := match submod
+      case MODIFIER(eachPrefix = SCode.NOT_EACH())
+        algorithm
+          submod.binding := Binding.propagate(submod.binding, subs);
+          submod.subModifiers := ModTable.map(submod.subModifiers,
+            function propagateSubMod(subs = subs));
+        then
+          ();
+
+      case REDECLARE(eachPrefix = SCode.NOT_EACH())
+        algorithm
+          submod.innerMod := propagateSubMod(name, submod.innerMod, subs);
+          submod.propagatedSubs := listAppend(subs, submod.propagatedSubs);
+        then
+          ();
+
+      else ();
+    end match;
+  end propagateSubMod;
 
   function isEmpty
     input Modifier mod;
@@ -541,42 +607,81 @@ public
     end match;
   end toString;
 
-  function toFlatString
-    input Modifier mod;
-    input Boolean printName = true;
-    output String string;
+  function toFlatStreamList
+    input list<Modifier> modifiers;
+    input output IOStream.IOStream s;
+    input String delimiter = ", ";
+  protected
+    list<Modifier> mods = modifiers;
   algorithm
-    string := match mod
-      local
-        list<Modifier> submods;
-        String subs_str, binding_str, binding_sep;
+    if listEmpty(mods) then
+      return;
+    end if;
 
+    while true loop
+      s := toFlatStream(listHead(mods), s);
+      mods := listRest(mods);
+
+      if listEmpty(mods) then
+        break;
+      else
+        s := IOStream.append(s, delimiter);
+      end if;
+    end while;
+  end toFlatStreamList;
+
+  function toFlatStream
+    input Modifier mod;
+    input output IOStream.IOStream s;
+    input Boolean printName = true;
+  protected
+    list<Modifier> submods;
+    String subs_str, binding_str, binding_sep;
+  algorithm
+    () := match mod
       case MODIFIER()
         algorithm
+          if printName then
+            s := IOStream.append(s, mod.name);
+          end if;
+
           submods := ModTable.listValues(mod.subModifiers);
           if not listEmpty(submods) then
-            subs_str := "(" + stringDelimitList(list(toFlatString(s) for s in submods), ", ") + ")";
+            s := IOStream.append(s, "(");
+            s := toFlatStreamList(submods, s);
+            s := IOStream.append(s, ")");
             binding_sep := " = ";
           else
-            subs_str := "";
             binding_sep := if printName then " = " else "= ";
           end if;
 
-          binding_str := Binding.toFlatString(mod.binding, binding_sep);
+          s := IOStream.append(s, Binding.toFlatString(mod.binding, binding_sep));
         then
-          if printName then mod.name + subs_str + binding_str else subs_str + binding_str;
+          ();
 
-      else "";
+      else ();
     end match;
+  end toFlatStream;
+
+  function toFlatString
+    input Modifier mod;
+    input Boolean printName = true;
+    output String str;
+  protected
+    IOStream.IOStream s;
+  algorithm
+    s := IOStream.create(getInstanceName(), IOStream.IOStreamType.LIST());
+    s := toFlatStream(mod, s, printName);
+    str := IOStream.string(s);
+    IOStream.delete(s);
   end toFlatString;
 
 protected
   function createSubMod
     input SCode.SubMod subMod;
     input ModifierScope modScope;
-    input list<InstNode> parents;
     input InstNode scope;
-    output Modifier mod = create(subMod.mod, subMod.ident, modScope, parents, scope);
+    output Modifier mod = create(subMod.mod, subMod.ident, modScope, scope);
   end createSubMod;
 
   function checkFinalOverride

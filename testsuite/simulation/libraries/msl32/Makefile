@@ -93,7 +93,6 @@ Modelica.Electrical.MultiPhase.Examples.Rectifier.mos \
 Modelica.Electrical.MultiPhase.Examples.TestSensors.mos \
 Modelica.Electrical.MultiPhase.Examples.TransformerYD.mos \
 Modelica.Electrical.MultiPhase.Examples.TransformerYY.mos \
-Modelica.Electrical.QuasiStationary.Machines.Examples.TransformerTestbench.mos \
 Modelica.Electrical.QuasiStationary.MultiPhase.Examples.BalancingDelta.mos \
 Modelica.Electrical.QuasiStationary.MultiPhase.Examples.BalancingStar.mos \
 Modelica.Electrical.QuasiStationary.SinglePhase.Examples.ParallelResonance.mos \
@@ -277,11 +276,12 @@ Modelica.Mechanics.MultiBody.Examples.Elementary.UserDefinedGravityField.mos \
 Modelica.Media.Examples.SolveOneNonlinearEquation.Inverse_sine.mos \
 Modelica.Media.Examples.R134a.R134a1.mos \
 Modelica.Media.Examples.R134a.R134a2.mos \
-Modelica.Fluid.Examples.PumpingSystem.mos \
 Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SMEE_Generator_MultiPhase.mos \
 
 # Run make failingtest
 FAILINGTESTFILES = \
+Modelica.Electrical.QuasiStationary.Machines.Examples.TransformerTestbench.mos \
+Modelica.Fluid.Examples.PumpingSystem.mos \
 
 # Dependency files that are not .mo .mos or Makefile
 # Add them here or they will be cleaned.
@@ -289,10 +289,17 @@ DEPENDENCIES = \
 *.mo \
 *.mos \
 Makefile \
+cleanAll.cmd \
+cleanAllButMat.cmd \
+measureCompilerPerformance.py \
 ReferenceFiles \
-simulateAll.sh \
+simulate_parallel.cmd \
+simulate.cmd \
+simulateAll_Parallel.cmd \
 simulateAll.cmd \
-sortResults.py
+simulateAll.sh \
+sortResults.py \
+status.txt \
 
 CLEAN = `ls | grep -w -v -f deps.tmp`
 

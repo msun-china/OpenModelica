@@ -70,7 +70,7 @@ import ExpressionDump;
 import ExpressionSimplify;
 import ExpressionSolve;
 import Flags;
-import GC;
+import GCExt;
 import HashSet;
 import HashTableCrToCrEqLst;
 import HashTableCrToExp;
@@ -79,6 +79,7 @@ import List;
 import SimCodeUtil;
 import Types;
 import Util;
+import MetaModelica.Dangerous.listReverseInPlace;
 
 
 
@@ -225,7 +226,7 @@ algorithm
       if listEmpty(tempreferencevar) then
         tempreferencevar := getVarsHelper(cr,inDAE.shared.globalKnownVars);
       end if;
-      referencevar := listAppend(referencevar,tempreferencevar);
+      referencevar := listAppend(tempreferencevar, referencevar);
     end for;
 
     // check list of referencevariable either PARAM() or CONST()
@@ -514,7 +515,7 @@ algorithm
   // traverse all systems and remove simple equations
   (outDAE, (repl, b, _, _, warnAliasConflicts)) := BackendDAEUtil.mapEqSystemAndFold(inDAE, fastAcausal1, (repl, false, unReplaceable, Flags.getConfigInt(Flags.MAXTRAVERSALS), false));
   if warnAliasConflicts and BackendDAEUtil.isSimulationDAE(inDAE.shared) then
-    Error.addMessage(Error.CONFLICTING_ALIAS_SET, {});
+    Error.addMessage(Error.REDUNDANT_ALIAS_SET, {});
   end if;
   // traverse the shared parts
   outDAE := removeSimpleEquationsShared(b, outDAE, repl);
@@ -580,7 +581,7 @@ algorithm
 
     outSystem := updateSystem(globalFoundSimple, eqnslst, vars, repl, outSystem);
     outTpl := ((repl, globalFoundSimple, unReplaceable, maxTraversals, warnAliasConflicts));
-    GC.free(mT);
+    GCExt.free(mT);
   else
     //Error.addCompilerWarning("The module removeSimpleEquations failed for a subsystem. The relevant subsystem get skipped and the transformation is proceeded.");
     outSystem := inSystem;
@@ -702,7 +703,7 @@ algorithm
   end if;
   (outDAE, (repl, _, b, warnAliasConflicts)) := BackendDAEUtil.mapEqSystemAndFold(inDAE, allAcausal1, (repl, unReplaceable, false, false));
   if warnAliasConflicts and BackendDAEUtil.isSimulationDAE(inDAE.shared) then
-    Error.addMessage(Error.CONFLICTING_ALIAS_SET, {});
+    Error.addMessage(Error.REDUNDANT_ALIAS_SET, {});
   end if;
   outDAE := removeSimpleEquationsShared(b, outDAE, repl);
   // until remove simple equations does not update assignments and comps remove them
@@ -780,7 +781,7 @@ algorithm
   end if;
   (outDAE, (repl, _, b, warnAliasConflicts)) := BackendDAEUtil.mapEqSystemAndFold(inDAE, causal1, (repl, unReplaceable, false, false));
   if warnAliasConflicts and BackendDAEUtil.isSimulationDAE(inDAE.shared) then
-    Error.addMessage(Error.CONFLICTING_ALIAS_SET, {});
+    Error.addMessage(Error.REDUNDANT_ALIAS_SET, {});
   end if;
   outDAE := removeSimpleEquationsShared(b, outDAE, repl);
   // until remove simple equations does not update assignments and comps remove them
@@ -900,8 +901,7 @@ algorithm
         eqnlst = BackendEquation.getList(elst, iEqns);
         (elst,_,_) = List.map_3(innerEquations, BackendDAEUtil.getEqnAndVarsFromInnerEquation);
         eqnlst1 = BackendEquation.getList(elst, iEqns);
-        eqnlst = listAppend(eqnlst, eqnlst1);
-        arg = inFunc(eqnlst, inTypeA);
+        arg = inFunc(listAppend(eqnlst, eqnlst1), inTypeA);
       then
         traverseComponents(rest, iEqns, inFunc, arg);
   end match;
@@ -1870,8 +1870,8 @@ algorithm
     // var
     case (DAE.CREF(cr, _), (b, vars, globalKnownVars, b1, b2, ilst)) equation
       (_::_, vlst)= BackendVariable.getVar(cr, vars);
-      ilst = listAppend(ilst, vlst);
-    then (inExp, true, (b, vars, globalKnownVars, b1, b2, ilst));
+      vlst = listAppend(ilst, vlst);
+    then (inExp, true, (b, vars, globalKnownVars, b1, b2, vlst));
 
     case (_, (b, _, _, _, _, _))
     then (inExp, not b, inTuple);
@@ -2235,7 +2235,7 @@ protected
   list<String> lst;
   String msg;
 algorithm
-  lst := circularEqualityMsg_dispatch(stack, iR, simpleeqnsarr, {});
+  lst := circularEqualityMsg_dispatch(stack, iR, simpleeqnsarr);
   msg := stringDelimitList(lst, "\n");
   msg := stringAppendList({iMsg, msg, "\n"});
   oMsg := msg;
@@ -2245,27 +2245,23 @@ protected function circularEqualityMsg_dispatch "author: Frenkel TUD 2013-05, ad
   input list<Integer> stack;
   input Integer iR;
   input array<SimpleContainer> simpleeqnsarr;
-  input list<String> iMsg;
-  output list<String> oMsg;
+  output list<String> oMsg = {};
+protected
+  list<DAE.ComponentRef> names;
+  list<String> slst;
 algorithm
-  oMsg := match(stack, iR, simpleeqnsarr, iMsg)
-    local
-      Integer r;
-      list<Integer> rest;
-      String msg;
-      list<DAE.ComponentRef> names;
-      list<String> slst;
-    case ({}, _, _, _) then iMsg;
-    case (r::_, _, _, _) guard intEq(r, iR) then iMsg;
-    case (r::rest, _, _, _)
-      equation
-        names = getVarsNames(simpleeqnsarr[r]);
-        slst = List.map(names, ComponentReference.printComponentRefStr);
-        slst = listAppend(slst, {"----------------------------------"});
-        slst = listAppend(iMsg, slst);
-      then
-        circularEqualityMsg_dispatch(rest, iR, simpleeqnsarr, slst);
-  end match;
+  for r in stack loop
+    if r == iR then
+      break;
+    end if;
+
+    for n in getVarsNames(simpleeqnsarr[r]) loop
+      oMsg := ComponentReference.printComponentRefStr(n) :: oMsg;
+    end for;
+    oMsg := "----------------------------------" :: oMsg;
+  end for;
+
+  listReverseInPlace(oMsg);
 end circularEqualityMsg_dispatch;
 
 protected function getVarsNames "author: Frenkel TUD 2013-05"
@@ -3111,10 +3107,14 @@ algorithm
     local
       DAE.ComponentRef cr;
       Option<DAE.Exp> start, start1;
+      DAE.Exp startExp;
       list<tuple<Option<DAE.Exp>, DAE.ComponentRef>> values;
       list<tuple<DAE.Exp, DAE.ComponentRef>> zerofreevalues;
       BackendDAE.Var v;
       BackendDAE.Variables globalKnownVars;
+      String str;
+      Integer i;
+      Boolean hardcoded;
 
     // default value
     case (_, _, (_, {}), _) then inVar;
@@ -3129,14 +3129,29 @@ algorithm
       v = BackendVariable.setVarFixed(inVar, true);
       start1 = optExpReplaceCrefWithBindExp(start, globalKnownVars);
       ((_, start, _)) = equalNonFreeStartValues(values, globalKnownVars, (start1, start, cr));
+      warnAliasConflicts = not Flags.isSet(Flags.ALIAS_CONFLICTS);
     then BackendVariable.setVarStartValueOption(v, start);
 
-    case (_, true, (_, values), BackendDAE.SHARED(globalKnownVars=globalKnownVars)) equation
-      v = BackendVariable.setVarFixed(inVar, true);
-      // get all nonzero values
-      zerofreevalues = List.fold(values, getZeroFreeValues, {});
-      warnAliasConflicts = not Flags.isSet(Flags.ALIAS_CONFLICTS);
-    then selectFreeValue1(zerofreevalues, {}, "Fixed Alias set with conflicting start values\n", "start", BackendVariable.setVarStartValue, v, globalKnownVars);
+    case (_, true, (_, values), BackendDAE.SHARED(globalKnownVars=globalKnownVars)) algorithm
+      if not Flags.isSet(Flags.ALIAS_CONFLICTS) then
+        Error.addMessage(Error.CONFLICTING_ALIAS_SET, {});
+      else
+        v := BackendVariable.setVarFixed(inVar, true);
+        // get all nonzero values
+        zerofreevalues := List.fold(values, getZeroFreeValues, {});
+        str := "Conflicting start values for fixed states:\n";
+        for value in zerofreevalues loop
+          (startExp, cr) := value;
+          (_, (i, hardcoded)) := Expression.traverseExpTopDown(startExp, selectMinDepth, (ComponentReference.crefDepth(cr), true));
+          if hardcoded then
+            i := i + 5;
+          end if;
+          str := str + " * Candidate: " + ComponentReference.printComponentRefStr(cr) + "(start = " + ExpressionDump.printExpStr(startExp) + ", confidence number = " + intString(i) + ")\n";
+        end for;
+        Error.addCompilerError(str);
+      end if;
+    then
+      fail(); //selectFreeValue1(zerofreevalues, {}, "Fixed Alias set with conflicting start values\n", "start", BackendVariable.setVarStartValue, v, globalKnownVars);
 
     // fixed false only one start value -> nothing changed
     case (_, false, (_, {(start, _)}), _)
@@ -3612,8 +3627,8 @@ algorithm
       end if;
       true = intEq(i, is);
       crVar = BackendVariable.varCref(inVar);
-      favorit = if ComponentReference.crefEqual(crVar, crs) then {(es, crs, is), (e, cr, i)} else {(e, cr, i), (es, crs, is)};
-      favorit = listAppend(favorit,rest);
+      favorit = if ComponentReference.crefEqual(crVar, crs) then
+       (es, crs, is) :: (e, cr, i) :: rest else (e, cr, i) :: (es, crs, is) :: rest;
     then selectFreeValue1(zerofreevalues, favorit, s, iAttributeName, inFunc, inVar, globalKnownVars);
 
     // less than, remove all from list, return just this one
@@ -4518,7 +4533,6 @@ algorithm
       unReplaceable = if b then BaseHashSet.add(pcr, iUnreplaceable) else iUnreplaceable;
     then unReplaceable;
 
-    case (DAE.CREF_ITER(), _) then iUnreplaceable;
     case (DAE.OPTIMICA_ATTR_INST_CREF(), _) then iUnreplaceable;
     case (DAE.WILD(), _) then iUnreplaceable;
   end match;
@@ -4590,6 +4604,8 @@ algorithm
       HashTableCrToExp.HashTable HTCrToExp;
       HashTableCrToCrEqLst.HashTable HTCrToCrEqLst, HTAliasLst;
       list<tuple<DAE.ComponentRef,DAE.Exp>> tplExp;
+      DAE.ComponentRef cr_print;
+      DAE.Exp exp_print;
       list<tuple<DAE.ComponentRef,list<tuple<DAE.ComponentRef,BackendDAE.Equation>>>> tplCrEqLst, tplAliasLst;
 
       Integer countAliasEquations, countSimpleEquations, size;
@@ -4696,6 +4712,7 @@ algorithm
         print("Number of Alias Equations:   " +  intString(countAliasEquations) + "\n");
         print("Number of Simple Equations:   " +  intString(countSimpleEquations) + "\n");
         print("\nAliases:\n++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
+        BaseHashTable.dumpHashTable(HTCrToExp);
       end if;
       //SimCodeUtil.execStat("FINDSIMPLE6: ");
 

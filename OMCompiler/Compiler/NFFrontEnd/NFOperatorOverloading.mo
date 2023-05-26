@@ -40,17 +40,19 @@ protected
   import Record = NFRecord;
   import ComponentRef = NFComponentRef;
   import NFClassTree.ClassTree;
-  import NFClass.Class;
-  import NFComponent.Component;
-  import NFBinding.Binding;
+  import Class = NFClass;
+  import Component = NFComponent;
+  import Binding = NFBinding;
   import Expression = NFExpression;
-  import NFCall.Call;
+  import Call = NFCall;
   import SCodeUtil;
+  import InstContext = NFInstContext;
 
 public
   function instConstructor
     input Absyn.Path path;
     input output InstNode recordNode;
+    input InstContext.Type context;
     input SourceInfo info;
   protected
     ComponentRef ctor_ref;
@@ -60,7 +62,7 @@ public
   algorithm
     // Check if the operator record has an overloaded constructor declared.
     try
-      ctor_ref := Function.lookupFunctionSimple("'constructor'", recordNode);
+      ctor_ref := Function.lookupFunctionSimple("'constructor'", recordNode, context);
       ctor_overloaded := true;
     else
       ctor_overloaded := false;
@@ -69,10 +71,8 @@ public
     if ctor_overloaded then
       // If it has an overloaded constructor, instantiate it and add the
       // function(s) to the record node.
-      //ctor_node := ComponentRef.node(ctor_ref);
-      (_, ctor_node) := Function.instFunctionRef(ctor_ref, info);
-      ctor_path := InstNode.scopePath(ctor_node, includeRoot = true);
-      //ctor_node := Function.instFunction2(ctor_path, ctor_node, info);
+      (_, ctor_node) := Function.instFunctionRef(ctor_ref, context, info);
+      ctor_path := InstNode.fullPath(ctor_node);
 
       for f in Function.getCachedFuncs(ctor_node) loop
         checkOperatorConstructorOutput(f, Class.lastBaseClass(recordNode), ctor_path, info);
@@ -80,16 +80,16 @@ public
       end for;
     end if;
 
-    recordNode := Record.instDefaultConstructor(path, recordNode, info);
+    recordNode := Record.instDefaultConstructor(path, recordNode, context, info);
   end instConstructor;
 
   function instOperatorFunctions
     input output InstNode node;
+    input InstContext.Type context;
     input SourceInfo info;
   protected
     ClassTree tree;
     array<InstNode> mclss;
-    Absyn.Path path;
     list<Function> allfuncs = {}, funcs;
   algorithm
     checkOperatorRestrictions(node);
@@ -99,9 +99,7 @@ public
       case ClassTree.FLAT_TREE(classes = mclss)
         algorithm
           for op in mclss loop
-            //path := InstNode.scopePath(op, includeRoot = true);
-            //Function.instFunction2(path, op, info);
-            Function.instFunctionNode(op);
+            Function.instFunctionNode(op, context, info);
             funcs := Function.getCachedFuncs(op);
             allfuncs := listAppend(funcs, allfuncs);
           end for;
@@ -126,7 +124,7 @@ public
   algorithm
     if not SCodeUtil.isElementEncapsulated(InstNode.definition(operatorNode)) then
       Error.addSourceMessage(Error.OPERATOR_NOT_ENCAPSULATED,
-        {AbsynUtil.pathString(InstNode.scopePath(operatorNode, includeRoot = true))},
+        {AbsynUtil.pathString(InstNode.fullPath(operatorNode))},
         InstNode.info(operatorNode));
       fail();
     end if;
@@ -145,14 +143,14 @@ public
       case Type.COMPLEX(cls = node)
         algorithm
           try
-            fn_ref := Function.lookupFunctionSimple(operatorName, node);
+            fn_ref := Function.lookupFunctionSimple(operatorName, node, NFInstContext.NO_CONTEXT);
             is_defined := true;
           else
             is_defined := false;
           end try;
 
           if is_defined then
-            fn_ref := Function.instFunctionRef(fn_ref, InstNode.info(node));
+            fn_ref := Function.instFunctionRef(fn_ref, NFInstContext.NO_CONTEXT, InstNode.info(node));
             functions := Function.typeRefCache(fn_ref);
           else
             functions := {};

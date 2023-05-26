@@ -37,26 +37,34 @@
 
 #include "ShapeAnnotation.h"
 
-class Component;
+class Element;
+
 class EllipseAnnotation : public ShapeAnnotation
 {
   Q_OBJECT
 public:
   // Used for icon/diagram shape
   EllipseAnnotation(QString annotation, GraphicsView *pGraphicsView);
+  EllipseAnnotation(ModelInstance::Ellipse *pEllipse, bool inherited, GraphicsView *pGraphicsView);
   // Used for shape inside a component
-  EllipseAnnotation(ShapeAnnotation *pShapeAnnotation, Component *pParent);
+  EllipseAnnotation(ShapeAnnotation *pShapeAnnotation, Element *pParent);
+  EllipseAnnotation(ModelInstance::Ellipse *pEllipse, Element *pParent);
   // Used for icon/diagram inherited shape
   EllipseAnnotation(ShapeAnnotation *pShapeAnnotation, GraphicsView *pGraphicsView);
   void parseShapeAnnotation(QString annotation) override;
+  void parseShapeAnnotation();
   QRectF boundingRect() const override;
   QPainterPath shape() const override;
   void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = 0) override;
-  void drawEllipseAnnotaion(QPainter *painter);
+  void drawEllipseAnnotation(QPainter *painter);
   QString getOMCShapeAnnotation() override;
   QString getOMCShapeAnnotationWithShapeName() override;
   QString getShapeAnnotation() override;
   void updateShape(ShapeAnnotation *pShapeAnnotation) override;
+  ModelInstance::Extend *getExtend() const override;
+  void setEllipse(ModelInstance::Ellipse *pEllipse) {mpEllipse = pEllipse;}
+private:
+  ModelInstance::Ellipse *mpEllipse;
 public slots:
   void duplicate() override;
 };

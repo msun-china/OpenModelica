@@ -2,11 +2,12 @@
 // keywords: SiemensPower SolidComponents
 // status:   correct
 // teardown_command: rm -rf SiemensPower.Components.SolidComponents.Tests.wall_test* _SiemensPower.Components.SolidComponents.Tests.wall_test* output.log
+// cflags: -d=-newInst
 //
 //  Test SiemensPower component SolidComponents
 //
 
-loadModel(SiemensPower,{"2.1 beta"});getErrorString();
+loadModel(SiemensPower,{"2.1.0-beta"});getErrorString();
 
 // test simple model
 simulate(SiemensPower.Components.SolidComponents.Tests.wall_test, stopTime=25, method="dassl");

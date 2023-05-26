@@ -1,10 +1,11 @@
 // name:      TanksConnectedPI
 // keywords: <insert keywords here>
-// status:   correct
+// status:   erroneous
 //
 // <insert description here>
 //
 // Drmodelica: 12.1 Object Oriented Component-based (p. 386)
+// cflags: -d=-newInst
 //
 partial model BaseController
   parameter Real Ts(unit = "s") = 0.1  "Time period between discrete samples";

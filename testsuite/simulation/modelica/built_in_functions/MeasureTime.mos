@@ -2,6 +2,7 @@
 // status: correct
 // teardown_command: rm -f MeasureTime.A*
 // Note: This testcase requires xsltproc and gnuplot installed
+// cflags: -d=-newInst
 
 setCommandLineOptions("+profiling=blocks+html");
 loadFile("MeasureTime.mo");getErrorString();
@@ -17,8 +18,8 @@ regularFileExists({"MeasureTime.A_prof.html","MeasureTime.A_prof.xml","MeasureTi
 // true
 // ""
 // 0
-// Warning: There are nonlinear iteration variables with default zero start attribute found in NLSJac0. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
-// Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
+// Warning: There are nonlinear iteration variables with default zero start attribute found in NLSJac0. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions("-d=initialization").
+// Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions("-d=initialization").
 // true
 // "MeasureTime.A_res.mat"
 // {true,true,true}

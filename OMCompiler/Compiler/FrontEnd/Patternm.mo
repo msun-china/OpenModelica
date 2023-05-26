@@ -310,6 +310,11 @@ algorithm
         (cache,patternTail) = elabPattern(cache,env,tail,tyTail,info);
       then (cache,DAE.PAT_CONS(patternHead,patternTail));
 
+    case (cache,_,Absyn.TUPLE({exp}),_,_,_)
+      algorithm
+        (cache,pattern) := elabPattern2(cache,env,exp,ty,info,numError);
+      then (cache,pattern);
+
     case (cache,_,Absyn.TUPLE(exps),DAE.T_METATUPLE(types = tys),_,_)
       equation
         tys = List.map(tys, Types.boxIfUnboxedType);
@@ -397,6 +402,11 @@ algorithm
       then fail();
 
     case (cache,_,Absyn.CREF(Absyn.WILD()),_,_,_) then (cache,DAE.PAT_WILD());
+
+    case (cache,_,Absyn.EXPRESSIONCOMMENT(),_,_,_)
+      equation
+        (cache,pattern) = elabPattern2(cache,env,inLhs.exp,ty,info,numError);
+      then (cache,pattern);
 
     case (_,_,lhs,_,_,_)
       equation
@@ -546,7 +556,7 @@ algorithm
         funcArgs2 = listAppend(funcArgs,funcArgsNamedFixed);
         Util.SUCCESS() = checkInvalidPatternNamedArgs(invalidArgs,fieldNameList,Util.SUCCESS(),info);
         (cache,patterns) = elabPatternTuple(cache,env,funcArgs2,fieldTypeList,info,lhs);
-        namedPatterns = List.thread3Tuple(patterns, fieldNameList, List.map(fieldTypeList,Types.simplifyType));
+        namedPatterns = List.zip3(patterns, fieldNameList, List.map(fieldTypeList,Types.simplifyType));
         namedPatterns = List.filterOnTrue(namedPatterns, filterEmptyPattern);
       then (cache,DAE.PAT_CALL_NAMED(fqPath,namedPatterns));
 
@@ -1585,11 +1595,9 @@ algorithm
       then (pat,extra);
     case DAE.PAT_CALL_NAMED(name,namedpats)
       equation
-        pats = List.map(namedpats,Util.tuple31);
-        fields = List.map(namedpats,Util.tuple32);
-        types = List.map(namedpats,Util.tuple33);
+        (pats, fields, types) = List.unzip3(namedpats);
         (pats,extra) = traversePatternList(pats, func, extra);
-        namedpats = List.thread3Tuple(pats, fields, types);
+        namedpats = List.zip3(pats, fields, types);
         pat = DAE.PAT_CALL_NAMED(name,namedpats);
         (pat,extra) = func(pat,extra);
       then (pat,extra);
@@ -2135,7 +2143,7 @@ protected function elabResultExp
   output Option<DAE.Type> resType;
 algorithm
   (outCache,outBody,resExp,resultInfo,resType) :=
-  matchcontinue (inCache,inEnv,inBody,exp)
+  matchcontinue (inCache,inEnv,inBody,AbsynUtil.stripCommentExpressions(exp))
     local
       DAE.Exp elabExp;
       DAE.Properties prop;
@@ -2923,7 +2931,6 @@ algorithm
       SourceInfo info;
       Boolean b;
       String id;
-      Integer index;
       DAE.ElementSource source;
 
     case DAE.STMT_ASSIGN(type_=ty,exp1=lhs,exp=exp,source=source as DAE.SOURCE(info=info))
@@ -2955,7 +2962,7 @@ algorithm
         useTree = AvlSetString.join(useTree,elseTree);
       then (DAE.STMT_IF(exp,body,else_,source),useTree);
 
-    case DAE.STMT_FOR(ty,b,id,index,exp,body,source)
+    case DAE.STMT_FOR(ty,b,id,exp,body,source)
       equation
         // Loops repeat, so check for usage in the whole loop before removing any dead stores.
         ErrorExt.setCheckpoint(getInstanceName());
@@ -2965,7 +2972,7 @@ algorithm
         (_,useTree) = Expression.traverseExpBottomUp(exp, useLocalCref, useTree);
         // TODO: We should remove ident from the use-tree in case of shadowing... But our avlTree cannot delete
         useTree = AvlSetString.join(useTree,inUseTree);
-      then (DAE.STMT_FOR(ty,b,id,index,exp,body,source),useTree);
+      then (DAE.STMT_FOR(ty,b,id,exp,body,source),useTree);
 
     case DAE.STMT_WHILE(exp=exp,statementLst=body,source=source)
       equation
@@ -3089,6 +3096,10 @@ protected function convertExpToPatterns
   output list<Absyn.Exp> outInputs;
 algorithm
   outInputs := match inExp
+    local
+      Absyn.Exp exp;
+    case Absyn.EXPRESSIONCOMMENT(exp=exp) then convertExpToPatterns(exp);
+    case Absyn.TUPLE({exp}) then convertExpToPatterns(exp);
     case Absyn.TUPLE() then inExp.expressions;
     else {inExp};
   end match;

@@ -54,7 +54,9 @@ typedef int (*function_t)(threadData_t*, type_description*, type_description*);
 #endif
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
-#define NOMINMAX
+  #ifndef NOMINMAX
+    #define NOMINMAX
+  #endif
 #include <windows.h>
 struct modelica_ptr_s {
   union {
@@ -90,6 +92,7 @@ extern int SystemImpl__setLDFlags(const char *str);
 extern char* SystemImpl__pwd(void);
 extern int SystemImpl__regularFileExists(const char* str);
 extern int SystemImpl__removeFile(const char* filename);
+extern int SystemImpl__rename(const char *source, const char *dest);
 extern const char* SystemImpl__basename(const char *str);
 extern int SystemImpl__systemCall(const char* str, const char* outFile);
 extern void* SystemImpl__systemCallParallel(void *lst, int numThreads);

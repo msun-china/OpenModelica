@@ -35,14 +35,17 @@ protected
   import ComponentRef = NFComponentRef;
   import NFInstNode.InstNode;
   import ExpandExp = NFExpandExp;
+  import SimplifyExp = NFSimplifyExp;
+  import MetaModelica.Dangerous.listReverseInPlace;
 
 public
   import Expression = NFExpression;
-  import NFBinding.Binding;
+  import Binding = NFBinding;
 
   record ARRAY_ITERATOR
-    list<Expression> array;
-    list<Expression> slice;
+    array<Expression> arr;
+    Integer index;
+    list<array<Expression>> arrays;
   end ARRAY_ITERATOR;
 
   record SCALAR_ITERATOR
@@ -63,6 +66,7 @@ public
 
   function fromExp
     input Expression exp;
+    input Boolean backend = false;
     output ExpressionIterator iterator;
   algorithm
     iterator := match exp
@@ -73,23 +77,21 @@ public
 
       case Expression.ARRAY()
         algorithm
-          (Expression.ARRAY(elements = arr), expanded) := ExpandExp.expand(exp);
+          (e, expanded) := ExpandExp.expand(exp, backend);
 
           if not expanded then
             Error.assertion(false, getInstanceName() + " got unexpandable expression `" +
               Expression.toString(exp) + "`", sourceInfo());
           end if;
-
-          (arr, slice) := nextArraySlice(arr);
         then
-          ARRAY_ITERATOR(arr, slice);
+          makeArrayIterator(e);
 
       case Expression.CREF()
         algorithm
-          e := ExpandExp.expandCref(exp);
+          e := ExpandExp.expandCref(exp, backend);
 
           iterator := match e
-            case Expression.ARRAY() then fromExp(e);
+            case Expression.ARRAY() then fromExp(e, backend);
             else SCALAR_ITERATOR(e);
           end match;
         then
@@ -97,9 +99,9 @@ public
 
       else
         algorithm
-          e := ExpandExp.expand(exp);
+          e := ExpandExp.expand(exp, backend);
         then
-          if referenceEq(e, exp) then SCALAR_ITERATOR(exp) else fromExp(e);
+          if referenceEq(e, exp) then SCALAR_ITERATOR(exp) else fromExp(e, backend);
 
     end match;
   end fromExp;
@@ -125,12 +127,6 @@ public
       local
         list<Expression> expl;
 
-      case Binding.TYPED_BINDING(eachType = NFBinding.EachType.REPEAT)
-        algorithm
-          expl := Expression.arrayScalarElements(binding.bindingExp);
-        then
-          if listLength(expl) == 1 then EACH_ITERATOR(listHead(expl)) else REPEAT_ITERATOR(expl, expl);
-
       case Binding.TYPED_BINDING(eachType = NFBinding.EachType.EACH)
         then EACH_ITERATOR(binding.bindingExp);
 
@@ -147,7 +143,7 @@ public
     output Boolean hasNext;
   algorithm
     hasNext := match iterator
-      case ARRAY_ITERATOR() then not listEmpty(iterator.slice);
+      case ARRAY_ITERATOR() then iterator.index <= arrayLength(iterator.arr);
       case SCALAR_ITERATOR() then true;
       case EACH_ITERATOR() then true;
       case NONE_ITERATOR() then false;
@@ -163,16 +159,25 @@ public
       local
         list<Expression> rest, arr;
         Expression next;
+        list<array<Expression>> arrs;
 
       case ARRAY_ITERATOR()
         algorithm
-          next :: rest := iterator.slice;
+          next := arrayGet(iterator.arr, iterator.index);
 
-          if listEmpty(rest) then
-            (arr, rest) := nextArraySlice(iterator.array);
-            iterator := ARRAY_ITERATOR(arr, rest);
+          if iterator.index >= arrayLength(iterator.arr) then
+            arrs := iterator.arrays;
+            while not listEmpty(arrs) and arrayEmpty(listHead(arrs)) loop
+              arrs := listRest(arrs);
+            end while;
+
+            if listEmpty(arrs) then
+              iterator := ARRAY_ITERATOR(listArray({}), 1, {});
+            else
+              iterator := ARRAY_ITERATOR(listHead(arrs), 1, listRest(arrs));
+            end if;
           else
-            iterator.slice := rest;
+            iterator.index := iterator.index + 1;
           end if;
         then
           (iterator, next);
@@ -228,37 +233,73 @@ public
     expl := listReverse(expl);
   end toList;
 
-protected
-  function nextArraySlice
-    input output list<Expression> array;
-          output list<Expression> slice;
+  function isSubscriptedArrayCall
+    "only checks first slice for a subscripted call and assumes it holds for all of them"
+    input ExpressionIterator iterator;
+    input Boolean trySimplify = true;
+    output Boolean b;
   protected
-    Expression e;
-    list<Expression> arr;
-  algorithm
-    if listEmpty(array) then
-      slice := {};
-    else
-      e := listHead(array);
-
-      (array, slice) := match e
-        case Expression.ARRAY()
-          algorithm
-            (arr, slice) := nextArraySlice(e.elements);
-
-            if listEmpty(arr) then
-              array := listRest(array);
-            else
-              e.elements := arr;
-              array := e :: listRest(array);
-            end if;
-          then
-            (array, slice);
-
-        else ({}, array);
+    function is_sub_call
+      input Expression exp;
+      input Boolean trySimplify;
+      output Boolean res;
+    protected
+      Expression call;
+    algorithm
+      res := match exp
+        case Expression.SUBSCRIPTED_EXP(exp = Expression.CALL())
+          then not trySimplify or Expression.isCall(SimplifyExp.simplify(exp.exp));
+        else false;
       end match;
+    end is_sub_call;
+  algorithm
+    b := match iterator
+      case ARRAY_ITERATOR() then is_sub_call(arrayGet(iterator.arr, 1), trySimplify);
+      else false;
+    end match;
+  end isSubscriptedArrayCall;
+
+protected
+  function makeArrayIterator
+    input Expression exp;
+    output ExpressionIterator iterator;
+  protected
+    array<Expression> arr;
+    list<array<Expression>> arrays;
+  algorithm
+    arrays := flattenArray(exp, {});
+
+    if listEmpty(arrays) then
+      iterator := ARRAY_ITERATOR(listArray({}), 1, arrays);
+    else
+      iterator := ARRAY_ITERATOR(listHead(arrays), 1, listRest(arrays));
     end if;
-  end nextArraySlice;
+  end makeArrayIterator;
+
+  function flattenArray
+    input Expression exp;
+    input output list<array<Expression>> arrays;
+  algorithm
+    arrays := flattenArray_impl(exp, {});
+    arrays := listReverseInPlace(arrays);
+
+    while not listEmpty(arrays) and arrayEmpty(listHead(arrays)) loop
+      arrays := listRest(arrays);
+    end while;
+  end flattenArray;
+
+  function flattenArray_impl
+    input Expression exp;
+    input output list<array<Expression>> arrays;
+  algorithm
+    if Expression.isVector(exp) then
+      arrays := Expression.arrayElements(exp) :: arrays;
+    else
+      for e in Expression.arrayElements(exp) loop
+        arrays := flattenArray_impl(e, arrays);
+      end for;
+    end if;
+  end flattenArray_impl;
 
 annotation(__OpenModelica_Interface = "frontend");
 end NFExpressionIterator;

@@ -45,8 +45,8 @@
 
 package CodegenUtil
 
-import ExpressionDumpTpl.*;
 import interface SimCodeTV;
+import ExpressionDumpTpl.*;
 
 /* public */ template symbolName(String modelNamePrefix, String symbolName)
   "Creates a unique name for the function"
@@ -65,7 +65,6 @@ template replaceDotAndUnderscore(String str)
 end replaceDotAndUnderscore;
 
 template getGeneralTarget(String str)
- "Replace _ with __ and dot in identifiers with _"
 ::=
   match str
   case "msvc10"
@@ -123,6 +122,25 @@ template subscriptsStr(list<Subscript> subscripts)
     '[<%subscripts |> s => subscriptStr(s) ;separator=","%>]'
 end subscriptsStr;
 
+template crefStrMatlabSafe(ComponentRef cr)
+ "Generates the name of a variable for variable name array. Used for linearization
+ to generate matlab safe variable names."
+::=
+  match cr
+  case CREF_IDENT(__) then '<%ident%><%subscriptsStrMatlabSafe(subscriptLst)%>'
+  case CREF_QUAL(ident = "$DER") then 'der_<%crefStrMatlabSafe(componentRef)%>'
+  case CREF_QUAL(ident = "$CLKPRE") then 'pre_<%crefStrMatlabSafe(componentRef)%>'
+  case CREF_QUAL(__) then '<%ident%><%subscriptsStrMatlabSafe(subscriptLst)%>_<%crefStrMatlabSafe(componentRef)%>'
+  else "CREF_NOT_IDENT_OR_QUAL"
+end crefStrMatlabSafe;
+
+template subscriptsStrMatlabSafe(list<Subscript> subscripts)
+ "Generares subscript part of the name for matlab safe variable names."
+::=
+  if subscripts then
+    '(<%subscripts |> s => subscriptStr(s) ;separator=","%>)'
+end subscriptsStrMatlabSafe;
+
 template subscriptStr(Subscript subscript)
  "Generates a single subscript.
   Only works for constant integer and cref indicies."
@@ -130,6 +148,7 @@ template subscriptStr(Subscript subscript)
 ::=
   match subscript
   case INDEX(exp=ICONST(integer=i)) then i
+  case INDEX(exp=BCONST(bool=i)) then i
   case INDEX(exp=ENUM_LITERAL(name=n)) then dotPath(n)
   case INDEX(exp=CREF()) then printExpStr(exp)
   case SLICE(exp=ICONST(integer=i)) then i
@@ -140,7 +159,6 @@ template subscriptStr(Subscript subscript)
   else "UNKNOWN_SUBSCRIPT"
 end subscriptStr;
 
-
 /*********************** Comments ************************/
 
 template escapeCComments(String stringWithCComments)
@@ -148,13 +166,33 @@ template escapeCComments(String stringWithCComments)
 ::= '<%System.stringReplace(System.stringReplace(stringWithCComments, "/*", "(*"), "*/", "*)")%>'
 end escapeCComments;
 
+template crefCComment(SimVar v, String vName)
+"write the C comment for a cref, if it is not to be obfuscated"
+::=
+  match v
+  case SIMVAR(isProtected = true) then
+    if stringEq(getConfigString(OBFUSCATE), "none")
+    then '<%escapeCComments(vName)%>'
+    else 'OBFUSCATED'
+  case SIMVAR(__) then
+    if not stringEq(getConfigString(OBFUSCATE), "full")
+    then '<%escapeCComments(vName)%>'
+    else 'OBFUSCATED'
+end crefCComment;
+
+template crefCCommentWithVariability(SimVar v)
+"write the C comment for a cref with variability"
+::=
+  match v
+  case SIMVAR(isProtected = true) then
+    if stringEq(getConfigString(OBFUSCATE), "none")
+    then ' /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
+  case SIMVAR(__) then
+    if not stringEq(getConfigString(OBFUSCATE), "full")
+    then ' /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
+end crefCCommentWithVariability;
+
 /*********************************************************/
-
-
-
-
-
-
 
 template initDefaultValXml(DAE.Type type_)
 ::=

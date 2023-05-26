@@ -1,5 +1,6 @@
 // name: testAlgLoop7
 // status: correct
+// cflags: -d=-newInst
 
 setCommandLineOptions("+gDynOpt +loop2con=all");
 //setCommandLineOptions("+gDynOpt");
@@ -32,12 +33,10 @@ getErrorString();
 // record SimulationResult
 //     resultFile = "testAlgLoop7_res.mat",
 //     simulationOptions = "startTime = 0.0, stopTime = 0.5, numberOfIntervals = 100, tolerance = 1e-12, method = 'optimization', fileNamePrefix = 'testAlgLoop7', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = '-lv LOG_IPOPT_ERROR -optimizerNP 1 -iif ReferenceFiles/testAlgLoop7_ref.mat -iim none -ipopt_init FILE'",
-//     messages = "assert            | warning | The following assertion has been violated at time 0.000000
-// |                 | |       | $EqCon$x2 >= 0.0 and $EqCon$x2 <= 0.0
-// assert            | warning | Variable violating min/max constraint: 0.0 <= $EqCon$x2 <= 0.0, has value: 3
-// assert            | warning | The following assertion has been violated at time 0.000000
-// |                 | |       | $EqCon$x1 >= 0.0 and $EqCon$x1 <= 0.0
-// assert            | warning | Variable violating min/max constraint: 0.0 <= $EqCon$x1 <= 0.0, has value: 0.864672
+//     messages = "LOG_ASSERT        | warning | The following assertion has been violated at time 0.000000
+// |                 | |       | (($EqCon$x2 >= 0.0 and $EqCon$x2 <= 0.0)) --> \"Variable violating min/max constraint: 0.0 <= $EqCon$x2 <= 0.0, has value: 3\"
+// LOG_ASSERT        | warning | The following assertion has been violated at time 0.000000
+// |                 | |       | (($EqCon$x1 >= 0.0 and $EqCon$x1 <= 0.0)) --> \"Variable violating min/max constraint: 0.0 <= $EqCon$x1 <= 0.0, has value: 0.864672\"
 // LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
 //
 // Optimizer Variables
@@ -50,12 +49,12 @@ getErrorString();
 // --------------------------------------------------------
 // number of nonlinear constraints: 3
 // ========================================================
-// stdout            | info    | Using values from file as initial guess.
+// LOG_STDOUT        | info    | Using values from file as initial guess.
 //
 // ******************************************************************************
 // This program contains Ipopt, a library for large-scale nonlinear optimization.
 //  Ipopt is released as open source code under the Eclipse Public License (EPL).
-//          For more information visit http://projects.coin-or.org/Ipopt
+//          For more information visit https://github.com/coin-or/Ipopt
 // ******************************************************************************
 //
 // LOG_IPOPT_ERROR   | info    | max violation is 0.00630401 for the constraint $EqCon$x1(time = 0.17)

@@ -2,7 +2,6 @@ package CodegenCpp
 
 import interface SimCodeTV;
 import CodegenCppCommon.*;
-import CodegenOMSI_common;
 import CodegenUtil.*;
 import CodegenUtilSimulation.*;
 import CodegenCppInit.*;
@@ -25,77 +24,57 @@ template translateModel(SimCode simCode)
   let stateDerVectorName = "__zDot"
   match simCode
     case SIMCODE(modelInfo = MODELINFO(__)) then
-        let target  = simulationCodeTarget()
+        let target = simulationCodeTarget()
         let &extraFuncs = buffer "" /*BUFD*/
         let &extraFuncsDecl = buffer "" /*BUFD*/
+        let &extraInitFuncs = buffer ""
+        let &extraInitFuncsDecl = buffer ""
         let &extraResidualsFuncsDecl = buffer "" /*BUFD*/
         let &dummyTypeElemCreation = buffer "" //remove this workaround if GCC > 4.4 is the default compiler
-        let &extraFuncsFun = buffer "" /*BUFD*/
-        let &extraFuncsDeclFun = buffer "" /*BUFD*/
-        let className = fileNamePrefix
+        let &complexStartExpressions = buffer ""
+
+        let className = lastIdentOfPath(modelInfo.name)
         let numRealVars = numRealvars(modelInfo)
         let numIntVars = numIntvars(modelInfo)
         let numBoolVars = numBoolvars(modelInfo)
         let numStringVars = numStringvars(modelInfo)
-        let numPreVars = getPreVarsCount(modelInfo)
 
-        let &extraFuncsInit = buffer "" /*BUFD*/
-        let &extraFuncsDeclInit = buffer "" /*BUFD*/
-        let &complexStartExpressions = buffer ""
-        let _ =  match  Config.simCodeTarget()
-        case "Cpp" then
-           let() = textFile(simulationMainFile(target, simCode , &extraFuncs , &extraFuncsDecl, "", "", "", "", numRealVars, numIntVars, numBoolVars, numStringVars, getPreVarsCount(modelInfo)), 'OMCpp<%className%>Main.cpp')
-            let()= textFile(modelInitXMLFile(simCode, numRealVars, numIntVars, numBoolVars, numStringVars, "", "", "", false, "", complexStartExpressions, stateDerVectorName),'<%fileNamePrefix%>_init.xml')
-         ""
-        else
-           ""
-        let()= textFile(simulationInitCppFile(simCode , &extraFuncsInit , &extraFuncsDeclInit, '<%className%>Initialize', dummyTypeElemCreation, stateDerVectorName, false, complexStartExpressions),'OMCpp<%fileNamePrefix%>Initialize.cpp')
-        let()= textFile(simulationCppFile(simCode, contextOther, update(simCode , &extraFuncs , &extraFuncsDecl,  className, stateDerVectorName, false),
-                        '<%numRealVars%> - 1', '<%numIntVars%> - 1', '<%numBoolVars%> - 1', '<%numStringVars%> - 1', &extraFuncs, &extraFuncsDecl, className, "", "", "",
-                        stateDerVectorName, false,numRealVars,numIntVars,numBoolVars,numStringVars,numPreVars), 'OMCpp<%fileNamePrefix%>.cpp')
-        let()= textFile(simulationHeaderFile(simCode , contextOther,&extraFuncs , &extraFuncsDecl, className, "", "", "",
-                                             memberVariableDefine(modelInfo, varToArrayIndexMapping, '<%numRealVars%> - 1', '<%numIntVars%> - 1', '<%numBoolVars%> - 1', '<%numStringVars%> - 1', Flags.isSet(Flags.GEN_DEBUG_SYMBOLS), false),
-                                             false), 'OMCpp<%fileNamePrefix%>.h')
-        let()= textFile(simulationTypesHeaderFile(simCode, &extraFuncs, &extraFuncsDecl, "", &dummyTypeElemCreation, modelInfo.functions, literals, stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>Types.h')
-        let()= textFile(simulationMakefile(target,simCode , &extraFuncs , &extraFuncsDecl, "","","","","",false), '<%fileNamePrefix%>.makefile')
-
-
-        let()= textFile(simulationFunctionsFile(simCode, &extraFuncsFun, &extraFuncsDeclFun, 'Functions', modelInfo.functions, literals, externalFunctionIncludes, stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>Functions.cpp')
-        let()= textFile(simulationFunctionsHeaderFile(simCode, &extraFuncsFun, &extraFuncsDeclFun, 'Functions', modelInfo.functions, literals, stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>Functions.h')
-
-
-
-
+        let()= textFile(simulationMainFile(target, simCode, &extraFuncs, &extraFuncsDecl, "", "", "", "", numRealVars, numIntVars, numBoolVars, numStringVars, getPreVarsCount(modelInfo)), 'OMCpp<%fileNamePrefix%>Main.cpp')
+        let()= textFile(modelInitXMLFile(simCode, numRealVars, numIntVars, numBoolVars, numStringVars, "", "", "", false, "", complexStartExpressions, stateDerVectorName),'<%fileNamePrefix%>_init.xml')
 
         let _ = match boolOr(Flags.isSet(Flags.HARDCODED_START_VALUES), Flags.isSet(Flags.GEN_DEBUG_SYMBOLS))
           case true then
-            let()= textFile(simulationInitParameterCppFile(simCode, &extraFuncsInit, &extraFuncsDeclInit, '<%className%>Initialize', stateDerVectorName, false),'OMCpp<%fileNamePrefix%>InitializeParameter.cpp')
-            let()= textFile(simulationInitAlgVarsCppFile(simCode , &extraFuncsInit , &extraFuncsDeclInit, '<%className%>Initialize', stateDerVectorName, false),'OMCpp<%fileNamePrefix%>InitializeAlgVars.cpp')
+            let()= textFile(simulationInitParameterCppFile(simCode, &extraInitFuncs, &extraInitFuncsDecl, '<%className%>Initialize', stateDerVectorName, false),'OMCpp<%fileNamePrefix%>InitializeParameter.cpp')
+            let()= textFile(simulationInitAlgVarsCppFile(simCode, &extraInitFuncs, &extraInitFuncsDecl, '<%className%>Initialize', stateDerVectorName, false),'OMCpp<%fileNamePrefix%>InitializeAlgVars.cpp')
             ""
           else
             ""
+        let()= textFile(simulationInitCppFile(simCode, &extraInitFuncs, &extraInitFuncsDecl, '<%className%>Initialize', dummyTypeElemCreation, stateDerVectorName, false, complexStartExpressions),'OMCpp<%fileNamePrefix%>Initialize.cpp')
+        let()= textFile(simulationInitHeaderFile(simCode, &extraInitFuncs, &extraInitFuncsDecl, '<%className%>Initialize'), 'OMCpp<%fileNamePrefix%>Initialize.h')
 
-        let()= textFile(simulationInitHeaderFile(simCode , &extraFuncsInit , &extraFuncsDeclInit, '<%className%>Initialize'), 'OMCpp<%fileNamePrefix%>Initialize.h')
+        let()= textFile(simulationTypesHeaderFile(simCode, &extraFuncs, &extraFuncsDecl, "", &dummyTypeElemCreation, modelInfo.functions, literals, stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>Types.h')
+        let()= textFile(simulationMakefile(target, simCode, &extraFuncs, &extraFuncsDecl, "", "", "", "", "", false), '<%fileNamePrefix%>.makefile')
+
+        let &extraFuncsFun = buffer "" /*BUFD*/
+        let &extraFuncsDeclFun = buffer "" /*BUFD*/
+        let()= textFile(simulationFunctionsFile(simCode, &extraFuncsFun, &extraFuncsDeclFun, 'Functions', modelInfo.functions, literals, externalFunctionIncludes, stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>Functions.cpp')
+        let()= textFile(simulationFunctionsHeaderFile(simCode, &extraFuncsFun, &extraFuncsDeclFun, 'Functions', modelInfo.functions, literals, stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>Functions.h')
 
         let &jacobianVarsInit = buffer "" /*BUFD*/
         let()= textFile(simulationJacobianHeaderFile(simCode, &extraFuncs, &extraFuncsDecl, "", &jacobianVarsInit, Flags.isSet(Flags.GEN_DEBUG_SYMBOLS)), 'OMCpp<%fileNamePrefix%>Jacobian.h')
-        let()= textFile(simulationJacobianCppFile(simCode , &extraFuncs , &extraFuncsDecl, "", &jacobianVarsInit, stateDerVectorName, false),'OMCpp<%fileNamePrefix%>Jacobian.cpp')
-        let()= textFile(simulationStateSelectionCppFile(simCode , &extraFuncs , &extraFuncsDecl, "", stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>StateSelection.cpp')
-        let()= textFile(simulationStateSelectionHeaderFile(simCode , &extraFuncs , &extraFuncsDecl, ""),'OMCpp<%fileNamePrefix%>StateSelection.h')
-        let()= textFile(simulationMixedSystemCppFile(simCode  ,  updateResiduals(simCode,extraFuncs,extraResidualsFuncsDecl,className,stateDerVectorName /*=__zDot*/, false)
-                                                ,&extraFuncs , &extraFuncsDecl, "", stateDerVectorName, false),'OMCpp<%fileNamePrefix%>Mixed.cpp')
-    let()= textFile(simulationMixedSystemHeaderFile(simCode , &extraFuncs , &extraResidualsFuncsDecl, ""),'OMCpp<%fileNamePrefix%>Mixed.h')
-        let _ =  match  Config.simCodeTarget()
-        case "Cpp" then
-        let()= textFile(simulationWriteOutputHeaderFile(simCode , &extraFuncs , &extraFuncsDecl, ""),'OMCpp<%fileNamePrefix%>WriteOutput.h')
-        let()= textFile(simulationWriteOutputCppFile(simCode , &extraFuncs , &extraFuncsDecl, "", stateDerVectorName, false),'OMCpp<%fileNamePrefix%>WriteOutput.cpp')
-        ""
-        else
-        ""
-        end match
-        let()= textFile(simulationFactoryFile(simCode , &extraFuncs , &extraFuncsDecl, ""),'OMCpp<%fileNamePrefix%>FactoryExport.cpp')
-        let()= textFile(simulationMainRunScript(simCode , &extraFuncs , &extraFuncsDecl, "", "", "", "exec"), '<%fileNamePrefix%><%simulationMainRunScriptSuffix(simCode , &extraFuncs , &extraFuncsDecl, "")%>')
-        let jac =  (jacobianMatrixes |> JAC_MATRIX(columns=mat, partitionIndex=partIdx) =>
+        let()= textFile(simulationJacobianCppFile(simCode, &extraFuncs, &extraFuncsDecl, "", &jacobianVarsInit, stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>Jacobian.cpp')
+        let()= textFile(simulationStateSelectionCppFile(simCode, &extraFuncs, &extraFuncsDecl, "", stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>StateSelection.cpp')
+        let()= textFile(simulationStateSelectionHeaderFile(simCode, &extraFuncs, &extraFuncsDecl, ""), 'OMCpp<%fileNamePrefix%>StateSelection.h')
+        let()= textFile(simulationMixedSystemCppFile(simCode, updateResiduals(simCode, extraResidualsFuncsDecl, className, stateDerVectorName /*=__zDot*/, false),
+                                                     &extraFuncs, &extraFuncsDecl, "", stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>Mixed.cpp')
+        let()= textFile(simulationMixedSystemHeaderFile(simCode, &extraResidualsFuncsDecl), 'OMCpp<%fileNamePrefix%>Mixed.h')
+
+        let()= textFile(simulationWriteOutputCppFile(simCode, &extraFuncs, &extraFuncsDecl, "", stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>WriteOutput.cpp')
+        let()= textFile(simulationWriteOutputHeaderFile(simCode, &extraFuncs, &extraFuncsDecl, ""), 'OMCpp<%fileNamePrefix%>WriteOutput.h')
+        let()= textFile(simulationFactoryFile(simCode, &extraFuncs, &extraFuncsDecl, ""),'OMCpp<%fileNamePrefix%>FactoryExport.cpp')
+        let()= textFile(simulationMainRunScript(simCode, &extraFuncs, &extraFuncsDecl, "", "", "", "exec"), '<%fileNamePrefix%><%simulationMainRunScriptSuffix(simCode, &extraFuncs, &extraFuncsDecl, "")%>')
+
+        let jac = (jacobianMatrices |> JAC_MATRIX(columns=mat, partitionIndex=partIdx) =>
           (mat |> JAC_COLUMN(columnEqns=eqs) => algloopfiles(eqs, simCode, &extraFuncs, &extraFuncsDecl, "", contextAlgloopJacobian, partIdx, stateDerVectorName, false) ;separator="")
          ;separator="")
         let alg = algloopfiles(listAppend(allEquations, initialEquations), simCode, &extraFuncs, &extraFuncsDecl, "", contextAlgloop, 0, stateDerVectorName, false)
@@ -108,6 +87,13 @@ template translateModel(SimCode simCode)
         let() = textFile(algloopMainfile(simCode, &extraFuncs, &extraFuncsDecl, "", contextAlgloop), 'OMCpp<%fileNamePrefix%>AlgLoopMain.cpp')
         let() = textFile(calcHelperMainfile(simCode, &extraFuncs, &extraFuncsDecl, ""), 'OMCpp<%fileNamePrefix%>CalcHelperMain.cpp')
 
+        // generate main model file last to consider all extraFuncs and extraFuncsDecl
+        let()= textFile(simulationCppFile(simCode, contextOther, update(simCode , &extraFuncs , &extraFuncsDecl,  className, stateDerVectorName, false),
+                        '<%numRealVars%> - 1', '<%numIntVars%> - 1', '<%numBoolVars%> - 1', '<%numStringVars%> - 1', &extraFuncs, &extraFuncsDecl, className, "", "", "",
+                        stateDerVectorName, false), 'OMCpp<%fileNamePrefix%>.cpp')
+        let()= textFile(simulationHeaderFile(simCode, contextOther, &extraFuncs, &extraFuncsDecl, className, "", "", "",
+                                             memberVariableDefine(modelInfo, varToArrayIndexMapping, '<%numRealVars%> - 1', '<%numIntVars%> - 1', '<%numBoolVars%> - 1', '<%numStringVars%> - 1', Flags.isSet(Flags.GEN_DEBUG_SYMBOLS), false),
+                                             false), 'OMCpp<%fileNamePrefix%>.h')
         match target
           case "vxworks69" then
             let()= textFile(functionBlock(simCode), '<%fileNamePrefix%>_PLCOPEN.xml')
@@ -143,18 +129,13 @@ case SIMCODE(__) then
 end simulationHeaderFile;
 
 
-template simulationInitHeaderFile(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
+template simulationInitHeaderFile(SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace)
  "Generates code for header file for simulation target."
 ::=
 match simCode
-case SIMCODE(modelInfo=MODELINFO(__),initialEquations=initialequations,parameterEquations=parameterEquations,fileNamePrefix=fileNamePrefix) then
-
-let initeqs = generateEquationMemberFuncDecls(initialequations,"initEquation")
-      
-
-
-let initparameqs   =  generateEquationMemberFuncDecls(parameterEquations,"initParameterEquation")
-      
+case SIMCODE(modelInfo=MODELINFO(vars=SIMVARS(__)),fileNamePrefix=fileNamePrefix) then
+let initeqs = generateEquationMemberFuncDecls(initialEquations,"initEquation")
+let initparameqs = generateEquationMemberFuncDecls(parameterEquations,"initParameterEquation")
   match modelInfo
     case modelInfo as MODELINFO(vars=SIMVARS(__)) then
       let functionPrefix = if(Flags.isSet(Flags.HARDCODED_START_VALUES)) then "initialize" else "check"
@@ -167,11 +148,10 @@ let initparameqs   =  generateEquationMemberFuncDecls(parameterEquations,"initPa
     *
     *****************************************************************************/
 
-    class <%lastIdentOfPath(modelInfo.name)%>Initialize : public ISystemInitialization , public  <%lastIdentOfPath(modelInfo.name)%>WriteOutput 
+    class <%lastIdentOfPath(modelInfo.name)%>Initialize : public ISystemInitialization, public <%lastIdentOfPath(modelInfo.name)%>WriteOutput
     {
      public:
-
-      <%lastIdentOfPath(modelInfo.name)%>Initialize(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu = NULL);
+      <%lastIdentOfPath(modelInfo.name)%>Initialize(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects);
       <%lastIdentOfPath(modelInfo.name)%>Initialize(<%lastIdentOfPath(modelInfo.name)%>Initialize& instance);
       virtual ~<%lastIdentOfPath(modelInfo.name)%>Initialize();
       virtual bool initial();
@@ -190,12 +170,10 @@ let initparameqs   =  generateEquationMemberFuncDecls(parameterEquations,"initPa
         >>
       %>
     private:
-
       <%initeqs%>
-
       <%initparameqs%>
-
       <%destructExtObjsDecl(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, false)%>
+      <%extraFuncsDecl%>
 
       void InitializeDummyTypeElems();
 
@@ -226,7 +204,6 @@ let initparameqs   =  generateEquationMemberFuncDecls(parameterEquations,"initPa
         <%List.partition(vars.intParamVars, 100) |> ls hasindex idx => 'void <%functionPrefix%>IntParameterVars_<%idx%>();';separator="\n"%>
         <%List.partition(vars.boolParamVars, 100) |> ls hasindex idx => 'void <%functionPrefix%>BoolParameterVars_<%idx%>();';separator="\n"%>
         <%List.partition(vars.stringParamVars, 100) |> ls hasindex idx => 'void <%functionPrefix%>StringParameterVars_<%idx%>();';separator="\n"%>
-
         void <%functionPrefix%>ParameterVars();
         void <%functionPrefix%>IntParameterVars();
         void <%functionPrefix%>BoolParameterVars();
@@ -235,8 +212,6 @@ let initparameqs   =  generateEquationMemberFuncDecls(parameterEquations,"initPa
         void <%functionPrefix%>DerVars();
         >>
       %>
-      /*extraFuncs*/
-      <%extraFuncsDecl%>
     };
     >>
   end match
@@ -267,19 +242,19 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
 
   class <%lastIdentOfPath(modelInfo.name)%>Jacobian : public <%lastIdentOfPath(modelInfo.name)%>
   {
-  <% (jacobianMatrixes |> JAC_MATRIX(columns=mat) hasindex index0 =>
+  <% (jacobianMatrices |> JAC_MATRIX(columns=mat) hasindex index0 =>
        (mat |> JAC_COLUMN(columnEqns=eqs) => generatefriendAlgloops(eqs, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace) ;separator="\n")
      ;separator="")
   %>
   public:
-    <%lastIdentOfPath(modelInfo.name)%>Jacobian(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu = NULL);
+    <%lastIdentOfPath(modelInfo.name)%>Jacobian(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects);
     <%lastIdentOfPath(modelInfo.name)%>Jacobian(<%lastIdentOfPath(modelInfo.name)%>Jacobian& instance);
     virtual ~<%lastIdentOfPath(modelInfo.name)%>Jacobian();
 
   protected:
     void initialize();
     <%
-    let jacobianfunctions = (jacobianMatrixes |> JAC_MATRIX(matrixName=name) hasindex index0 =>
+    let jacobianfunctions = (jacobianMatrices |> JAC_MATRIX(matrixName=name) hasindex index0 =>
     <<
 
     void calc<%name%>JacobianColumn();
@@ -291,15 +266,23 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
     >>
     %>
     <%
-    let jacobianvars = (jacobianMatrixes |> JAC_MATRIX(matrixName=name) hasindex index0 =>
+    let jacobianvars = (jacobianMatrices |> JAC_MATRIX(matrixName=name) hasindex index0 =>
       <<
 
       <%matrixreturntype%> _<%name%>jacobian;
       ublas::vector<double> _<%name%>jac_y;
       ublas::vector<double> _<%name%>jac_tmp;
       ublas::vector<double> _<%name%>jac_x;
-      int* _<%name%>ColorOfColumn;
-      int  _<%name%>MaxColors;
+      <%
+      match name
+      case "A" then
+        <<
+        int* _<%name%>ColorOfColumn;
+        int  _<%name%>MaxColors;
+        std::vector<int>* _<%name%>ColumnsOfColor;
+        std::vector<int>* _<%name%>DependenciesOfColumn;
+        >>
+      %>
       >>
     ;separator="\n";empty)
     <<
@@ -307,7 +290,7 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
     >>
     %>
 
-    <%variableDefinitionsJacobians_skip(jacobianMatrixes, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, &jacobianVarsInit, createDebugCode)%>
+    <%variableDefinitionsJacobians_skip(jacobianMatrices, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, &jacobianVarsInit, createDebugCode)%>
 
     /*testmaessig aus der Cruntime*/
     void initializeColoredJacobianA();
@@ -333,7 +316,7 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
   class <%lastIdentOfPath(modelInfo.name)%>StateSelection: public IStateSelection, public <%lastIdentOfPath(modelInfo.name)%>Mixed
   {
   public:
-    <%lastIdentOfPath(modelInfo.name)%>StateSelection(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu = NULL);
+    <%lastIdentOfPath(modelInfo.name)%>StateSelection(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects);
     virtual ~<%lastIdentOfPath(modelInfo.name)%>StateSelection();
     int getDimStateSets() const;
     int getDimStates(unsigned int index) const;
@@ -373,14 +356,14 @@ case SIMCODE(modelInfo=MODELINFO(__),simulationSettingsOpt = SOME(settings as SI
   class <%lastIdentOfPath(modelInfo.name)%>WriteOutput : public IWriteOutput,public <%lastIdentOfPath(modelInfo.name)%>StateSelection
   {
   public:
-    <%lastIdentOfPath(modelInfo.name)%>WriteOutput(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu = NULL);
+    <%lastIdentOfPath(modelInfo.name)%>WriteOutput(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects);
     <%lastIdentOfPath(modelInfo.name)%>WriteOutput(<%lastIdentOfPath(modelInfo.name)%>WriteOutput& instance);
     virtual ~<%lastIdentOfPath(modelInfo.name)%>WriteOutput();
 
 
     /// Output routine (to be called by the solver after every successful integration step)
     virtual void writeOutput(const IWriteOutput::OUTPUT command = IWriteOutput::UNDEF_OUTPUT);
-    virtual shared_ptr<IHistory> getHistory();
+    virtual IHistory* getHistory();
 
   protected:
     void initialize();
@@ -403,7 +386,7 @@ template getPreVarsCount(ModelInfo modelInfo)
 end getPreVarsCount;
 
 
-template simulationMixedSystemHeaderFile(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
+template simulationMixedSystemHeaderFile(SimCode simCode, Text& extraResidualsFuncsDecl)
  "Generates code for header file for simulation target."
 ::=
 match simCode
@@ -418,18 +401,15 @@ case SIMCODE(modelInfo=MODELINFO(vars = vars as SIMVARS(__))) then
   class <%lastIdentOfPath(modelInfo.name)%>Mixed:  public IMixedSystem, public <%lastIdentOfPath(modelInfo.name)%>Jacobian
   {
   public:
-     <%lastIdentOfPath(modelInfo.name)%>Mixed(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu = NULL);
+     <%lastIdentOfPath(modelInfo.name)%>Mixed(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects);
      <%lastIdentOfPath(modelInfo.name)%>Mixed(<%lastIdentOfPath(modelInfo.name)%>Mixed &instance);
     virtual ~ <%lastIdentOfPath(modelInfo.name)%>Mixed();
-
-
 
     /// Provide Jacobian
     virtual const matrix_t& getJacobian() ;
     virtual const matrix_t& getJacobian(unsigned int index) ;
     virtual sparsematrix_t& getSparseJacobian();
     virtual sparsematrix_t& getSparseJacobian(unsigned int index);
-
 
     virtual  const matrix_t& getStateSetJacobian(unsigned int index);
     virtual  sparsematrix_t& getStateSetSparseJacobian(unsigned int index);
@@ -442,18 +422,19 @@ case SIMCODE(modelInfo=MODELINFO(vars = vars as SIMVARS(__))) then
     virtual void getResidual(double* f);
     virtual void evaluateDAE(const UPDATETYPE command = UNDEF_UPDATE);
 
-    /*colored jacobians*/
-    virtual void getAColorOfColumn(int* aSparsePatternColorCols, int size);
+    /// Colored Jacobian
+    /*deprecated*/ virtual void getAColorOfColumn(int* aSparsePatternColorCols, int size);
     virtual int  getAMaxColors();
+    virtual const vector<int>& getAColumnsOfColor(int color);
+    virtual const vector<int>& getADependenciesOfColumn(int idx);
 
     virtual string getModelName();
     virtual bool isJacobianSparse();//true if getSparseJacobian is implemented and getJacobian is not, false if getJacobian is implemented and getSparseJacobian is not.
     virtual bool isAnalyticJacobianGenerated();//true if the flag --generateSymbolicJacobian is true, false if not.
-    virtual  shared_ptr<ISimObjects> getSimObjects();
    private:
-     //update residual methods
-    <%extraFuncsDecl%>
-  <%simulationDAEMethodsDeclaration(simCode)%>
+    // update residual methods
+    <%extraResidualsFuncsDecl%>
+    <%simulationDAEMethodsDeclaration(simCode)%>
   };
   >>
 end simulationMixedSystemHeaderFile;
@@ -466,12 +447,56 @@ template simulationFactoryFile(SimCode simCode ,Text& extraFuncs,Text& extraFunc
 match simCode
 case SIMCODE(modelInfo=MODELINFO()) then
   <<
-  #if defined (RUNTIME_STATIC_LINKING)
+  #if defined(__TRICORE__) || defined(__vxworks)
   #include <Core/System/FactoryExport.h>
+  #include <Core/DataExchange/SimData.h>
+  #include <Core/System/SimVars.h>
+  extern "C" IMixedSystem* createModelicaSystem(IGlobalSettings* globalSettings,shared_ptr<ISimObjects> simObjects)
+  {
+      return new <%lastIdentOfPath(modelInfo.name)%>Initialize(globalSettings, simObjects);
+  }
 
-    shared_ptr<IMixedSystem> createSystemFunction(shared_ptr<IGlobalSettings> globalSettings)
+  extern "C" ISimVars* createSimVars(size_t dim_real, size_t dim_int, size_t dim_bool, size_t dim_string, size_t dim_pre_vars, size_t dim_z, size_t z_i)
+  {
+      return new SimVars(dim_real, dim_int, dim_bool, dim_string, dim_pre_vars, dim_z, z_i);
+  }
+
+  extern "C" ISimData* createSimData()
+  {
+      return new SimData();
+  }
+
+  shared_ptr<ISimData> createSimDataFunction()
+  {
+    shared_ptr<ISimData> data( new SimData() );
+    return data;
+  }
+
+  shared_ptr<ISimVars> createSimVarsFunction(size_t dim_real, size_t dim_int, size_t dim_bool, size_t dim_string, size_t dim_pre_vars, size_t dim_z, size_t z_i)
+  {
+    shared_ptr<ISimVars> var( new SimVars(dim_real, dim_int, dim_bool, dim_string, dim_pre_vars, dim_z, z_i) );
+    return var;
+  }
+
+  #elif defined (RUNTIME_STATIC_LINKING)
+  #include <Core/System/FactoryExport.h>
+  #include <Core/DataExchange/SimData.h>
+  #include <Core/System/SimVars.h>
+    shared_ptr<ISimData> createSimDataFunction()
     {
-        shared_ptr<IMixedSystem> system( new <%lastIdentOfPath(modelInfo.name)%>Initialize(globalSettings) );
+        shared_ptr<ISimData> data( new SimData() );
+        return data;
+    }
+
+    shared_ptr<ISimVars> createSimVarsFunction(size_t dim_real, size_t dim_int, size_t dim_bool, size_t dim_string, size_t dim_pre_vars, size_t dim_z, size_t z_i)
+    {
+        shared_ptr<ISimVars> var( new SimVars(dim_real, dim_int, dim_bool, dim_string, dim_pre_vars, dim_z, z_i) );
+        return var;
+    }
+
+    shared_ptr<IMixedSystem> createSystemFunction(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects)
+    {
+        shared_ptr<IMixedSystem> system( new <%lastIdentOfPath(modelInfo.name)%>Initialize(globalSettings, simObjects) );
         return system;
     }
 
@@ -479,14 +504,13 @@ case SIMCODE(modelInfo=MODELINFO()) then
 
   BOOST_EXTENSION_TYPE_MAP_FUNCTION
   {
-    typedef boost::extensions::factory<IMixedSystem,shared_ptr<IGlobalSettings> > system_factory;
+    typedef boost::extensions::factory<IMixedSystem,IGlobalSettings*, shared_ptr<ISimObjects> > system_factory;
     types.get<std::map<std::string, system_factory> >()["<%lastIdentOfPath(modelInfo.name)%>"]
       .system_factory::set<<%lastIdentOfPath(modelInfo.name)%>Initialize>();
   }
   #endif
   >>
 end simulationFactoryFile;
-
 
 
 template simulationInitCppFile(SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text& dummyTypeElemCreation, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation, Text& complexStartExpressions)
@@ -496,11 +520,9 @@ match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
    <<
    <%algloopfilesInclude(listAppend(listAppend(allEquations, initialEquations), getClockedEquations(getSubPartitions(clockedPartitions))), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
-   //omsi header
-   #include <omsi.h>
 
-   <%lastIdentOfPath(modelInfo.name)%>Initialize::<%lastIdentOfPath(modelInfo.name)%>Initialize(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu)
-   : <%lastIdentOfPath(modelInfo.name)%>WriteOutput(globalSettings,omsu)
+   <%lastIdentOfPath(modelInfo.name)%>Initialize::<%lastIdentOfPath(modelInfo.name)%>Initialize(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects)
+   : <%lastIdentOfPath(modelInfo.name)%>WriteOutput(globalSettings, simObjects)
    , _constructedExternalObjects(false)
    {
      InitializeDummyTypeElems();
@@ -538,7 +560,7 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
    <%destructExtObjs(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
    <%extraFuncs%>
-  >>
+   >>
 end simulationInitCppFile;
 
 template simulationInitParameterCppFile(SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
@@ -554,8 +576,7 @@ match simCode
         let functionPrefix = if(Flags.isSet(Flags.HARDCODED_START_VALUES)) then 'initialize' else 'check'
         let init10  = initValstWithSplit(varDecls10, "Real", '<%lastIdentOfPath(modelInfo.name)%>Initialize::<%functionPrefix%>ParameterVars', vars.paramVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
         let init11  = initValstWithSplit(varDecls11, "Int", '<%lastIdentOfPath(modelInfo.name)%>Initialize::<%functionPrefix%>IntParameterVars', vars.intParamVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
-        let booltype = "Bool"
-        let init12  = initValstWithSplit(varDecls12,'<%booltype%>', '<%lastIdentOfPath(modelInfo.name)%>Initialize::<%functionPrefix%>BoolParameterVars', vars.boolParamVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
+        let init12  = initValstWithSplit(varDecls12, "Bool", '<%lastIdentOfPath(modelInfo.name)%>Initialize::<%functionPrefix%>BoolParameterVars', vars.boolParamVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
         let init13  = initValstWithSplit(varDecls12, "String", '<%lastIdentOfPath(modelInfo.name)%>Initialize::<%functionPrefix%>StringParameterVars', vars.stringParamVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
         <<
         <%varDecls10%>
@@ -585,8 +606,7 @@ case modelInfo as MODELINFO(vars=SIMVARS(__))  then
    let init3   = initValstWithSplit(varDecls3, "Real", '<%lastIdentOfPath(modelInfo.name)%>Initialize::<%functionPrefix%>AlgVars', vars.algVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
    let init4   = initValst(varDecls4, "Real", vars.discreteAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace,contextOther, stateDerVectorName, useFlatArrayNotation)
    let init5   = initValstWithSplit(varDecls5, "Int", '<%lastIdentOfPath(modelInfo.name)%>Initialize::<%functionPrefix%>IntAlgVars', vars.intAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
-   let booltype =  "Bool"
-   let init6   = initValst(varDecls6, booltype, vars.boolAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
+   let init6   = initValst(varDecls6, "Bool", vars.boolAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
    let init7   = initValstWithSplit(varDecls7, "String", '<%lastIdentOfPath(modelInfo.name)%>Initialize::<%functionPrefix%>StringAlgVars', vars.stringAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation)
 
    <<
@@ -617,19 +637,21 @@ template simulationJacobianCppFile(SimCode simCode, Text& extraFuncs, Text& extr
 ::=
 match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
-   let initialjacMats = (jacobianMatrixes |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, jacobianIndex=jacIndex) =>
+   let initialjacMats = (jacobianMatrices |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, jacobianIndex=jacIndex) =>
     initialAnalyticJacobians(jacIndex, mat, vars, name, sparsepattern, colorList, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
     ;separator="\n";empty)
    <<
 
-   <% (jacobianMatrixes |> JAC_MATRIX(columns=mat) hasindex index0 =>
+   <% (jacobianMatrices |> JAC_MATRIX(columns=mat) hasindex index0 =>
        (mat |> JAC_COLUMN(columnEqns=eqs) =>  algloopfilesInclude(eqs, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace) ;separator="")
      ;separator="")
    %>
-   <%lastIdentOfPath(modelInfo.name)%>Jacobian::<%lastIdentOfPath(modelInfo.name)%>Jacobian(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu)
-       : <%lastIdentOfPath(modelInfo.name)%>(globalSettings,omsu)
+   <%lastIdentOfPath(modelInfo.name)%>Jacobian::<%lastIdentOfPath(modelInfo.name)%>Jacobian(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects)
+       : <%lastIdentOfPath(modelInfo.name)%>(globalSettings,simObjects)
        , _AColorOfColumn(NULL)
        , _AMaxColors(0)
+       , _AColumnsOfColor(NULL)
+       , _ADependenciesOfColumn(NULL)
        <%initialjacMats%>
        <%jacobianVarsInit%>
    {
@@ -639,6 +661,8 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
        : <%lastIdentOfPath(modelInfo.name)%>(instance)
        , _AColorOfColumn(NULL)
        , _AMaxColors(0)
+       , _AColumnsOfColor(NULL)
+       , _ADependenciesOfColumn(NULL)
        <%initialjacMats%>
        <%jacobianVarsInit%>
    {
@@ -646,11 +670,15 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
 
    <%lastIdentOfPath(modelInfo.name)%>Jacobian::~<%lastIdentOfPath(modelInfo.name)%>Jacobian()
    {
-     if(_AColorOfColumn)
+     if (_AColorOfColumn)
        delete [] _AColorOfColumn;
+     if (_AColumnsOfColor)
+       delete [] _AColumnsOfColor;
+     if (_ADependenciesOfColumn)
+       delete [] _ADependenciesOfColumn;
    }
 
-   <%functionAnalyticJacobians(modelInfo,jacobianMatrixes, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+   <%functionAnalyticJacobians(modelInfo,jacobianMatrices, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
    //testmaessig aus der cruntime
    /* Jacobians */
@@ -658,7 +686,7 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
 
    void <%lastIdentOfPath(modelInfo.name)%>Jacobian::initializeColoredJacobianA()
    {
-   <%functionAnalyticJacobians2(jacobianMatrixes, lastIdentOfPath(modelInfo.name),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+   <%functionAnalyticJacobians2(jacobianMatrices, lastIdentOfPath(modelInfo.name),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
    }
    <%\n%>
    >>
@@ -671,8 +699,8 @@ match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
    <<
 
-   <%lastIdentOfPath(modelInfo.name)%>StateSelection::<%lastIdentOfPath(modelInfo.name)%>StateSelection(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu)
-       : <%lastIdentOfPath(modelInfo.name)%>Mixed(globalSettings,omsu)
+   <%lastIdentOfPath(modelInfo.name)%>StateSelection::<%lastIdentOfPath(modelInfo.name)%>StateSelection(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects)
+       : <%lastIdentOfPath(modelInfo.name)%>Mixed(globalSettings, simObjects)
    {
    }
 
@@ -691,23 +719,19 @@ template simulationWriteOutputCppFile(SimCode simCode ,Text& extraFuncs,Text& ex
 ::=
 match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
-   let numalgvars= numAlgvars(modelInfo)
-   let numaliasvars = numAliasvars(modelInfo)
-   let numstatevars =numStatevars(modelInfo)
-
    <<
 
 
-   <%lastIdentOfPath(modelInfo.name)%>WriteOutput::<%lastIdentOfPath(modelInfo.name)%>WriteOutput(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu)
-       : <%lastIdentOfPath(modelInfo.name)%>StateSelection(globalSettings,omsu)
+   <%lastIdentOfPath(modelInfo.name)%>WriteOutput::<%lastIdentOfPath(modelInfo.name)%>WriteOutput(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects)
+       : <%lastIdentOfPath(modelInfo.name)%>StateSelection(globalSettings, simObjects)
    {
 
-      _writeOutput = getSimObjects()->LoadWriter(<%numAlgvars(modelInfo)%> + <%numAliasvars(modelInfo)%> + 2*<%numStatevars(modelInfo)%>).lock();
+
 
    }
 
    <%lastIdentOfPath(modelInfo.name)%>WriteOutput::<%lastIdentOfPath(modelInfo.name)%>WriteOutput(<%lastIdentOfPath(modelInfo.name)%>WriteOutput& instance)
-       : <%lastIdentOfPath(modelInfo.name)%>StateSelection(instance.getGlobalSettings())
+       : <%lastIdentOfPath(modelInfo.name)%>StateSelection(instance.getGlobalSettings(), instance.getSimObjects())
    {
 
    }
@@ -717,26 +741,19 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
 
    }
 
-   shared_ptr<IHistory> <%lastIdentOfPath(modelInfo.name)%>WriteOutput::getHistory()
+   IHistory* <%lastIdentOfPath(modelInfo.name)%>WriteOutput::getHistory()
    {
-     return _writeOutput;
+     return _writeOutput.get();
    }
 
    void <%lastIdentOfPath(modelInfo.name)%>WriteOutput::initialize()
    {
-
-       <%match  Config.simCodeTarget()
-         case "Cpp" then
-         <<
-             if(getGlobalSettings()->getOutputPointType()!= OPT_NONE)
-             {
-              _writeOutput = getSimObjects()->LoadWriter(<%numalgvars%> + <%numaliasvars%> + 2*<%numstatevars%>).lock();
-              _writeOutput->init();
-              _writeOutput->clear();
-             }
-         >>
-       %>
-
+      if(getGlobalSettings()->getOutputPointType()!= OPT_NONE)
+      {
+        _writeOutput = getSimObjects()->LoadWriter(<%numAlgvars(modelInfo)%> + <%numAliasvars(modelInfo)%> + 2*<%numStatevars(modelInfo)%>).lock();
+        _writeOutput->init();
+        _writeOutput->clear();
+      }
    }
 
 
@@ -951,13 +968,13 @@ case modelInfo as MODELINFO(vars=SIMVARS(__)) then
    >>
 end simulationWriteOutputAliasVarsCppFile;
 
-template simulationMixedSystemCppFile(SimCode simCode , Text updateResidualFunctionsCode, Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
+template simulationMixedSystemCppFile(SimCode simCode, Text updateResidualFunctionsCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
  "Generates code for main cpp file for simulation target."
 ::=
 match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
 
-  let getJacobianForIndexMethods =   (jacobianMatrixes |> JAC_MATRIX(columns=mat, matrixName=name, coloredCols=colorList, jacobianIndex=jacIndex) =>
+  let getJacobianForIndexMethods =   (jacobianMatrices |> JAC_MATRIX(columns=mat, matrixName=name, coloredCols=colorList, jacobianIndex=jacIndex) =>
           generateJacobianForIndex(simCode, mat, colorList, jacIndex, name, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     ;separator="\n\n";empty)
   let classname = lastIdentOfPath(modelInfo.name)
@@ -1032,7 +1049,11 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
          break;
        >>
        case ("sparse") then
-       'throw ModelicaSimulationError(MATH_FUNCTION,"Dense matrix is not activated");'
+       <<
+       case <%i1%>:
+         throw ModelicaSimulationError(MATH_FUNCTION, "Dense matrix is not activated");'
+         break;
+       >>
        else "A matrix type is not supported"
        )
        ;separator="\n")
@@ -1044,24 +1065,24 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
        match jacobianMatrix case JAC_MATRIX(matrixName=name) then
        match type
        case ("dense") then
-       'throw ModelicaSimulationError(MATH_FUNCTION,"Sparse matrix is not activated");'
+       <<
+       case <%i1%>:
+         throw ModelicaSimulationError(MATH_FUNCTION, "Sparse matrix is not activated");
+         break;
+       >>
        case ("sparse") then
        <<
        case <%i1%>:
          return get<%name%>Jacobian();
          break;
        >>
-
        else "A matrix type is not supported"
        )
        ;separator="\n")
 
    <<
-   <%classname%>Mixed::<%classname%>Mixed(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu)
-       : <%classname%>Jacobian(globalSettings,omsu)
-
-
-
+   <%classname%>Mixed::<%classname%>Mixed(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects)
+       : <%classname%>Jacobian(globalSettings, simObjects)
    {
    }
 
@@ -1074,33 +1095,26 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
    {
    }
 
-
-
    bool <%classname%>Mixed::isJacobianSparse(){
     <%isJacobianSparse%>
    }
 
-
    bool <%classname%>Mixed::isAnalyticJacobianGenerated(){
-    <%isAnalyticJacobianGenerated%>
+     <%isAnalyticJacobianGenerated%>
    }
 
-   shared_ptr<ISimObjects> <%classname%>Mixed::getSimObjects()
-   {
-      return SystemDefaultImplementation::getSimObjects();
-   }
    const matrix_t& <%classname%>Mixed::getJacobian( )
    {
-        <%getDenseAMatrix%>
+     <%getDenseAMatrix%>
    }
 
    const matrix_t& <%classname%>Mixed::getJacobian(unsigned int index)
    {
-      <%getDenseMatrix%>
+     <%getDenseMatrix%>
    }
    sparsematrix_t& <%classname%>Mixed::getSparseJacobian( )
    {
-      <%getSparseAMatrix%>
+     <%getSparseAMatrix%>
    }
 
    sparsematrix_t& <%classname%>Mixed::getSparseJacobian(unsigned int index)
@@ -1115,7 +1129,7 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
        <%statesetjacobian%>
        default:
           throw ModelicaSimulationError(MATH_FUNCTION,"Not supported statset index");
-      }
+     }
    }
    sparsematrix_t& <%classname%>Mixed::getStateSetSparseJacobian(unsigned int index)
    {
@@ -1124,46 +1138,49 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
        <%statesetsparsejacobian%>
        default:
           throw ModelicaSimulationError(MATH_FUNCTION,"Not supported statset index");
-      }
+     }
    }
-    <%handleSystemEvents(zeroCrossings,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
+   <%handleSystemEvents(zeroCrossings,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
 
    void <%classname%>Mixed::saveAll()
    {
      return <%classname%>::saveAll();
    }
 
-
    /*needed for colored jacobians*/
 
    void <%classname%>Mixed::getAColorOfColumn(int* aSparsePatternColorCols, int size)
    {
-    memcpy(aSparsePatternColorCols, _AColorOfColumn, size * sizeof(int));
+     memcpy(aSparsePatternColorCols, _AColorOfColumn, size * sizeof(int));
    }
 
    int <%classname%>Mixed::getAMaxColors()
    {
-    return _AMaxColors;
+     return _AMaxColors;
+   }
+
+   const std::vector<int>& <%classname%>Mixed::getAColumnsOfColor(int color)
+   {
+     return _AColumnsOfColor[color - 1];
+   }
+
+   const std::vector<int>& <%classname%>Mixed::getADependenciesOfColumn(int idx)
+   {
+     return _ADependenciesOfColumn[idx];
    }
 
    string <%classname%>Mixed::getModelName()
    {
-    return "<%fileNamePrefix%>";
+     return "<%fileNamePrefix%>";
    }
+
    <%updateResidualFunctionsCode%>
-
-
-
-
-
    >>
-
-
 end simulationMixedSystemCppFile;
 
 
 template generateJacobianForIndex(SimCode simCode, list<JacobianColumn> jacobianColumn, list<list<Integer>> colorList,Integer indexJacobian, String matrixName,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace,                                Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
- "Generates Matrixes for Linear Model."
+ "Generates Matrices for Linear Model."
 ::=
 match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
@@ -1508,9 +1525,7 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
 end functionStateSets;
 
 
-
-
-template simulationMainRunScript(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, String preRunCommandLinux, String preRunCommandWindows, String execCommandLinux)
+template simulationMainRunScript(SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, String preRunCommandLinux, String preRunCommandWindows, String execCommandLinux)
  "Generates code for header file for simulation target."
 ::=
   match simCode
@@ -1520,22 +1535,16 @@ template simulationMainRunScript(SimCode simCode ,Text& extraFuncs,Text& extraFu
     let stepsize  = settings.stepSize
     let intervals = settings.numberOfIntervals
     let tol       = settings.tolerance
-    let solver    = match simCode case SIMCODE(daeModeData=NONE()) then settings.method else 'ida' //for dae mode only ida is supported
-    let moLib     =  makefileParams.compileDir
+    let solver    = settings.method
+    let moLib     = makefileParams.compileDir
     let home      = makefileParams.omhome
-
     let outputformat = settings.outputFormat
-    let fileNamePrefixx = fileNamePrefix
-    let execParameters = '-S <%start%> -i  "<%makefileParams.compileDir%>/<%fileNamePrefix%>_init.xml" -E <%end%> -H <%stepsize%> -G <%intervals%> -P <%outputformat%> -T <%tol%> -I <%solver%> -R <%simulationLibDir(simulationCodeTarget(),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%> -M <%moLib%> -r "<%simulationResults(Testsuite.isRunning(),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>"'
-
+    let execParameters = '-S <%start%> -E <%end%> -H <%stepsize%> -G <%intervals%> -P <%outputformat%> -T <%tol%> -I <%solver%> -R "<%simulationLibDir(simulationCodeTarget(),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>" -M "<%moLib%>" -r "<%simulationResults(Testsuite.isRunning(),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>"'
     let outputParameter = if (stringEq(settings.outputFormat, "empty")) then "-O none" else ""
     let fileNamePrefixx = fileNamePrefix
 
-    let libFolder =simulationLibDirs(simulationCodeTarget(),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)
+    let libFolder = simulationLibDir(simulationCodeTarget(), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
     let libPaths = makefileParams.libPaths |> path => path; separator=";"
-
-    let zermMQParams = if getConfigBool(USE_ZEROMQ_IN_SIM) then '-u true -p <%getConfigInt(ZEROMQ_PUB_PORT)%> -s <%getConfigInt(ZEROMQ_SUB_PORT)%> -v <%getConfigString(ZEROMQ_SERVER_ID)%> -c <%getConfigString(ZEROMQ_CLIENT_ID)%> -g <%getConfigString(ZEROMQ_JOB_ID)%>' else ''
-    let binFolder =simulationBinDir(simulationCodeTarget(),simCode )
 
     match makefileParams.platform
       case  "linux32"
@@ -1543,18 +1552,16 @@ template simulationMainRunScript(SimCode simCode ,Text& extraFuncs,Text& extraFu
         <<
         #!/bin/sh
         <%preRunCommandLinux%>
-        <%execCommandLinux%> ./<%fileNamePrefixx%> <%execParameters%> <%zermMQParams%> <%outputParameter%> $*
+        <%execCommandLinux%> ./<%fileNamePrefixx%> <%execParameters%> <%outputParameter%> $*
         >>
       case  "win32"
       case  "win64" then
         <<
         @echo off
-        <%preRunCommandWindows%>
+        SET PATH=<%home%>/bin;<%libFolder%>;<%libPaths%>;%PATH%
         REM ::export PATH=<%libFolder%>:$PATH REPLACE C: with /C/
-
-        SET PATH=<%binFolder%>;<%libFolder%>;<%libPaths%>;%PATH%
-        <%moLib%>/<%fileNamePrefixx%>.exe <%execParameters%> <%zermMQParams%>  <%outputParameter%>
-
+        <%preRunCommandWindows%>
+        "<%moLib%>/<%fileNamePrefixx%>.exe" <%execParameters%> <%outputParameter%>
         >>
     end match
   end match
@@ -1569,51 +1576,15 @@ template simulationLibDir(String target, SimCode simCode ,Text& extraFuncs,Text&
     case "msvc" then
       match simCode
         case SIMCODE(makefileParams=MAKEFILE_PARAMS(__)) then
-          '<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/omsicpp/msvc'
+          '<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/cpp/msvc'
       end match
     else
       match simCode
         case SIMCODE(makefileParams=MAKEFILE_PARAMS(__)) then
-          '<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/omsicpp/'
+          '<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/cpp/'
       end match
   end match
 end simulationLibDir;
-
-template simulationLibDirs(String target, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
- "Generates code for header file for simulation target."
-::=
-  match getGeneralTarget(target)
-    case "debugrt"
-    case "msvc" then
-      match simCode
-        case SIMCODE(makefileParams=MAKEFILE_PARAMS(__)) then
-          '<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/omsicpp/msvc;<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc;<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc//'
-      end match
-    else
-      match simCode
-        case SIMCODE(makefileParams=MAKEFILE_PARAMS(__)) then
-          '<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/omsicpp/;<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc//'
-      end match
-  end match
-end simulationLibDirs;
-
-template simulationBinDir(String target, SimCode simCode)
- "Generates code for header file for simulation target."
-::=
-  match getGeneralTarget(target)
-    case "debugrt"
-    case "msvc" then
-      match simCode
-        case SIMCODE(makefileParams=MAKEFILE_PARAMS(__)) then
-          '<%makefileParams.omhome%>/bin/msvc'
-      end match
-    else
-      match simCode
-        case SIMCODE(makefileParams=MAKEFILE_PARAMS(__)) then
-          '<%makefileParams.omhome%>/bin'
-      end match
-  end match
-end simulationBinDir;
 
 
 template simulationResults(Boolean test, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
@@ -1701,7 +1672,7 @@ int _tmain(int argc, const _TCHAR* argv[])
       opts["-y"] = "<%tol%>";
       opts["-i"] = "<%solver%>";
       opts["-r"] = "<%simulationLibDir(simulationCodeTarget(),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>";
-      opts["-m"] = "<%moLib%>";
+      opts["-M"] = "<%moLib%>";
       opts["-R"] = "<%simulationResults(Testsuite.isRunning(),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>";
 
 
@@ -1715,7 +1686,9 @@ int _tmain(int argc, const _TCHAR* argv[])
   std::pair<shared_ptr<ISimController>, SimSettings> simulation = _factory->createSimulation(argc, argv, opts);
 
   //create Modelica system
-
+  shared_ptr<ISimObjects> simObjects= simulation.first->getSimObjects();
+  weak_ptr<ISimData> simData = simObjects->LoadSimData("<%lastIdentOfPath(modelInfo.name)%>");
+  weak_ptr<ISimVars> simVars = simObjects->LoadSimVars("<%lastIdentOfPath(modelInfo.name)%>",<%numRealVars%>,<%numIntVars%>,<%numBoolVars%>,<%numStringVars%>,<%numPreVars%>,<%numStatevars(modelInfo)%>,<%numStateVarIndex(modelInfo)%>);
   weak_ptr<IMixedSystem> system = simulation.first->LoadSystem("OMCpp<%fileNamePrefix%><%makefileParams.dllext%>  ","<%lastIdentOfPath(modelInfo.name)%>");
 
 
@@ -2251,6 +2224,7 @@ case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simula
   let home      = makefileParams.omhome
   let &includeMeasure = buffer "" /*BUFD*/
   let outputtype = settings.outputFormat
+  let variableFilter = settings.variableFilter
   <<
   #include <Core/ModelicaDefine.h>
   #include <Core/Modelica.h>
@@ -2326,6 +2300,7 @@ case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simula
       opts["-R"] = "<%simulationLibDir(simulationCodeTarget(), simCode, &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>";
       opts["-M"] = "<%moLib%>";
       opts["-F"] = "<%simulationResults(Testsuite.isRunning(), simCode, &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>";
+      opts["-B"] = "<%variableFilter%>";
       opts["--solver-threads"] = "<%if(intGt(getConfigInt(NUM_PROC), 0)) then getConfigInt(NUM_PROC) else 1%>";
       <%if (stringEq(settings.outputFormat, "empty")) then 'opts["-O"] = "none";' else ""%>
       <%
@@ -2392,7 +2367,9 @@ case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simula
             std::pair<shared_ptr<ISimController>, SimSettings> simulation = _factory->createSimulation(argc, argv, opts);
 
             //create Modelica system
-
+            shared_ptr<ISimObjects> simObjects= simulation.first->getSimObjects();
+            weak_ptr<ISimData> simData = simObjects->LoadSimData("<%lastIdentOfPath(modelInfo.name)%>");
+            weak_ptr<ISimVars> simVars = simObjects->LoadSimVars("<%lastIdentOfPath(modelInfo.name)%>",<%numRealVars%>,<%numIntVars%>,<%numBoolVars%>,<%numStringVars%>,<%numPreVars%>,<%numStatevars(modelInfo)%>,<%numStateVarIndex(modelInfo)%>);
             weak_ptr<IMixedSystem> system = simulation.first->LoadSystem("OMCpp<%fileNamePrefix%><%makefileParams.dllext%>","<%lastIdentOfPath(modelInfo.name)%>");
             <%if boolNot(stringEq(getConfigString(PROFILING_LEVEL),"none")) then
               <<
@@ -2401,7 +2378,7 @@ case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simula
             %>
             <%if (Flags.getConfigBool(Flags.LABELED_REDUCTION)) then
               <<
-              simulation.first->StartReduceDAE(simulation.second,"<%identOfPathDot(modelInfo.name)%>", "<%lastIdentOfPath(modelInfo.name)%>", <%Flags.getConfigBool(Flags.LOAD_MSL_MODEL)%>,<%Flags.getConfigBool(Flags.Load_PACKAGE_FILE)%>);
+              simulation.first->StartReduceDAE(simulation.second,"<%identOfPathDot(modelInfo.name)%>", "<%lastIdentOfPath(modelInfo.name)%>", <%Flags.getConfigBool(Flags.LOAD_MSL_MODEL)%>,<%Flags.getConfigBool(Flags.LOAD_PACKAGE_FILE)%>);
               >>
             else
               <<
@@ -2424,10 +2401,10 @@ case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simula
             Logger::finalize();
             return 0;
       }
-      catch(ModelicaSimulationError& ex)
+      catch (ModelicaSimulationError& ex)
       {
-          if(!ex.isSuppressed())
-              std::cerr << "Simulation stopped with error in " << error_id_string(ex.getErrorID()) << ": "  << ex.what();
+          if (!ex.isSuppressed())
+              std::cerr << "Simulation stopped with error in " << error_id_string(ex.getErrorID()) << ": "  << ex.what() << std::endl;
           Logger::finalize();
           return 1;
       }
@@ -2798,7 +2775,6 @@ template calcHelperMainfile(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDe
     #include "OMCpp<%fileNamePrefix%>Mixed.h"
     #include "OMCpp<%fileNamePrefix%>StateSelection.h"
     #include "OMCpp<%fileNamePrefix%>WriteOutput.h"
-
     #include "OMCpp<%fileNamePrefix%>Initialize.h"
 
     #include "OMCpp<%fileNamePrefix%>AlgLoopMain.cpp"
@@ -2813,8 +2789,6 @@ template calcHelperMainfile(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDe
     %>
     #include "OMCpp<%fileNamePrefix%>Initialize.cpp"
     #include "OMCpp<%fileNamePrefix%>WriteOutput.cpp"
-
-
     #include "OMCpp<%fileNamePrefix%>Jacobian.cpp"
     #include "OMCpp<%fileNamePrefix%>StateSelection.cpp"
     #include "OMCpp<%fileNamePrefix%>.cpp"
@@ -2846,12 +2820,10 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
     <%externfunctionHeaderDefinition(functions)%>
   }
 
-  Functions::Functions(double& simTime, double* z, double* zDot, bool& initial, bool& terminate)
-      : _simTime(simTime)
-      , __z(z)
-      , __zDot(zDot)
-      , _initial(initial)
-      , _terminate(terminate)
+  Functions::Functions(double& simTime, bool& initial, bool& terminate)
+    : _simTime(simTime)
+    , _initial(initial)
+    , _terminate(terminate)
   {
     <%literals |> literal hasindex i0 fromindex 0 => literalExpConstImpl(literal,i0) ; separator="\n";empty%>
   }
@@ -2862,8 +2834,8 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
 
   void Functions::Assert(bool cond, string msg)
   {
-    if(!cond)
-     throw ModelicaSimulationError(MODEL_EQ_SYSTEM,msg);
+    if (!cond)
+      throw ModelicaSimulationError(MODEL_EQ_SYSTEM, msg);
   }
 
   <%functionBodies(functions, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
@@ -2924,23 +2896,21 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
   class Functions
   {
   public:
-    Functions(double& simTime, double* z, double* zDot, bool& initial, bool& terminate);
+    Functions(double& simTime, bool& initial, bool& terminate);
     ~Functions();
     //Modelica functions
-    <%functionHeaderBodies2(functions,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%functionHeaderBodies2(functions,simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
-    void Assert(bool cond,string msg);
+    void Assert(bool cond, string msg);
 
     //Literals
     <%literals |> literal hasindex i0 fromindex 0 => literalExpConst(literal,i0) ; separator="\n";empty%>
   private:
     //Function return variables
-    <%functionHeaderBodies3(functions,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
+    <%functionHeaderBodies3(functions, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
     double& _simTime;
     bool& _terminate;
     bool& _initial;
-    double* __z;
-    double* __zDot;
     /*extraFuncs*/
     <%extraFuncsDecl%>
   };
@@ -2973,7 +2943,7 @@ case VARIABLE(__) then
   match kind
     case PARAM(__) then
     <<
-      <%funParamDecl2(var,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, false)%>
+      <%varType3(var, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
     >>
     else
     ''
@@ -2981,43 +2951,6 @@ case VARIABLE(__) then
 else
 ''
 end funParamDecl;
-
-
-template funParamDecl2(Variable var, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
-::=
- match var
-case var as VARIABLE(__) then
-  let varName = '<%contextCref(var.name, contextFunction, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>'
-  //let instDimsInit = (instDims |> dim => daeDimension(dim, contextFunction, &varInits , &varDecls,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation);separator=",")
-  funParamDecl3(var,varName,instDims,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-
-end funParamDecl2;
-
-
-
-template funParamDecl3(Variable var,String varName, list<DAE.Dimension> instDims, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
-::=
- let &varDecls = buffer "" /*BUFD*/ //should be empty
-  let &varInits = buffer "" /*BUFD*/ //should be empty
-  let instDimsInit = (instDims |> dim => daeDimension(dim, contextFunction, &varInits , &varDecls,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation);separator=",")
-  match var
-  case var as VARIABLE(__) then
-  let type = '<%varType(var)%>'
-  let testinstDimsInit = (instDims |> dim => testDaeDimension(dim);separator="")
-  let instDimsInit = (instDims |> dim => daeDimension(dim, contextFunction, &varInits , &varDecls,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation);separator=",")
-  let arrayexpression1 = (if instDims then 'StatArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>,<%instDimsInit%>> <%varName%>;/*testarray*/<%\n%>'
-  else '<%type%> <%varName%>')
-  let arrayexpression2 = (if instDims then 'DynArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>> <%varName%>;<%\n%>'
-  else '<%type%> <%varName%>')
-  let paramdecl= match testinstDimsInit
-  case "" then
-     arrayexpression1
-  else
-    arrayexpression2
-  paramdecl
-end funParamDecl3;
-
-
 
 
 template initParams1(list<Function> functions, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/)
@@ -3149,9 +3082,8 @@ case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simula
   EXEEXT=.exe
   DLLEXT=.dll
   <% /* Don't use $(OMHOME) with include. NMAKE fails to evaluate it. */ %>
-  include <%makefileParams.omhome%>/include/omc/omsicpp/ModelicaConfig_msvc.inc
-  include <%makefileParams.omhome%>/include/omc/omsicpp/ModelicaLibraryConfig_msvc.inc
-
+  include <%makefileParams.omhome%>/include/omc/cpp/ModelicaConfig_msvc.inc
+  include <%makefileParams.omhome%>/include/omc/cpp/ModelicaLibraryConfig_msvc.inc
   # /Od - Optimization disabled
   # /EHa enable C++ EH (w/ SEH exceptions)
   # /fp:except - consider floating-point exceptions when generating code
@@ -3161,24 +3093,21 @@ case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simula
   # /TP - Use C++ Compiler
   !IF "$(PCH_FILE)" == ""
 
-  CFLAGS=  $(SYSTEM_CFLAGS) /I"<%makefileParams.omhome%>/include/omc/omsi/" /I"<%makefileParams.omhome%>/include/omc/omsi/base" /I"<%makefileParams.omhome%>/include/omc/omsi/solver/"  /I"<%makefileParams.omhome%>/include/omc/omsicpp/" /I. <%makefileParams.includes%>  /I"$(BOOST_INCLUDE)" /I"$(UMFPACK_INCLUDE)" /I"$(SUNDIALS_INCLUDE)" /DNOMINMAX /TP /DNO_INTERACTIVE_DEPENDENCY <%additionalCFlags_MSVC%>
+  CFLAGS=  $(SYSTEM_CFLAGS) /I"<%makefileParams.omhome%>/include/omc/cpp/" /I. <%makefileParams.includes%>  /I"$(BOOST_INCLUDE)" /I"$(UMFPACK_INCLUDE)" /I"$(SUNDIALS_INCLUDE)" /DNOMINMAX /TP /DNO_INTERACTIVE_DEPENDENCY <%additionalCFlags_MSVC%>
   !ELSE
-  CFLAGS=  $(SYSTEM_CFLAGS) /I"<%makefileParams.omhome%>/include/omc/omsi/" /I"<%makefileParams.omhome%>/include/omc/omsi/base" /I"<%makefileParams.omhome%>/include/omc/omsi/solver/"  /I"<%makefileParams.omhome%>/include/omc/omsicpp/" /I. <%makefileParams.includes%>  /I"$(BOOST_INCLUDE)" /I"$(UMFPACK_INCLUDE)" /I"$(SUNDIALS_INCLUDE)" /DNOMINMAX /TP /DNO_INTERACTIVE_DEPENDENCY  /Fp<%makefileParams.omhome%>/include/omc/omsicpp/Core/$(PCH_FILE)  /YuCore/$(H_FILE) <%additionalCFlags_MSVC%>
-
+  CFLAGS=  $(SYSTEM_CFLAGS) /I"<%makefileParams.omhome%>/include/omc/cpp/" /I. <%makefileParams.includes%>  /I"$(BOOST_INCLUDE)" /I"$(UMFPACK_INCLUDE)" /I"$(SUNDIALS_INCLUDE)" /DNOMINMAX /TP /DNO_INTERACTIVE_DEPENDENCY  /Fp<%makefileParams.omhome%>/include/omc/cpp/Core/$(PCH_FILE)  /YuCore/$(H_FILE) <%additionalCFlags_MSVC%>
   !ENDIF
   CPPFLAGS =
   # /ZI enable Edit and Continue debug info
   CDFLAGS = /ZI
   !IF "$(PCH_FILE)" == ""
-
-  LDSYSTEMFLAGS=  /link /DLL /NOENTRY /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/omsicpp/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc/debug"  /LIBPATH:"<%makefileParams.omhome%>/bin" /LIBPATH:"$(BOOST_LIBS)" OMCppSystem.lib OMCppModelicaUtilities.lib  OMCppMath.lib OMCppDataExchange.lib  OMCppOMCFactory.lib <%timeMeasureLink%> WSock32.lib Ws2_32.lib
-  LDMAINFLAGS=/link /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/omsicpp/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc" OMCppOMCFactory.lib OMCppModelicaUtilities.lib  <%timeMeasureLink%> /LIBPATH:"<%makefileParams.omhome%>/bin" /LIBPATH:"$(BOOST_LIBS)"
+  LDSYSTEMFLAGS=  /link /DLL /NOENTRY /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/cpp/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc/debug"  /LIBPATH:"<%makefileParams.omhome%>/bin" /LIBPATH:"$(BOOST_LIBS)" OMCppSystem.lib OMCppModelicaUtilities.lib  OMCppMath.lib OMCppDataExchange.lib  OMCppOMCFactory.lib <%timeMeasureLink%> WSock32.lib Ws2_32.lib
+  LDMAINFLAGS=/link /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/cpp/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc" OMCppOMCFactory.lib OMCppModelicaUtilities.lib  <%timeMeasureLink%> /LIBPATH:"<%makefileParams.omhome%>/bin" /LIBPATH:"$(BOOST_LIBS)"
   !ELSE
-  LDSYSTEMFLAGS=  /link /DLL /NOENTRY /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/omsicpp/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc/debug"  /LIBPATH:"<%makefileParams.omhome%>/bin" /LIBPATH:"$(BOOST_LIBS)" OMCppSystem.lib OMCppModelicaUtilities.lib  OMCppMath.lib OMCppDataExchange.lib  OMCppOMCFactory.lib $(PCH_LIB) <%timeMeasureLink%> WSock32.lib Ws2_32.lib
-  LDMAINFLAGS=/link /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/omsicpp/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc" OMCppOMCFactory.lib OMCppModelicaUtilities.lib $(PCH_LIB) <%timeMeasureLink%> /LIBPATH:"<%makefileParams.omhome%>/bin" /LIBPATH:"$(BOOST_LIBS)"
-
+  LDSYSTEMFLAGS=  /link /DLL /NOENTRY /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/cpp/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc/debug"  /LIBPATH:"<%makefileParams.omhome%>/bin" /LIBPATH:"$(BOOST_LIBS)" OMCppSystem.lib OMCppModelicaUtilities.lib  OMCppMath.lib OMCppDataExchange.lib  OMCppOMCFactory.lib $(PCH_LIB) <%timeMeasureLink%> WSock32.lib Ws2_32.lib
+  LDMAINFLAGS=/link /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/cpp/msvc" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc" OMCppOMCFactory.lib OMCppModelicaUtilities.lib $(PCH_LIB) <%timeMeasureLink%> /LIBPATH:"<%makefileParams.omhome%>/bin" /LIBPATH:"$(BOOST_LIBS)"
   !ENDIF
-  # lib names should not be appended with a d just switch to lib/omc/omsicpp
+  # lib names should not be appended with a d just switch to lib/omc/cpp
 
 
 
@@ -3224,20 +3153,25 @@ case "gcc" then
             <<
             # Makefile generated by OpenModelica
             OMHOME=<%if boolOr(stringEq(makefileParams.platform, "win32"),stringEq(makefileParams.platform, "win64")) then '$(OPENMODELICAHOME)' else makefileParams.omhome%>
-            include $(OMHOME)/include/omc/omsicpp/ModelicaConfig_gcc.inc
-            include $(OMHOME)/include/omc/omsicpp/ModelicaLibraryConfig_gcc.inc
+            include $(OMHOME)/include/omc/cpp/ModelicaConfig_gcc.inc
+            include $(OMHOME)/include/omc/cpp/ModelicaLibraryConfig_gcc.inc
 
             # Simulations use -O0 by default
             SIM_OR_DYNLOAD_OPT_LEVEL=-O0
             CC=<%CC%>
-            CXX=<%CXX%> $(OPENMP_FLAGS)
+            CXX=<%CXX%>
             RUNTIME_STATIC_LINKING=<%if(Flags.isSet(Flags.RUNTIME_STATIC_LINKING)) then 'ON' else 'OFF'%>
+
+            ifeq ($(CXX),g++)
+              $(eval OPENMP_FLAGS=$(if $(findstring libomp,$(OPENMP_FLAGS)),-fopenmp,$(OPENMP_FLAGS)))
+            endif
+
             <%MPIEnvVars%>
 
             EXEEXT=<%makefileParams.exeext%>
             DLLEXT=<%makefileParams.dllext%>
 
-            CFLAGS_COMMON=<%extraCflags%> -Winvalid-pch $(SYSTEM_CFLAGS) -I"$(SCOREP_INCLUDE)"  -I"$(OMHOME)/include/omc/omsi/" -I"$(OMHOME)/include/omc/omsi/base" -I"$(OMHOME)/include/omc/omsi/solver" -I"$(OMHOME)/include/omc/omsicpp/" -I. <%makefileParams.includes%> -I"$(BOOST_INCLUDE)" -I"$(UMFPACK_INCLUDE)" -I"$(SUNDIALS_INCLUDE)" <%makefileParams.includes ; separator=" "%> <%match sopt case SOME(s as SIMULATION_SETTINGS(__)) then s.cflags %> <%additionalCFlags_GCC%> <%extraCppFlags%>
+            CFLAGS_COMMON=$(OPENMP_FLAGS) <%extraCflags%> -Winvalid-pch $(SYSTEM_CFLAGS) -I"$(SCOREP_INCLUDE)" -I"$(OMHOME)/include/omc/cpp/" -I. <%makefileParams.includes%> -I"$(BOOST_INCLUDE)" -I"$(UMFPACK_INCLUDE)" -I"$(SUNDIALS_INCLUDE)" <%makefileParams.includes ; separator=" "%> <%match sopt case SOME(s as SIMULATION_SETTINGS(__)) then s.cflags %> <%additionalCFlags_GCC%> <%extraCppFlags%>
 
             ifeq ($(USE_SCOREP),ON)
             $(eval CC=scorep --user --nocompiler $(CC))
@@ -3256,8 +3190,8 @@ case "gcc" then
             MINGW_EXTRA_LIBS=<%if boolOr(stringEq(makefileParams.platform, "win32"),stringEq(makefileParams.platform, "win64")) then ' -lz -lhdf5 ' else ''%>
             MODELICA_EXTERNAL_LIBS=-L$(LAPACK_LIBS) $(LAPACK_LIBRARIES) $(MINGW_EXTRA_LIBS)
 
-            LDSYSTEMFLAGS_COMMON=-L"$(OMHOME)/lib/<%Autoconf.triple%>/omc/omsicpp" $(BASE_LIB) <%additionalLinkerFlags_GCC%>  -Wl,-rpath,"$(OMHOME)/lib/<%Autoconf.triple%>/omc/omsicpp" <%timeMeasureLink%> -L"$(BOOST_LIBS)" $(BOOST_LIBRARIES) $(LINUX_LIB_DL)
-            LDMAINFLAGS_COMMON=-L"$(OMHOME)/lib/<%Autoconf.triple%>/omc/omsicpp" -L"$(OMHOME)/bin" -L"$(BOOST_LIBS)" $(BOOST_LIBRARIES) $(LINUX_LIB_DL) <%additionalLinkerFlags_GCC%>  -Wl,-rpath,"$(OMHOME)/lib/<%Autoconf.triple%>/omc/omsicpp" <%if boolOr(stringEq(makefileParams.platform, "win32"),stringEq(makefileParams.platform, "win64")) then ' -lwsock32 -lws2_32 ' else ''%>
+            LDSYSTEMFLAGS_COMMON=-L"$(OMHOME)/lib/<%Autoconf.triple%>/omc/cpp" $(BASE_LIB) <%additionalLinkerFlags_GCC%>  -Wl,-rpath,"$(OMHOME)/lib/<%Autoconf.triple%>/omc/cpp" <%timeMeasureLink%> -L"$(BOOST_LIBS)" $(BOOST_LIBRARIES) $(LINUX_LIB_DL)
+            LDMAINFLAGS_COMMON=-L"$(OMHOME)/lib/<%Autoconf.triple%>/omc/cpp" -L"$(OMHOME)/bin" -L"$(BOOST_LIBS)" $(BOOST_LIBRARIES) $(LINUX_LIB_DL) <%additionalLinkerFlags_GCC%>  -Wl,-rpath,"$(OMHOME)/lib/<%Autoconf.triple%>/omc/cpp" <%if boolOr(stringEq(makefileParams.platform, "win32"),stringEq(makefileParams.platform, "win64")) then ' -lwsock32 -lws2_32 ' else ''%>
 
             ifeq ($(USE_PAPI),ON)
             $(eval LDMAINFLAGS_COMMON=$(LDMAINFLAGS_COMMON) <%papiLibs%>)
@@ -3300,7 +3234,7 @@ case "gcc" then
             ifeq ($(RUNTIME_STATIC_LINKING),ON)
             <%\t%>$(CXX) $(CFLAGS) -I. -o $(MAINOBJ) $(MAINFILE) $(LDMAINFLAGS) $(MODELICA_EXTERNAL_LIBS)
             else
-            <%\t%>$(CXX) -shared -o $(SYSTEMOBJ) $(OFILES) <%dirExtra%> <%libsPos1%> <%libsPos2%> $(LDSYSTEMFLAGS) $(MODELICA_EXTERNAL_LIBS)
+            <%\t%>$(CXX) $(OPENMP_FLAGS) -shared -o $(SYSTEMOBJ) $(OFILES) <%dirExtra%> <%libsPos1%> <%libsPos2%> $(LDSYSTEMFLAGS) $(MODELICA_EXTERNAL_LIBS)
             <%\t%>$(CXX) $(CFLAGS) -I. -o $(MAINOBJ) $(MAINFILE) $(LDMAINFLAGS)
             endif
 
@@ -3374,9 +3308,9 @@ case "vxworks69" then
       LIBPATH =
       LIBS =
 
-      IDE_INCLUDES = -I$(WIND_BASE)/target/h -I$(WIND_BASE)/target/h/wrn/coreip -I$(MLPI_SDK_01)/mlpiCore/include -I$(OPENMODELICAHOME)/include/omc/omsicpp -I$(OPENMODELICAHOME)/include/omc/omsicpp/Core -I$(OPENMODELICAHOME)/include/omc/omsicpp
+      IDE_INCLUDES = -I$(WIND_BASE)/target/h -I$(WIND_BASE)/target/h/wrn/coreip -I$(MLPI_SDK_01)/mlpiCore/include -I$(OPENMODELICAHOME)/include/omc/cpp -I$(OPENMODELICAHOME)/include/omc/cpp/Core -I$(OPENMODELICAHOME)/include/omc/cpp
 
-      IDE_LIBRARIES = $(OPENMODELICAHOME)/lib/omc/omsicpp/vxworks/SimCore.a
+      IDE_LIBRARIES = $(OPENMODELICAHOME)/lib/omc/cpp/vxworks/SimCore.a
 
       IDE_DEFINES = -DCPU=_VX_$(CPU) -DTOOL_FAMILY=$(TOOL_FAMILY) -DTOOL=$(TOOL) -D_WRS_KERNEL -D_VSB_CONFIG_FILE=\"$(VSB_DIR)/h/config/vsbConfig.h\"
 
@@ -3423,8 +3357,8 @@ case "vxworks69" then
       com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : DEBUGFLAGS_Librarian =
       com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : DEBUGFLAGS_Assembler =  -O2
       endif
-      com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : IDE_INCLUDES = -I$(WIND_BASE)/target/h -I$(WIND_BASE)/target/h/wrn/coreip -I$(MLPI_SDK_01)/mlpiCore/include -I$(OPENMODELICAHOME)/include/omc/omsicpp -I$(OPENMODELICAHOME)/include/omc/omsicpp/Core -I$(OPENMODELICAHOME)/include/omc/omsicpp
-      com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : IDE_LIBRARIES = $(OPENMODELICAHOME)/lib/omc/omsicpp/vxworks/SimCore.a
+      com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : IDE_INCLUDES = -I$(WIND_BASE)/target/h -I$(WIND_BASE)/target/h/wrn/coreip -I$(MLPI_SDK_01)/mlpiCore/include -I$(OPENMODELICAHOME)/include/omc/cpp -I$(OPENMODELICAHOME)/include/omc/cpp/Core -I$(OPENMODELICAHOME)/include/omc/cpp
+      com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : IDE_LIBRARIES = $(OPENMODELICAHOME)/lib/omc/cpp/vxworks/SimCore.a
       com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : IDE_DEFINES = -DCPU=_VX_$(CPU) -DTOOL_FAMILY=$(TOOL_FAMILY) -DTOOL=$(TOOL) -D_WRS_KERNEL -D_VSB_CONFIG_FILE=\"$(VSB_DIR)/h/config/vsbConfig.h\"
       com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : PROJECT_TYPE = DKM
       com.boschrexroth.$(MODEL_NAME)/$(MODE_DIR)/% : DEFINES =
@@ -3475,8 +3409,8 @@ case "vxworks69" then
       com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : DEBUGFLAGS_Librarian =
       com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : DEBUGFLAGS_Assembler =  -O2
       endif
-      com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : IDE_INCLUDES = -I$(WIND_BASE)/target/h -I$(WIND_BASE)/target/h/wrn/coreip -I$(MLPI_SDK_01)/mlpiCore/include -I$(OPENMODELICAHOME)/include/omc/omsicpp -I$(OPENMODELICAHOME)/include/omc/omsicpp/Core -I$(OPENMODELICAHOME)/include/omc/omsicpp
-      com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : IDE_LIBRARIES = $(OPENMODELICAHOME)/lib/omc/omsicpp/vxworks/SimCore.a
+      com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : IDE_INCLUDES = -I$(WIND_BASE)/target/h -I$(WIND_BASE)/target/h/wrn/coreip -I$(MLPI_SDK_01)/mlpiCore/include -I$(OPENMODELICAHOME)/include/omc/cpp -I$(OPENMODELICAHOME)/include/omc/cpp/Core -I$(OPENMODELICAHOME)/include/omc/cpp
+      com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : IDE_LIBRARIES = $(OPENMODELICAHOME)/lib/omc/cpp/vxworks/SimCore.a
       com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : IDE_DEFINES = -DCPU=_VX_$(CPU) -DTOOL_FAMILY=$(TOOL_FAMILY) -DTOOL=$(TOOL) -D_WRS_KERNEL -D_VSB_CONFIG_FILE=\"$(VSB_DIR)/h/config/vsbConfig.h\"
       com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : PROJECT_TYPE = DKM
       com.boschrexroth.$(MODEL_NAME)_partialImage/$(MODE_DIR)/% : DEFINES =
@@ -3587,7 +3521,7 @@ end simulationMakefile;
 
 template simulationCppFile(SimCode simCode, Context context, Text updateFunctionsCode, Text indexForUndefinedReferencesReal, Text indexForUndefinedReferencesInt, Text indexForUndefinedReferencesBool,
                            Text indexForUndefinedReferencesString, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text additionalConstructorVarDefs, Text additionalConstructorBodyStatements,
-                           Text additionalDestructorBodyStatements, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation,  String numRealVars, String numIntVars, String numBoolVars, String numStringVars, String numPreVars )
+                           Text additionalDestructorBodyStatements, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
   /* Generates the c++ code for the model class, containing all equations, the evaluate methods for the time integration algorithm and variable definitions.
      Some getter and setter functions are generated as well. Additional functions can be passed via the "extraFuncs" variable. */
 ::=
@@ -3597,20 +3531,18 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
   let &additionalConstructorVarDefsBuffer = buffer additionalConstructorVarDefs
   let memberVariableInitialize = memberVariableInitialize(modelInfo, varToArrayIndexMapping, indexForUndefinedReferencesReal, indexForUndefinedReferencesInt, indexForUndefinedReferencesBool, indexForUndefinedReferencesString, Flags.isSet(Flags.GEN_DEBUG_SYMBOLS), useFlatArrayNotation, additionalConstructorVarDefsBuffer, extraFuncsDecl)
   let constVariableInitialize = simulationInitFile(simCode, &extraFuncsDecl, stateDerVectorName, false)
-
     <<
     #if defined(__TRICORE__) || defined(__vxworks)
       #include <Core/DataExchange/SimDouble.h>
     #endif
 
     /* Constructor */
-    <%className%>::<%className%>(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu)
-              
-        : SystemDefaultImplementation(globalSettings, "<%className%>",<%numRealVars%>,<%numIntVars%>,<%numBoolVars%>,<%numStringVars%>,<%numPreVars%>,<%numStatevars(modelInfo)%>,<%numStateVarIndex(modelInfo)%>)
-        , _algLoopSolverFactory(_simObjects->getAlgLoopSolverFactory())
+    <%className%>::<%className%>(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects)
+        : SystemDefaultImplementation(globalSettings, simObjects, "<%className%>")
+        , _algLoopSolverFactory(simObjects->getAlgLoopSolverFactory())
         , _pointerToRealVars(getSimVars()->getRealVarsVector())
         , _pointerToIntVars(getSimVars()->getIntVarsVector())
-        ,_pointerToBoolVars(getSimVars()->getBoolVarsVector())
+        , _pointerToBoolVars(getSimVars()->getBoolVarsVector())
         , _pointerToStringVars(getSimVars()->getStringVarsVector())
         <%additionalConstructorVarDefsBuffer%>
     {
@@ -3622,8 +3554,8 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
         , _algLoopSolverFactory(instance.getAlgLoopSolverFactory())
         , _pointerToRealVars(getSimVars()->getRealVarsVector())
         , _pointerToIntVars(getSimVars()->getIntVarsVector())
-        ,_pointerToBoolVars(getSimVars()->getBoolVarsVector())
-       , _pointerToStringVars(getSimVars()->getStringVarsVector())
+        , _pointerToBoolVars(getSimVars()->getBoolVarsVector())
+        , _pointerToStringVars(getSimVars()->getStringVarsVector())
         <%additionalConstructorVarDefsBuffer%>
     {
         <%generateSimulationCppConstructorContent(simCode, context, extraFuncs, extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
@@ -3665,38 +3597,36 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
         return _algLoopSolverFactory;
     }
 
-
     <%updateFunctionsCode%>
 
-    <%DefaultImplementationCode(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%DefaultImplementationCode(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
-    <%checkForDiscreteEvents(discreteModelVars,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,stateDerVectorName,useFlatArrayNotation)%>
-    <%giveZeroFunc1(zeroCrossings,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%checkForDiscreteEvents(discreteModelVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%giveZeroFunc1(zeroCrossings, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
-    <%setConditions(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
-    <%getConditions(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
-    <%isConsistent(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
+    <%setConditions(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
+    <%getConditions(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
+    <%isConsistent(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
 
-    <%generateStepCompleted(listAppend(allEquations,initialEquations),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
-    <%generateStepStarted(listAppend(allEquations,initialEquations),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,useFlatArrayNotation)%>
+    <%generateStepCompleted(listAppend(allEquations, initialEquations), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%generateStepStarted(listAppend(allEquations, initialEquations), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, useFlatArrayNotation)%>
 
-    <%generateRestoreOldValues(listAppend(allEquations,initialEquations),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
-    <%generateRestoreNewValues(listAppend(allEquations,initialEquations),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%generateRestoreOldValues(listAppend(allEquations, initialEquations), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%generateRestoreNewValues(listAppend(allEquations, initialEquations), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
-    <%generateDimTimeEvent(listAppend(allEquations,initialEquations),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
-    <%generateGetTimeEvenData(listAppend(allEquations,initialEquations),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
-    <%generateTimeEvent(timeEvents, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, true)%>
+    <%generateDimTimeEvent(listAppend(allEquations, initialEquations),simCode, &extraFuncs, &extraFuncsDecl,  extraFuncsNamespace)%>
+    <%generateGetTimeEvenData(listAppend(allEquations, initialEquations), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
+    <%generateTimeEvent(timeEvents, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
-    <%isODE(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
-    <%dimZeroFunc(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
+    <%isODE(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
+    <%dimZeroFunc(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
 
-    <%getCondition(zeroCrossings,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%getCondition(zeroCrossings, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
-    <%saveAll(modelInfo,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,stateDerVectorName,useFlatArrayNotation)%>
+    <%saveAll(modelInfo, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
 
-
-    <%labeledDAE(modelInfo.labels,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
-    <%giveVariables(modelInfo, context,useFlatArrayNotation,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,stateDerVectorName)%>
+    <%labeledDAE(modelInfo.labels, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
+    <%giveVariables(modelInfo, context, useFlatArrayNotation, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace,stateDerVectorName)%>
 
     <%memberVariableInitialize%>
     <%constVariableInitialize%>
@@ -3793,7 +3723,7 @@ match simCode
 
         //Todo: reindex all arrays removed  // arrayReindex(modelInfo,useFlatArrayNotation)
 
-        _functions = new Functions(_simTime,__z,__zDot,_initial,_terminate);
+        _functions = new Functions(_simTime, _initial, _terminate);
         >>
 
 end generateSimulationCppConstructorContent;
@@ -3815,7 +3745,6 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
    match eq
    case SES_LINEAR(lSystem = ls as LINEARSYSTEM(__)) then
    <<
-
 
    <%modelname%>Algloop<%ls.index%>::<%modelname%>Algloop<%ls.index%>(<%systemname%>* system, double* z, double* zDot, bool* conditions, shared_ptr<DiscreteEvents> discrete_events)
        : LinearAlgLoopDefaultImplementation()
@@ -3896,12 +3825,12 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
    <%getAMatrixCode(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,eq)%>
    <%isLinearTearingCode(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,eq)%>
 
+   /*Additional member functions*/
+   <%extraFuncs%>
    >>
 
    case SES_NONLINEAR(nlSystem = nls as NONLINEARSYSTEM(__)) then
    <<
-
-
 
    <%modelname%>Algloop<%nls.index%>::<%modelname%>Algloop<%nls.index%>(<%systemname%>* system, double* z, double* zDot, bool* conditions, shared_ptr<DiscreteEvents> discrete_events)
        : NonLinearAlgLoopDefaultImplementation()
@@ -3950,6 +3879,8 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
    <%getAMatrixCode(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,eq)%>
    <%isLinearTearingCode(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,eq)%>
 
+   /*Additional member functions*/
+   <%extraFuncs%>
    >>
 end algloopCppFile;
 
@@ -4093,25 +4024,19 @@ let &help = buffer ""
 
   ;separator="\n")
 
- let bvector =  (ls.beqs |> exp hasindex i0 fromindex 1=>
-     let &preExp = buffer "" /*BUFD*/
-     let expPart = daeExp(exp, context, &preExp, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-     match exp
-   case e as RCONST(__) then
-   <<
-   //<%preExp%>__b(<%i0%>)=<%expPart%>;
-   >>
-   else
-
-  '<%preExp%>__b(<%i0%>)=<%expPart%>;'
+  let bvector = (ls.beqs |> exp hasindex i0 fromindex 1 =>
+    let &preExp = buffer "" /*BUFD*/
+    let expPart = daeExp(exp, context, &preExp, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+    <<
+    <%preExp%>__b(<%i0%>) = <%expPart%>;
+    >>
   ;separator="\n")
-
   <<
   void <%modelname%>Algloop<%ls.index%>::evaluate()
   {
-      <%varDecls%>
-      <%Amatrix%>
-      <%bvector%>
+    <%varDecls%>
+    <%Amatrix%>
+    <%bvector%>
   }
   >>
 end updateAlgloop;
@@ -4446,7 +4371,7 @@ template extType2(Type type, Boolean isInput, Boolean isArray)
   case T_COMPLEX(complexClassType=EXTERNAL_OBJ(__))
                          then "void*"
   case T_COMPLEX(complexClassType=RECORD(path=rname))
-                         then 'struct <%underscorePath(rname)%>'
+                         then '<%underscorePath(rname)%>Type'
   case T_METATYPE(__) case T_METABOXED(__)    then "modelica_metatype"
   else error(sourceInfo(), 'Unknown external C type <%unparseType(type)%>')
   match type case T_ARRAY(__) then s else if isInput then (if isArray then '<%match s case "const char*" then "" else "const "%><%s%>*' else s) else '<%s%>*'
@@ -4463,11 +4388,6 @@ template extTypeF77(Type type, Boolean isInput, Boolean isReference)
   case T_BOOL(__)        then "int"
   case T_ENUMERATION(__) then "int"
   case T_ARRAY(__)       then extTypeF77(ty, isInput, true)
-  case T_COMPLEX(complexClassType=EXTERNAL_OBJ(__))
-                         then "void*"
-  case T_COMPLEX(complexClassType=RECORD(path=rname))
-                         then '<%underscorePath(rname)%>'
-  case T_METATYPE(__) case T_METABOXED(__) then "void*"
   else error(sourceInfo(), 'Unknown external F77 type <%unparseType(type)%>')
   match type case T_ARRAY(__) case T_STRING(__) then s else if isReference then '<%if isInput then "const "%><%s%>*' else s
 end extTypeF77;
@@ -4650,29 +4570,19 @@ template functionBodyRecordConstructor(Function fn,SimCode simCode ,Text& extraF
 ::=
 match fn
 case RECORD_CONSTRUCTOR(__) then
-  //let()= System.tmpTickReset(1)
   let &varDecls = buffer "" /*BUFD*/
   let fname = underscorePath(name)
   let retType = '<%fname%>Type'
-  let retVar = tempDecl(retType, &varDecls /*BUFD*/)
-  let structType = '<%fname%>Type'
-  let structVar = tempDecl(structType, &varDecls /*BUFD*/)
 
   <<
-  void /*<%retType%>*/ Functions::<%fname%>(<%funArgs |> var as  VARIABLE(__) => '<%varType1(var,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%> <%crefStr(name)%>' ;separator=", "%><%if funArgs then "," else ""%><%retType%>& output )
+  void Functions::<%fname%>(<%funArgs |> var as  VARIABLE(__) => '<%varType1(var, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%> <%crefStr(name)%>' ;separator=", "%><%if funArgs then ", " else ""%><%retType%>& output)
   {
-
+    //functionBodyRecordConstructor
     <%funArgs |> VARIABLE(__) => '(output.<%crefStr(name)%>) = (<%crefStr(name)%>);' ;separator="\n"%>
-    //output = <%structVar%>;
-  //return <%structVar%>;
   }
-
-
 
   >>
 end functionBodyRecordConstructor;
-
-
 
 template functionHeaderRegularFunction2(Function fn,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
@@ -4688,22 +4598,22 @@ case FUNCTION(outVars=_) then
   <<
   /* functionHeaderRegularFunction2 */
   <%functionTemplates(functionArguments)%>
-  void /*<%fname%>RetType*/ <%fname%>(<%functionArguments |> var => funArgDefinition(var,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%><%if functionArguments then "," else ""%> <%fname%>RetType& output);
+  void <%fname%>(<%functionArguments |> var => funArgDefinition(var, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%><%if functionArguments then ", " else ""%><%fname%>RetType& output);
   >>
 case EXTERNAL_FUNCTION(outVars=var::_) then
   let fname = underscorePath(name)
   <<
   /* functionHeaderRegularFunction2 */
-  void /*<%fname%>RetType*/ <%fname%>(<%funArgs |> var => funArgDefinition(var,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%><%if funArgs then "," else ""%> <%fname%>RetType& output);
+  void <%fname%>(<%funArgs |> var => funArgDefinition(var, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%><%if funArgs then ", " else ""%><%fname%>RetType& output);
   >>
 case EXTERNAL_FUNCTION(outVars={}) then
   let fname = underscorePath(name)
   <<
-  void <%fname%>(<%funArgs |> var => funArgDefinition(var,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%>);
+  void <%fname%>(<%funArgs |> var => funArgDefinition(var, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%>);
   >>
 end functionHeaderRegularFunction2;
 
-template functionHeaderRegularFunction3(Function fn,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
+template functionHeaderRegularFunction3(Function fn, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace)
 ::=
 match fn
 case FUNCTION(outVars={}) then ""
@@ -4755,17 +4665,9 @@ case FUNCTION(__) then
         varOutputTuple(fn, var,i1, &varDecls, &outVarInits, &outVarCopy, &outVarAssign, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
       ;separator="\n"; empty /* increase the counter! */
      )
-/* previous
-  <%outVarAssign%>
-    return <%if outVars then '_<%fname%>' %>;
-  return <%if outVars then '<%outVarAssign%>' %>
-*/
-
-  //let boxedFn = if acceptMetaModelicaGrammar() then functionBodyBoxed(fn)
   <<
-  //if outvars missing
   <%functionTemplates(functionArguments)%>
-  void /*<%retType%>*/ Functions::<%fname%>(<%functionArguments |> var => funArgDefinition(var,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%><%if functionArguments then if outVars then "," else ""%><%if outVars then '<%retType%>& output' %> )
+  void Functions::<%fname%>(<%functionArguments |> var => funArgDefinition(var, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%><%if functionArguments then if outVars then ", " else ""%><%if outVars then '<%retType%>& output'%>)
   {
     //functionBodyRegularFunction
     <%(functionArguments |> var => match var case FUNCTION_PTR(name=fnptrName) then 'typedef double <%fnptrName%>RetType;' ;separator="\n")%>
@@ -4779,20 +4681,14 @@ case FUNCTION(__) then
     }
     while(false);
     <%outVarAssign%>
-    <%if outVars then '/*output = _<%fname%>;*/' %>
   }
 
   <% if inFunc then
   <<
   int in_<%fname%>(type_description * inArgs, type_description * outVar)
   {
-    <%functionArguments |> var => '<%funArgDefinition2(var,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>;' ;separator="\n"%>
+    <%functionArguments |> var => '<%funArgDefinition2(var, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>;' ;separator="\n"%>
     <%if outVars then '<%retType%> out;'%>
-
-    //MMC_TRY_TOP()
-
-
-
     return 0;
   }
   >>
@@ -4858,7 +4754,7 @@ case efn as EXTERNAL_FUNCTION(extArgs=extArgs) then
 
   let fnBody =
   <<
-  void /*<%retType%>*/ Functions::<%fname%>(<%funArgs |> var => funArgDefinition(var,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%><%if funArgs then if outVars then "," else ""%> <%if retVar then '<%retType%>& output' %>)
+  void Functions::<%fname%>(<%funArgs |> var => funArgDefinition(var, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation) ;separator=", "%><%if funArgs then if outVars then ", " else ""%><%if retVar then '<%retType%>& output'%>)
   {
     /* functionBodyExternalFunction: varDecls */
     /*1*/
@@ -5025,7 +4921,7 @@ case EXTERNAL_FUNCTION(__) then
            separator="\n")
   match language
   case "C" then extFunCallC(fun, &preExp, &varDecls, &inputAssign, &outputAssign, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation, useTuple)
-  case "FORTRAN 77" then extFunCallF77(fun, &preExp, &varDecls, &inputAssign, &outputAssign, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation, useTuple)
+  case "FORTRAN 77" then extFunCallF77(fun, &preExp, &varDecls, &inputAssign, &outputAssign, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
 end extFunCall;
 
 
@@ -5145,10 +5041,11 @@ template extArg(SimExtArg extArg, Text &preExp, Text &varDecls, Text &inputAssig
 
   case SIMEXTARG(cref=c, isInput=ii, outputIndex=0, type_=t) then
     let cr = '<%contextCref2(c,contextFunction)%>'
+    let byref = match t case T_COMPLEX(complexClassType=RECORD(__)) then '&'
     if acceptMetaModelicaGrammar() then
       (match t case T_STRING(__) then 'MMC_STRINGDATA(<%cr%>)' else '<%cr%>_ext')
     else
-      '<%cr%><%match t case T_STRING(__) then ".c_str()" else "_ext"%>'
+      '<%byref%><%cr%><%match t case T_STRING(__) then ".c_str()" else "_ext"%>'
   case SIMEXTARG(cref=c, isInput=ii, outputIndex=oi, type_=t) then
     let extName = extVarName2(c)
     let &outputAssign += '<%contextCref2(c,contextFunction)%> = <%extName%>;<%\n%>'
@@ -5260,7 +5157,7 @@ template extFunCallF77(Function fun, Text &preExp,
   Text &varDecls, Text &inputAssign, Text &outputAssign, SimCode simCode,
   Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace,
   Text stateDerVectorName /*=__zDot*/,
-  Boolean useFlatArrayNotation, Boolean useTuple)
+  Boolean useFlatArrayNotation)
  "Generates the call to an external F77 function."
 ::=
   match fun
@@ -5276,7 +5173,6 @@ template extFunCallF77(Function fun, Text &preExp,
     let returnAssign = if returnVar then '<%returnVar%> = '
     <<
     <%returnAssign%><%extFunctionName(extName, language)%>(<%args%>);
-    <%match useTuple case false then '<%funName%> = <%returnVar%>;'%>
     >>
 end extFunCallF77;
 
@@ -5314,7 +5210,11 @@ template extArgF77(SimExtArg extArg, Text &preExp, Text &varDecls,
     let varType = expTypeShort(t)
     let extType = extTypeF77(t, false, false)
     let extName = '<%varName%>_ext'
-    if stringEq(varType, extType) then
+    if stringEq(varType, "string") then
+      <<
+      <%varName%>.c_str()
+      >>
+    else if stringEq(varType, extType) then
       <<
       &<%varName%>
       >>
@@ -5344,26 +5244,19 @@ end extArgF77;
 
 
 template varOutput(Function fn, Variable var, Integer ix, Text &varDecls, Text &varInits, Text &varCopy, Text &varAssign, SimCode simCode,
-                   Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
+                   Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
  "Generates code to copy result value from a function to dest."
 ::=
 match fn
 case FUNCTION(__)
 case EXTERNAL_FUNCTION(__) then
- let fname = underscorePath(name)
 match var
 case var as VARIABLE(__) then
-  let marker = '<%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>'
-  let &varInits += '/* varOutput varInits(<%marker%>) */ <%\n%>'
-  //let &varAssign += '// varOutput varAssign(<%marker%>) <%\n%>'
-
   if instDims then
-    let &varAssign += /*_<%fname%>*/'output.assign(<%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>);<%\n%>'
-    //let &varAssign += '<%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>;<%\n%>'
+    let &varAssign += 'output.assign(<%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>);<%\n%>'
     ""
   else
-    let &varAssign += /*_<%fname%>*/ 'output  = <%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>;<%\n%>'
-    //let &varAssign += '<%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>;<%\n%>'
+    let &varAssign += 'output = <%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>;<%\n%>'
     ""
   case var as FUNCTION_PTR(__) then
     let &varAssign += 'ToDo: Function Ptr assign'
@@ -5400,14 +5293,16 @@ match var
       */
 case var as VARIABLE(__) then
   let marker = '<%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>'
-  let &varInits += '/* varOutputTuple varInits(<%marker%>) */ <%\n%>'
-  let &varAssign += '// varOutput varAssign(<%marker%>) <%\n%>'
+  let &varInits += '// varOutputTuple varInits(<%marker%>)<%\n%>'
+  let &varAssign += '// varOutput varAssign(<%marker%>)<%\n%>'
+  let testinstDimsInit = (instDims |> dim => testDaeDimension(dim);separator="")
   let instDimsInit = (instDims |> dim => daeDimension(dim, contextFunction, &varInits, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     ;separator=",")
   let assginBegin = 'get<<%ix%>>'
   if instDims then
-    let &varInits += '<%assginBegin%>(/*_<%fname%>*/output.data).setDims(<%instDimsInit%>);//todo setDims not for stat arrays
-    <%\n%>'
+    // don't setDims for static or unknown dimensions, treated as "" and "---", respectively
+    let &varInits += if boolAnd(intGt(stringLength(testinstDimsInit), 0), intEq(-1, stringFind(testinstDimsInit, "---"))) then
+      '<%assginBegin%>(/*_<%fname%>*/output.data).setDims(<%instDimsInit%>);<%\n%>'
     let &varAssign += '<%assginBegin%>(/*_<%fname%>*/output.data)=<%contextCref(var.name,contextFunction,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,stateDerVectorName,useFlatArrayNotation)%>;<%\n%>'
     ""
   else
@@ -5537,13 +5432,16 @@ template recordMemberInit(Var v, Text varName, Text &preExp /*BUFP*/, Text &varD
 end recordMemberInit;
 
 template setDims(Text testinstDimsInit, String varName , Text &varInits, String instDimsInit)
+  "call varName.setDims for dynamic and known dimensions"
    ::=
   match testinstDimsInit
-    case "" then let &varInits += ''
+  case "" then
     ""
-    else let &varInits += '<%varName%>.setDims(<%instDimsInit%>);<%\n%>'
+  else
+    let &varInits += if intEq(-1, stringFind(testinstDimsInit, "---")) then
+      '<%varName%>.setDims(<%instDimsInit%>);<%\n%>'
     ""
-    end match
+  end match
 end setDims;
 
 
@@ -5678,14 +5576,10 @@ case var as VARIABLE(__) then
 end varType;
 
 
-template varType1(Variable var,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
+template varType1(Variable var, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace)
 ::=
 match var
 case var as VARIABLE(__) then
-     /* previous multi_array
-   if instDims then 'multi_array<<%expTypeShort(var.ty)%>,<%listLength(instDims)%>> ' else expTypeArrayIf(var.ty)
-      */
-
      /*Always use BaseArray as function array argument types */
      if instDims then 'BaseArray<<%expTypeShort(ty)%>>&' else expTypeFlag(var.ty, 8)
      /* uses StatArrray if possible else Dynarray as function array argument types
@@ -5704,45 +5598,35 @@ case var as VARIABLE(__) then
      */
 end varType1;
 
-template varType2(Variable var,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
+template varType2(Variable var, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
 match var
 case var as VARIABLE(__) then
-     /* previous multi_array
-   if instDims then 'multi_array_ref<<%expTypeShort(var.ty)%>,<%listLength(instDims)%>> ' else expTypeFlag(var.ty, 5)
-   */
-
-
-      /*uses StatArrray if possible else Dynarray as function array argument types  */
+     /*uses StatArrray if possible else Dynarray as function array argument types  */
      let &varDecls = buffer ""
      let &varInits = buffer ""
-     let DimsTest = (instDims |> dim => testDaeDimension(dim);separator="")
+     let testinstDimsInit = (instDims |> dim => testDaeDimension(dim);separator="")
      let instDimsInit = (instDims |> dim => daeDimension(dim, contextFunction, &varInits, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation);separator=",")
-     match DimsTest
-        case "" then if instDims then 'StatArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>, <%instDimsInit%>>& ' else expTypeFlag(var.ty, 5)
-        else if instDims then 'DynArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>>&' else expTypeFlag(var.ty, 5)
-
+     // check for static and known dimension
+     if boolAnd(stringEq(testinstDimsInit, ""), intEq(-1, stringFind(testinstDimsInit, "---"))) then
+       if instDims then 'StatArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>, <%instDimsInit%>>& ' else expTypeFlag(var.ty, 5)
+     else
+       if instDims then 'DynArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>>/*<%instDimsInit%>*/&' else expTypeFlag(var.ty, 5)
 end varType2;
 
-template varType3(Variable var,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
+template varType3(Variable var, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace)
 ::=
 match var
 case var as VARIABLE(__) then
-     /* previous multi_array
-   if instDims then 'multi_array<<%expTypeShort(var.ty)%>,<%listLength(instDims)%>> ' else expTypeArrayIf(var.ty)
-      */
-     let &varDecls = buffer "" /*should be empty herer*/
-     let &varInits = buffer "" /*should be empty herer*/
+     let &varDecls = buffer "" // should be empty
+     let &varInits = buffer "" // should be empty
      let testinstDimsInit = (instDims |> dim => testDaeDimension(dim);separator="")
      let instDimsInit = (instDims |> dim => daeDimension(dim, contextFunction, &varInits, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, "stateDerVectorName_not_given", false /*is false the default?*/);separator=",")
-
-     match testinstDimsInit
-     case "" then
-     if instDims then 'StatArrayDim<%listLength(instDims)%>< <%expTypeShort(var.ty)%>, <%instDimsInit%>> /*testarray2*/' else expTypeArrayIf(var.ty)
+     // check for static and known dimension
+     if boolAnd(stringEq(testinstDimsInit, ""), intEq(-1, stringFind(testinstDimsInit, "---"))) then
+       if instDims then 'StatArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>, <%instDimsInit%>> ' else expTypeArrayIf(var.ty)
      else
-     if instDims then 'DynArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>> ' else expTypeArrayIf(var.ty)
-
-     end match
+       if instDims then 'DynArrayDim<%listLength(instDims)%><<%expTypeShort(var.ty)%>>/*<%instDimsInit%>*/ ' else expTypeArrayIf(var.ty)
 end varType3;
 
 template funStatement(list<DAE.Statement> statementLst, Text &varDecls, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
@@ -5775,25 +5659,19 @@ template destructExtObjsDecl(SimCode simCode, Text& extraFuncs, Text& extraFuncs
 end destructExtObjsDecl;
 
 
-template init(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation, Text& complexStartExpressions)
+template init(SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation, Text& complexStartExpressions)
 ::=
 match simCode
-case SIMCODE(modelInfo = MODELINFO(__),makefileParams = MAKEFILE_PARAMS(__),initialEquations=initialEquations,parameterEquations=parameterEquations)  then
+case SIMCODE(modelInfo = MODELINFO(__),makefileParams = MAKEFILE_PARAMS(__))  then
    //let () = System.tmpTickReset(0)
    let &varDecls = buffer "" /*BUFD*/
    let modelname = identOfPathDot(modelInfo.name)
-   let initfilename =fileNamePrefix + "_init.xml"
    let initFunctions = functionInitial(startValueEquations, varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
    let initZeroCrossings = functionOnlyZeroCrossing(zeroCrossings,varDecls,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace)
    let initEventHandling = eventHandlingInit(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)
    let initClockIntervals = clockIntervalsInit(simCode, &varDecls, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-
    let initAlgloopSolvers = initAlgloopsolvers(listAppend(listAppend(allEquations, initialEquations), getClockedEquations(getSubPartitions(clockedPartitions))),simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
 
-
-   let initialequations  =  match  Config.simCodeTarget()   case "Cpp" then functionInitialEquations(initialEquations,"initEquation",simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation, false, true, false) else ""
-   let boundparameterequations  =  match  Config.simCodeTarget() case "Cpp" then functionInitialEquations(parameterEquations,"initParameterEquation",simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation, false, true, true) else ""
-   let compiledir = makefileParams.compileDir
    <<
    // convenience function for full initialization
    void <%lastIdentOfPath(modelInfo.name)%>Initialize::initialize()
@@ -5811,10 +5689,8 @@ case SIMCODE(modelInfo = MODELINFO(__),makefileParams = MAKEFILE_PARAMS(__),init
       //create and initialize Algloopsolvers
       <%generateAlgloopSystems(listAppend(listAppend(allEquations, initialEquations), getClockedEquations(getSubPartitions(clockedPartitions))), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
       <%generateAlgloopSolvers(modelInfo,listAppend(listAppend(allEquations, initialEquations), getClockedEquations(getSubPartitions(clockedPartitions))), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
-      <%match  Config.simCodeTarget() case "Cpp" then
-      '<%lastIdentOfPath(modelInfo.name)%>WriteOutput::initialize();'
-      end match
-      %>
+
+      <%lastIdentOfPath(modelInfo.name)%>WriteOutput::initialize();
       <%lastIdentOfPath(modelInfo.name)%>Jacobian::initialize();
       <%lastIdentOfPath(modelInfo.name)%>Jacobian::initializeColoredJacobianA();
    }
@@ -5845,28 +5721,11 @@ case SIMCODE(modelInfo = MODELINFO(__),makefileParams = MAKEFILE_PARAMS(__),init
 
    void <%lastIdentOfPath(modelInfo.name)%>Initialize::initializeFreeVariables()
    {
+      #if !defined(FMU_BUILD)
+        _reader  = shared_ptr<IPropertyReader>(new XmlPropertyReader(_global_settings, "<%fileNamePrefix%>_init.xml"));
+        _reader->readInitialValues(*this, getSimVars());
+      #endif
 
-      
-           #if !defined(FMU_BUILD)
-           string init_file_path  =  "<%initfilename%>";
-            <%if (Flags.getConfigBool(Flags.LABELED_REDUCTION)) then
-             <<
-
-               _reader  =  shared_ptr<IPropertyReader>(new XmlPropertyReader(_global_settings,init_file_path,_dimRHS));
-
-             >>
-             else
-             <<
-
-              _reader  =  shared_ptr<IPropertyReader>(new XmlPropertyReader(_global_settings,init_file_path));
-
-             >>
-            %>
-          _reader->readInitialValues(*this, getSimVars());
-
-         #endif
-       
-        
       _simTime = 0.0;
       _state_var_reinitialized = false;
 
@@ -5891,11 +5750,11 @@ case SIMCODE(modelInfo = MODELINFO(__),makefileParams = MAKEFILE_PARAMS(__),init
       stepStarted(0.0);
    #endif
 
-      /*Start complex expressions */
+      /* Start complex expressions */
       <%complexStartExpressions%>
       /* End complex expression */
       <%if(boolAnd(boolNot(Flags.isSet(Flags.HARDCODED_START_VALUES)), Flags.isSet(Flags.GEN_DEBUG_SYMBOLS))) then 'checkParameters();' else '//checkParameters();'%>
-                                                                                      //delete reader;
+      //delete reader;
    }
 
    void <%lastIdentOfPath(modelInfo.name)%>Initialize::initializeBoundVariables()
@@ -5906,8 +5765,10 @@ case SIMCODE(modelInfo = MODELINFO(__),makefileParams = MAKEFILE_PARAMS(__),init
       //destruct external objects if already constructed in a previous call
       if (_constructedExternalObjects)
         destructExternalObjects();
-     initParameterEquations();
-       //mark external objects constructed during initParameterEquations
+
+      initParameterEquations();
+
+      //mark external objects constructed during initParameterEquations
       _constructedExternalObjects = true;
 
       //bound start values
@@ -5934,29 +5795,22 @@ case SIMCODE(modelInfo = MODELINFO(__),makefileParams = MAKEFILE_PARAMS(__),init
 
    void <%lastIdentOfPath(modelInfo.name)%>Initialize::initEquations()
    {
-      <%(initialEquations |> eq  =>
-                    equation_function_call(eq,  contextOther, &varDecls /*BUFC*/, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,"initEquation")
-                    ;separator="\n")
-      %>
-      
-
+      <%(List.partition(initialEquations, 100) |> eqs hasindex i0 =>
+          createInitWithSplit(i0, contextOther, eqs, "initEquations", "initEquation", simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
+          ; separator="\n")%>
    }
-    
-      <%initialequations%>
-     
-      void <%lastIdentOfPath(modelInfo.name)%>Initialize::initParameterEquations()
-      {
-       <%(parameterEquations |> eq  =>
-                    equation_function_call(eq,  contextOther, &varDecls /*BUFC*/, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,"initParameterEquation")
-                    ;separator="\n")%>
-       
-      }
-
-
-
-   <%boundparameterequations%>
+   <%functionInitialEquations(initialEquations, "initEquation",
+                              simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation, false, true, false)%>
+   void <%lastIdentOfPath(modelInfo.name)%>Initialize::initParameterEquations()
+   {
+      <%(List.partition(parameterEquations, 100) |> eqs hasindex i0 =>
+          createInitWithSplit(i0, contextOther, eqs, "initParameterEquations", "initParameterEquation", simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
+          ; separator="\n")%>
+   }
+   <%functionInitialEquations(parameterEquations, "initParameterEquation",
+                              simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation, false, true, true)%>
    <%init2(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, modelInfo, stateDerVectorName, useFlatArrayNotation)%>
-    >>
+   >>
   end match
 end init;
 
@@ -5989,6 +5843,28 @@ case modelInfo as MODELINFO(vars=SIMVARS(__))  then
    >>
    else ''
 end init2;
+
+
+template createInitWithSplit(Integer sectionIndex, Context context, list<SimEqSystem> sectionEquations, String functionName, String functionCallName, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace)
+::=
+  let init_func_calls = (sectionEquations |> eq  =>
+                    equation_function_call(eq, context, simCode, functionCallName)
+                    ;separator="\n")
+  let &extraFuncs +=
+  <<
+  <%\n%>void <%extraFuncsNamespace%>::<%functionName%>_<%sectionIndex%>()
+  {
+    <%init_func_calls%>
+  }
+  >>
+  let &extraFuncsDecl +=
+  <<
+  void <%functionName%>_<%sectionIndex%>();<%\n%>
+  >>
+  <<
+  <%functionName%>_<%sectionIndex%>();
+  >>
+end createInitWithSplit;
 
 
 template functionExternalObjects(Text className, ExtObjInfo extObjInfo, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Boolean useFlatArrayNotation)
@@ -6459,6 +6335,15 @@ template createAlgloopVarAttributes(SimVar var, Text &preExp, Text &varDecls, Si
     case SIMVAR(nominalValue=SOME(exp)) then
       let expPart = daeExp(exp, context, &preExp, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
       '<%expPart%>'
+    // fallback for state derivatives lacking nominal value: use nominal value of state
+    case SIMVAR(varKind = STATE_DER(), name = CREF_QUAL(componentRef = stateCref)) then
+      match cref2simvar(stateCref, simCode)
+      case SIMVAR(nominalValue=SOME(exp)) then
+        let expPart = daeExp(exp, context, &preExp, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+        '<%expPart%>'
+      else
+        '1.0'
+      end match
     else
       '1.0'
 
@@ -6618,12 +6503,9 @@ end alocateLinearSystemConstructor;
 template update(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
 match simCode
-case SIMCODE(allEquations=eq) then
+case SIMCODE(__) then
   <<
-  <%match  Config.simCodeTarget()
-  case "Cpp" then
-  '<%equationFunctions(eq, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,contextSimulationDiscrete,stateDerVectorName,useFlatArrayNotation,boolNot(stringEq(getConfigString(PROFILING_LEVEL),"none")))%>'
-  end match %>
+  <%equationFunctions(allEquations, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,contextSimulationDiscrete,stateDerVectorName,useFlatArrayNotation,boolNot(stringEq(getConfigString(PROFILING_LEVEL),"none")))%>
 
   <%clockedFunctions(getSubPartitions(clockedPartitions), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, contextSimulationDiscrete, stateDerVectorName, useFlatArrayNotation, boolNot(stringEq(getConfigString(PROFILING_LEVEL), "none")))%>
 
@@ -6640,107 +6522,123 @@ end update;
 
 template writeoutput(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
-match  Config.simCodeTarget()
-  case "Cpp" then
-    match simCode
-        case SIMCODE(modelInfo = MODELINFO(__),simulationSettingsOpt = SOME(settings as SIMULATION_SETTINGS(__))) then
-          let numParamvars = numProtectedParamVars(modelInfo)
-          <<
+match simCode
+case SIMCODE(modelInfo = MODELINFO(__),simulationSettingsOpt = SOME(settings as SIMULATION_SETTINGS(__))) then
+  let numParamvars = numProtectedParamVars(modelInfo)
+  <<
 
-               void <%lastIdentOfPath(modelInfo.name)%>WriteOutput::writeOutput(const IWriteOutput::OUTPUT command)
-               {
+   void <%lastIdentOfPath(modelInfo.name)%>WriteOutput::writeOutput(const IWriteOutput::OUTPUT command)
+   {
 
-                 const output_int_vars_t& outputIntVars = _reader->getIntOutVars();
-                 const output_real_vars_t&  outputRealVars= _reader->getRealOutVars();
-                 const output_bool_vars_t& outputBoolVars = _reader->getBoolOutVars();
-                 const output_der_vars_t& outputDerVars = _reader->getDerOutVars();
-                 const output_res_vars_t& outputResVars= _reader->getResOutVars();;
+     const output_int_vars_t& outputIntVars = _reader->getIntOutVars();
+     const output_real_vars_t& outputRealVars = _reader->getRealOutVars();
+     const output_bool_vars_t& outputBoolVars = _reader->getBoolOutVars();
+     const output_der_vars_t& outputDerVars = _reader->getDerOutVars();
+     const output_res_vars_t& outputResVars = _reader->getResOutVars();
 
+    //Write head line
+    if (command & IWriteOutput::HEAD_LINE)
+    {
+      const all_names_t outputVarNames = make_tuple(outputRealVars.ourputVarNames,outputIntVars.ourputVarNames,outputBoolVars.ourputVarNames,outputDerVars.ourputVarNames,outputResVars.ourputVarNames);
+      const all_description_t outputVarDescription = make_tuple(outputRealVars.ourputVarDescription,outputIntVars.ourputVarDescription,outputBoolVars.ourputVarDescription,outputDerVars.ourputVarDescription,outputResVars.ourputVarDescription);
+      <%
+      match   settings.outputFormat
+        case "mat" then
+        <<
+         const all_names_t parameterVarNames =  make_tuple(outputRealVars.parameterNames,outputIntVars.parameterNames,outputBoolVars.parameterNames,outputDerVars.ourputVarNames,outputResVars.ourputVarNames);
+         const all_description_t parameterVarDescription =  make_tuple(outputRealVars.parameterDescription,outputIntVars.parameterDescription,outputBoolVars.parameterDescription,outputDerVars.ourputVarDescription,outputResVars.ourputVarDescription);
+        >>
+       else
+       <<
+       const all_names_t parameterVarNames;
+       const all_description_t parameterVarDescription;
+       >>
+      %>
+      _writeOutput->write(outputVarNames,outputVarDescription,parameterVarNames,parameterVarDescription);
+      <%
+      match   settings.outputFormat
+        case "mat" then
+        <<
+        const all_vars_t params = make_tuple(outputRealVars.outputParams,outputIntVars.outputParams,outputBoolVars.outputParams,outputDerVars.outputParams,outputResVars.outputParams);
+        >>
+        else
+        <<
+        const all_vars_t params;
+        >>
+      %>
+      _writeOutput->write(params,_global_settings->getStartTime(),_global_settings->getEndTime());
+    }
+    //Write the current values
+     else
+    {
+      <%generateMeasureTimeStartCode("measuredFunctionStartValues", "writeOutput", "MEASURETIME_MODELFUNCTIONS")%>
+      <%if Flags.isSet(Flags.WRITE_TO_BUFFER) then
+      <<
 
-                         //Write head line
-                         if (command & IWriteOutput::HEAD_LINE)
-                         {
-                           const all_names_t outputVarNames = make_tuple(outputRealVars.ourputVarNames,outputIntVars.ourputVarNames,outputBoolVars.ourputVarNames,outputDerVars.ourputVarNames,outputResVars.ourputVarNames);
-                           const all_description_t outputVarDescription = make_tuple(outputRealVars.ourputVarDescription,outputIntVars.ourputVarDescription,outputBoolVars.ourputVarDescription,outputDerVars.ourputVarDescription,outputResVars.ourputVarDescription);
-                           <%
-                           match   settings.outputFormat
-                              case "mat" then
-                              <<
-                               const all_names_t parameterVarNames =  make_tuple(outputRealVars.parameterNames,outputIntVars.parameterNames,outputBoolVars.parameterNames,outputDerVars.ourputVarNames,outputResVars.ourputVarNames);
-                               const all_description_t parameterVarDescription =  make_tuple(outputRealVars.parameterDescription,outputIntVars.parameterDescription,outputBoolVars.parameterDescription,outputDerVars.ourputVarDescription,outputResVars.ourputVarDescription);
-                              >>
-                            else
-                            <<
-                            const all_names_t parameterVarNames;
-                            const all_description_t parameterVarDescription;
-                            >>
-                           %>
-                           _writeOutput->write(outputVarNames,outputVarDescription,parameterVarNames,parameterVarDescription);
-                           <%
-                           match   settings.outputFormat
-                              case "mat" then
-                              <<
-                              const all_vars_t params = make_tuple(outputRealVars.outputParams,outputIntVars.outputParams,outputBoolVars.outputParams,outputDerVars.outputParams,outputResVars.outputParams);
-                              neg_all_vars_t neg_all_params = make_tuple(outputRealVars.negateParams, outputIntVars.negateParams, outputBoolVars.negateParams, outputDerVars.negateParams, outputResVars.negateParams);
-                              >>
-                              else
-                              <<
-                              const all_vars_t params;
-                              const neg_all_vars_t neg_all_params;
-                              >>
-                           %>
-                           _writeOutput->write(params,neg_all_params,_global_settings->getStartTime(),_global_settings->getEndTime());
-                         }
-                         //Write the current values
-                          else
-                         {
-                           <%generateMeasureTimeStartCode("measuredFunctionStartValues", "writeOutput", "MEASURETIME_MODELFUNCTIONS")%>
-                           <%if Flags.isSet(Flags.WRITE_TO_BUFFER) then
-                           <<
+      <%(allEquations |> eqs => (eqs |> eq => writeoutputAlgloopsolvers(eq,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace));separator="\n")%>
+      double residues [] = {<%(allEquations |> eqn => writeoutput3(eqn, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation));separator=","%>};
+      output_res_vars_t _resVars;
+      for(int i=0;i<<%numResidues(allEquations,modelInfo)%>;i++)
+      {
+        double* realVarPtr = &residues[i];
+        string str;
+       _resVars.addOutputVar(str, str,realVarPtr, false);
 
-                           <%(allEquations |> eqs => (eqs |> eq => writeoutputAlgloopsolvers(eq,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace));separator="\n")%>
-                           double residues [] = {<%(allEquations |> eqn => writeoutput3(eqn, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation));separator=","%>};
-                           output_res_vars_t _resVars;
-                           for(int i=0;i<<%numResidues(allEquations,modelInfo)%>;i++)
-                           {
-                              double* realVarPtr = &residues[i];
-                              string str;
-                            _resVars.addOutputVar(str, str,realVarPtr, false);
-                           }
+      }
 
-                                          <%generateMeasureTimeEndCode("measuredFunctionStartValues", "measuredFunctionEndValues", "(*measureTimeFunctionsArray)[2]", "writeOutput", "MEASURETIME_MODELFUNCTIONS")%>
-                                          write_data_t& container = _writeOutput->getFreeContainer();
-                                             all_vars_time_t all_vars = make_tuple(outputRealVars.outputVars,outputIntVars.outputVars,outputBoolVars.outputVars,_simTime,outputDerVars.outputVars,_resVars.outputVars);
-                                             neg_all_vars_t neg_all_vars =      make_tuple(outputRealVars.negateOutputVars,outputIntVars.negateOutputVars,outputBoolVars.negateOutputVars,outputDerVars.negateOutputVars,_resVars.negateOutputVars);
-                                           _writeOutput->addContainerToWriteQueue(make_tuple(all_vars,neg_all_vars));
+      <%generateMeasureTimeEndCode("measuredFunctionStartValues", "measuredFunctionEndValues", "(*measureTimeFunctionsArray)[2]", "writeOutput", "MEASURETIME_MODELFUNCTIONS")%>
+      write_data_t& container = _writeOutput->getFreeContainer();
+        all_vars_time_t all_vars = make_tuple(outputRealVars.outputVars,outputIntVars.outputVars,outputBoolVars.outputVars,_simTime,outputDerVars.outputVars,_resVars.outputVars);
+        neg_all_vars_t neg_all_vars =      make_tuple(outputRealVars.negateOutputVars,outputIntVars.negateOutputVars,outputBoolVars.negateOutputVars,outputDerVars.negateOutputVars,_resVars.negateOutputVars);
+       _writeOutput->addContainerToWriteQueue(make_tuple(all_vars,neg_all_vars));
 
-                                                         >>
-                                                       else
-                                                         <<
-                                                                   <%generateMeasureTimeEndCode("measuredFunctionStartValues", "measuredFunctionEndValues", "(*measureTimeFunctionsArray)[2]",  "writeOutput", "MEASURETIME_MODELFUNCTIONS")%>
-                                                            write_data_t& container = _writeOutput->getFreeContainer();
-                                                            all_vars_time_t all_vars = make_tuple(outputRealVars.outputVars,outputIntVars.outputVars,outputBoolVars.outputVars,_simTime,outputDerVars.outputVars,outputResVars.outputVars);
-                                                            neg_all_vars_t neg_all_vars =      make_tuple(outputRealVars.negateOutputVars,outputIntVars.negateOutputVars,outputBoolVars.negateOutputVars,outputDerVars.negateOutputVars,outputResVars.negateOutputVars);
-                                                          _writeOutput->addContainerToWriteQueue(make_tuple(all_vars,neg_all_vars));
-                                                         >>
-                                                       %>
-                                                       }
-                                                     }
-
-                                               >>
-                                              end match
-                                         else
-                                           match simCode
-                                           case SIMCODE(modelInfo = MODELINFO(__)) then
-                                                <<
-                                                  void <%lastIdentOfPath(modelInfo.name)%>WriteOutput::writeOutput(const IWriteOutput::OUTPUT command)
-                                                  {
-                                                  }
-                    >>
-
+      >>
+    else
+      <<
+       <%generateMeasureTimeEndCode("measuredFunctionStartValues", "measuredFunctionEndValues", "(*measureTimeFunctionsArray)[2]",  "writeOutput", "MEASURETIME_MODELFUNCTIONS")%>
+        write_data_t& container = _writeOutput->getFreeContainer();
+        all_vars_time_t all_vars = make_tuple(outputRealVars.outputVars,outputIntVars.outputVars,outputBoolVars.outputVars,_simTime,outputDerVars.outputVars,outputResVars.outputVars);
+        neg_all_vars_t neg_all_vars =      make_tuple(outputRealVars.negateOutputVars,outputIntVars.negateOutputVars,outputBoolVars.negateOutputVars,outputDerVars.negateOutputVars,outputResVars.negateOutputVars);
+       _writeOutput->addContainerToWriteQueue(make_tuple(all_vars,neg_all_vars));
+      >>
+    %>
+    }
+   }
+  >>
   //<%writeAlgloopvars(odeEquations,algebraicEquations, parameterEquations,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%>
 end writeoutput;
+/*
+  <%if Flags.isSet(Flags.WRITE_TO_BUFFER) then
+      <<
 
+      <%(allEquations |> eqs => (eqs |> eq => writeoutputAlgloopsolvers(eq,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace));separator="\n")%>
+      double residues [] = {<%(allEquations |> eqn => writeoutput3(eqn, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation));separator=","%>};
+      output_res_vars_t _resVars;
+      for(int i=0;i<<%numResidues(allEquations)%>;i++)
+      {
+        double* realVarPtr = &residues[i];
+        string str;
+       _resVars.addOutputVar(str, str,realVarPtr, false);
+
+      }
+
+      <%generateMeasureTimeEndCode("measuredFunctionStartValues", "measuredFunctionEndValues", "(*measureTimeFunctionsArray)[2]", "writeOutput", "MEASURETIME_MODELFUNCTIONS")%>
+      write_data_t& container = _writeOutput->getFreeContainer();
+        all_vars_time_t all_vars = make_tuple(outputRealVars.outputVars,outputIntVars.outputVars,outputBoolVars.outputVars,_simTime,outputDerVars.outputVars,_resVars.outputVars);
+        neg_all_vars_t neg_all_vars =      make_tuple(outputRealVars.negateOutputVars,outputIntVars.negateOutputVars,outputBoolVars.negateOutputVars,outputDerVars.negateOutputVars,_resVars.negateOutputVars);
+       _writeOutput->addContainerToWriteQueue(make_tuple(all_vars,neg_all_vars));
+
+      >>
+    else
+      <<
+       <%generateMeasureTimeEndCode("measuredFunctionStartValues", "measuredFunctionEndValues", "(*measureTimeFunctionsArray)[2]",  "writeOutput", "MEASURETIME_MODELFUNCTIONS")%>
+        write_data_t& container = _writeOutput->getFreeContainer();
+        all_vars_time_t all_vars = make_tuple(outputRealVars.outputVars,outputIntVars.outputVars,outputBoolVars.outputVars,_simTime,outputDerVars.outputVars,outputResVars.outputVars);
+        neg_all_vars_t neg_all_vars =      make_tuple(outputRealVars.negateOutputVars,outputIntVars.negateOutputVars,outputBoolVars.negateOutputVars,outputDerVars.negateOutputVars,outputResVars.negateOutputVars);
+       _writeOutput->addContainerToWriteQueue(make_tuple(all_vars,neg_all_vars));
+      >>
+    %>
+*/
 template writeoutputAlgloopsolvers(SimEqSystem eq, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
 ::=
   match eq
@@ -6866,10 +6764,8 @@ case SIMCODE(modelInfo=MODELINFO(__), extObjInfo=EXTOBJINFO(__)) then
   #include <Core/System/SystemDefaultImplementation.h>
 
   //Forward declaration to speed-up the compilation process
-  class Functions;
   class EventHandling;
   class DiscreteEvents;
-
   <%algloopForwardDeclaration(listAppend(listAppend(allEquations, initialEquations), getClockedEquations(getSubPartitions(clockedPartitions))), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)%>
 
   /*****************************************************************************
@@ -6903,7 +6799,7 @@ case SIMCODE(modelInfo=MODELINFO(__), extObjInfo=EXTOBJINFO(__)) then
   >>
 end generateAlgloopHeaderInlcudeString;
 
-template generateClassDeclarationCode(SimCode simCode,Context context,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace,
+template generateClassDeclarationCode(SimCode simCode, Context context, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace,
                                       String additionalPublicMembers, String additionalProtectedMembers, String memberVariableDefinitions,
                                       Boolean useFlatArrayNotation)
  "Generates class declarations."
@@ -6915,16 +6811,13 @@ let friendclasses = generatefriendAlgloops(listAppend(listAppend(allEquations, i
 let algloopsolvers = generateAlgloopsolverVariables(modelInfo,simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
 
 let algloopsystems = generateAlgloopsSystemVariables(listAppend(listAppend(allEquations, initialEquations), getClockedEquations(getSubPartitions(clockedPartitions))), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace )
-let jacalgloopsystems =  (jacobianMatrixes |> JAC_MATRIX(columns=mat) hasindex index0 =>
-                        (mat |> JAC_COLUMN(columnEqns=eqs) =>  generateAlgloopsSystemVariables(eqs,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace) ;separator="\n")
+let jacalgloopsystems = (jacobianMatrices |> JAC_MATRIX(columns=mat) hasindex index0 =>
+                        (mat |> JAC_COLUMN(columnEqns=eqs) => generateAlgloopsSystemVariables(eqs, simCode, &extraFuncs , &extraFuncsDecl, extraFuncsNamespace) ;separator="\n")
                         ;separator="")
 
-
-let memberfuncs =  generateEquationMemberFuncDecls(allEquations,"evaluate")
-      
-
+let memberfuncs = generateEquationMemberFuncDecls(allEquations,"evaluate")
 let clockedfuncs = generateClockedFuncDecls(getSubPartitions(clockedPartitions), "evaluate")
-let conditionvariables =  conditionvariable(zeroCrossings,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)
+let conditionvariables = conditionvariable(zeroCrossings, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
 
 match modelInfo
   case MODELINFO(vars=SIMVARS(__)) then
@@ -6933,8 +6826,14 @@ match modelInfo
     void getString_<%idx%>(string* z);
     >>
     ;separator="\n")
-
-
+  let auxiliaryVarDecls = match simCode
+    case SIMCODE(daeModeData=SOME(DAEMODEDATA(auxiliaryVars=auxiliaryVars))) then
+    (auxiliaryVars |> var =>
+      (match var
+      case SIMVAR(__) then
+        '<%expTypeShort(type_)%> <%cref(name, false)%>;'
+      end match)
+    ;separator="\n")
 
   <<
   <%if boolNot(stringEq(getConfigString(PROFILING_LEVEL),"none")) then
@@ -6942,13 +6841,13 @@ match modelInfo
   #define MEASURETIME_MODELFUNCTIONS
   >>%>
 
-  class <%lastIdentOfPath(modelInfo.name)%>: public IContinuous, public IEvent, public IStepEvent, public ITime, public ISystemProperties <%if Flags.isSet(Flags.WRITE_TO_BUFFER) then ', public IReduceDAE'%>  ,public SystemDefaultImplementation
+  class <%lastIdentOfPath(modelInfo.name)%>: public SystemDefaultImplementation
   {
   <%friendclasses%>
   public:
       <%additionalPublicMembers%>
 
-      <%lastIdentOfPath(modelInfo.name)%>(shared_ptr<IGlobalSettings> globalSettings,omsi_t* omsu = NULL);
+      <%lastIdentOfPath(modelInfo.name)%>(IGlobalSettings* globalSettings, shared_ptr<ISimObjects> simObjects );
       <%lastIdentOfPath(modelInfo.name)%>(<%lastIdentOfPath(modelInfo.name)%> &instance);
 
       virtual ~<%lastIdentOfPath(modelInfo.name)%>();
@@ -6996,21 +6895,17 @@ match modelInfo
       //pointer to simVars-array to speedup simulation and compile time
       double* _pointerToRealVars;
       int* _pointerToIntVars;
-      
       bool* _pointerToBoolVars;
-     
       string* _pointerToStringVars;
 
       int _dimPartitions;
       bool* _partitionActivation;
       int* _stateActivator;
-      <%match  Config.simCodeTarget()
-      case "Cpp" then
-      <<
-       <%memberVariableDefinitions%>
-       <%conditionvariables%>
-      >>
-      %>
+
+      <%memberVariableDefinitions%>
+      /*auxiliary DAE variables*/
+      <%auxiliaryVarDecls%>
+      <%conditionvariables%>
       Functions* _functions;
 
       shared_ptr<IPropertyReader> _reader;
@@ -7037,7 +6932,7 @@ match modelInfo
       <%additionalProtectedMembers%>
       /*Additional member functions*/
       <%extraFuncsDecl%>
-   };
+  };
   >>
    /*! Equations Array. pointers to all the equation functions listed above stored in this
       array. It is used to randomly access and evaluate a single equation by index.
@@ -7093,7 +6988,7 @@ template generateEquationMemberFuncDecls2(SimEqSystem eq,Text method)
   end match
 end generateEquationMemberFuncDecls2;
 
-template generateAlgloopClassDeclarationCode(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace,SimEqSystem eq,Context context, Boolean useFlatArrayNotation)
+template generateAlgloopClassDeclarationCode(SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, SimEqSystem eq, Context context, Boolean useFlatArrayNotation)
  "Generates class declarations."
 ::=
 match simCode
@@ -7160,6 +7055,8 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
     bool* _conditions;
     shared_ptr<DiscreteEvents> _discrete_events;
     <%systemname%>* _system;
+    /*Additional member functions*/
+    <%extraFuncsDecl%>
   };
   >>
   case SES_NONLINEAR(nlSystem = nls as NONLINEARSYSTEM(__)) then
@@ -7193,6 +7090,8 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
     bool* _conditions;
     shared_ptr<DiscreteEvents> _discrete_events;
     <%systemname%>* _system;
+    /*Additional member functions*/
+    <%extraFuncsDecl%>
    };
   >>
 end generateAlgloopClassDeclarationCode;
@@ -7208,62 +7107,10 @@ template DefaultImplementationCode(SimCode simCode, Text& extraFuncs, Text& extr
         delete this;
       }
 
-      // Set current integration time
-      void <%lastIdentOfPath(modelInfo.name)%>::setTime(const double& t)
-      {
-        SystemDefaultImplementation::setTime(t);
-      }
-      double <%lastIdentOfPath(modelInfo.name)%>::getTime()
-      {
-        return SystemDefaultImplementation::getTime();
-      }
-
       // Computes the conditions of time event samplers for the current time
       double <%lastIdentOfPath(modelInfo.name)%>::computeNextTimeEvents(double currTime)
       {
         return SystemDefaultImplementation::computeNextTimeEvents(currTime, getTimeEventData());
-      }
-      // Computes the conditions of time event samplers for the current time
-      void <%lastIdentOfPath(modelInfo.name)%>::computeTimeEventConditions(double currTime)
-      {
-        SystemDefaultImplementation::computeTimeEventConditions(currTime);
-      }
-      // Resets the conditions of time event samplers to false
-      void <%lastIdentOfPath(modelInfo.name)%>::resetTimeConditions()
-      {
-        SystemDefaultImplementation::resetTimeConditions();
-      }
-      // Provide number (dimension) of variables according to the index
-      int <%lastIdentOfPath(modelInfo.name)%>::getDimContinuousStates() const
-      {
-        return(SystemDefaultImplementation::getDimContinuousStates());
-      }
-      int <%lastIdentOfPath(modelInfo.name)%>::getDimAE() const
-      {
-        return(SystemDefaultImplementation::getDimAE());
-      }
-      // Provide number (dimension) of variables according to the index
-      int <%lastIdentOfPath(modelInfo.name)%>::getDimBoolean() const
-      {
-        return(SystemDefaultImplementation::getDimBoolean());
-      }
-
-      // Provide number (dimension) of variables according to the index
-      int <%lastIdentOfPath(modelInfo.name)%>::getDimInteger() const
-      {
-        return(SystemDefaultImplementation::getDimInteger());
-      }
-
-      // Provide number (dimension) of variables according to the index
-      int <%lastIdentOfPath(modelInfo.name)%>::getDimReal() const
-      {
-        return(SystemDefaultImplementation::getDimReal());
-      }
-
-      // Provide number (dimension) of variables according to the index
-      int <%lastIdentOfPath(modelInfo.name)%>::getDimString() const
-      {
-        return(SystemDefaultImplementation::getDimString());
       }
 
       // Provide number (dimension) of right hand sides (equations and/or residuals) according to the index
@@ -7277,41 +7124,12 @@ template DefaultImplementationCode(SimCode simCode, Text& extraFuncs, Text& extr
         return(SystemDefaultImplementation::getDimRHS());
       }
 
-      void <%lastIdentOfPath(modelInfo.name)%>::getContinuousStates(double* z)
-      {
-        SystemDefaultImplementation::getContinuousStates(z);
-      }
       void <%lastIdentOfPath(modelInfo.name)%>::getNominalStates(double* z)
       {
         <%getNominalStateValues(states, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
       }
 
       // Set variables with given index to the system
-      void <%lastIdentOfPath(modelInfo.name)%>::setContinuousStates(const double* z)
-      {
-        SystemDefaultImplementation::setContinuousStates(z);
-      }
-
-      double& <%lastIdentOfPath(modelInfo.name)%>::getRealStartValue(double& var)
-      {
-         return SystemDefaultImplementation::getRealStartValue(var);
-       }
-
-       bool& <%lastIdentOfPath(modelInfo.name)%>::getBoolStartValue(bool& var)
-       {
-         return SystemDefaultImplementation::getBoolStartValue(var);
-       }
-
-       int& <%lastIdentOfPath(modelInfo.name)%>::getIntStartValue(int& var)
-       {
-         return SystemDefaultImplementation::getIntStartValue(var);
-       }
-
-       string& <%lastIdentOfPath(modelInfo.name)%>::getStringStartValue(string& var)
-       {
-         return SystemDefaultImplementation::getStringStartValue(var);
-       }
-
        void <%lastIdentOfPath(modelInfo.name)%>::setRealStartValue(double& var,double val)
        {
          SystemDefaultImplementation::setRealStartValue(var, val);
@@ -7375,11 +7193,10 @@ template DefaultImplementationCode(SimCode simCode, Text& extraFuncs, Text& extr
       >>%>
       }
 
-      void <%lastIdentOfPath(modelInfo.name)%>::setStateDerivatives(const double* f)
+      bool <%lastIdentOfPath(modelInfo.name)%>::isStepEvent()
       {
-        SystemDefaultImplementation::setStateDerivatives(f);
+       throw ModelicaSimulationError(MODEL_EQ_SYSTEM,"isStepEvent is not yet implemented");
       }
-
       void <%lastIdentOfPath(modelInfo.name)%>::setTerminal(bool terminal)
       {
         _terminal=terminal;
@@ -7421,7 +7238,7 @@ end DefaultImplementationCode;
 */
 template getNominalStateValues(list<SimVar> stateVars,SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
-  let nominalVars = stateVars |> SIMVAR(__) hasindex i0 =>
+  let nominalVars = stateVars |> SIMVAR(index = i) =>
         match nominalValue
         case SOME(val)
         then
@@ -7429,13 +7246,13 @@ template getNominalStateValues(list<SimVar> stateVars,SimCode simCode, Text& ext
           let &varDecls = buffer "" /*BUFD*/
           let value = '<%daeExp(val, contextOther, &preExp, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>'
           <<
-           <%varDecls%>
-           <%preExp%>
-           z[<%i0%>]=<%value%>;
+          <%varDecls%>
+          <%preExp%>
+          z[<%i%>] = <%value%>;
           >>
         else
           <<
-           z[<%i0%>] = 1.0;
+          z[<%i%>] = 1.0;
           >>
        ;separator="\n"
 <<
@@ -7626,22 +7443,9 @@ case SIMCODE(modelInfo = MODELINFO(vars = vars as SIMVARS(__))) then
     /// Releases the Modelica System
     virtual void destroy();
     /// Provide number (dimension) of variables according to the index
-    virtual int getDimContinuousStates() const;
-    virtual int getDimAE() const;
-    /// Provide number (dimension) of boolean variables
-    virtual int getDimBoolean() const;
-    /// Provide number (dimension) of integer variables
-    virtual int getDimInteger() const;
-    /// Provide number (dimension) of real variables
-    virtual int getDimReal() const;
-    /// Provide number (dimension) of string variables
-    virtual int getDimString() const;
     // Provide number (dimension) of right hand sides (equations and/or residuals)
     virtual int getDimRHS()const;
-    virtual double& getRealStartValue(double& var);
-    virtual bool& getBoolStartValue(bool& var);
-    virtual int& getIntStartValue(int& var);
-    virtual string& getStringStartValue(string& var);
+
     virtual void setRealStartValue(double& var,double val);
     virtual void setBoolStartValue(bool& var,bool val);
     virtual void setIntStartValue(int& var,int val);
@@ -7656,10 +7460,7 @@ case SIMCODE(modelInfo = MODELINFO(vars = vars as SIMVARS(__))) then
     //Resets all time events
 
     // Provide variables with given index to the system
-    virtual void getContinuousStates(double* z);
     virtual void getNominalStates(double* z);
-    // Set variables with given index to the system
-    virtual void setContinuousStates(const double* z);
 
     // Update transfer behavior of the system of equations according to command given by solver
     virtual bool evaluateAll(const UPDATETYPE command = IContinuous::UNDEF_UPDATE);
@@ -7669,15 +7470,11 @@ case SIMCODE(modelInfo = MODELINFO(vars = vars as SIMVARS(__))) then
 
     // Provide the right hand side (according to the index)
     virtual void getRHS(double* f);
-    virtual void setStateDerivatives(const double* f);
 
     //Provide number (dimension) of zero functions
     virtual int getDimZeroFunc();
     //Provide number (dimension) of zero functions
     virtual int getDimClock();
-    virtual double *clockInterval();
-    virtual void setIntervalInTimEventData(int clockIdx, double interval);
-    virtual void setClock(const bool* tick, const bool* subactive);
     //Provides current values of root/zero functions
     virtual void getZeroFunc(double* f);
     virtual void setConditions(bool* c);
@@ -7688,7 +7485,7 @@ case SIMCODE(modelInfo = MODELINFO(vars = vars as SIMVARS(__))) then
     virtual void handleEvent(const bool* events);
     //Checks if a discrete variable has changed and triggers an event
     virtual bool checkForDiscreteEvents();
-
+    virtual bool isStepEvent();
     //sets the terminal status
     virtual void setTerminal(bool);
     //returns the terminal status
@@ -7704,14 +7501,8 @@ case SIMCODE(modelInfo = MODELINFO(vars = vars as SIMVARS(__))) then
     virtual int getDimTimeEvent() const;
     virtual std::pair<double,double>* getTimeEventData() const;
     virtual double computeNextTimeEvents(double currTime);
-    virtual void computeTimeEventConditions(double currTime);
-    virtual void resetTimeConditions();
     //initializes the definition of time event samplers (i.e. starttime and frequency)
     virtual void initTimeEventData();
-
-    /// Set current integration time
-    virtual void setTime(const double& time);
-    virtual double getTime();
 
     // System is able to provide the Jacobian symbolically
     virtual bool provideSymbolicJacobian();
@@ -8484,7 +8275,7 @@ template variableType(DAE.Type type)
   match type
   case T_REAL(__)        then "double"
   case T_STRING(__)      then "string"
-  case T_INTEGER(__)     then "int"
+  case T_INTEGER(__)         then "int"
   case T_BOOL(__)        then "bool"
   case T_ENUMERATION(__) then "int"
   case T_COMPLEX(complexClassType=EXTERNAL_OBJ(__)) then "void*"
@@ -8651,19 +8442,25 @@ template initConstValue(SimVar var, SimCode simCode, Text stateDerVectorName /*=
     case SIMVAR(numArrayElement=_::_) then ''
     case SIMVAR(type_=type,name=name) then
       match initialValue
-        case SOME(v) then '<%cref(name, useFlatArrayNotation)%> = <%initConstValue2(v, simCode, stateDerVectorName, useFlatArrayNotation)%>;'
+        case SOME(v) then
+          let &preExp = buffer ""
+          let &varDecls = buffer ""
+          let initValue = initConstValue2(v, &preExp, &varDecls, simCode, stateDerVectorName, useFlatArrayNotation)
+          <<
+          <%varDecls%>
+          <%preExp%>
+          <%cref(name, useFlatArrayNotation)%> = <%initValue%>;
+          >>
         else
           match type
             case T_STRING(__) then '<%cref(name, useFlatArrayNotation)%> = "";'
             else '<%cref(name, useFlatArrayNotation)%> = 0;'
 end initConstValue;
 
-template initConstValue2(Exp initialValue, SimCode simCode, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
+template initConstValue2(Exp initialValue, Text &preExp, Text &varDecls, SimCode simCode, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
   match initialValue
     case v then
-      let &preExp = buffer "" //dummy ... the value is always a constant
-      let &varDecls = buffer ""
       let &extraFuncs = buffer ""
       let &extraFuncsDecl = buffer ""
       let &extraFuncsNamespace = buffer ""
@@ -9434,8 +9231,7 @@ match modelInfo
     let algvars = initValst(varDecls, "Real", vars.algVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, context, stateDerVectorName, useFlatArrayNotation)
     let discretealgvars = initValst(varDecls, "Real", vars.discreteAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, context, stateDerVectorName, useFlatArrayNotation)
     let intvars = initValst(varDecls, "Int", vars.intAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, context, stateDerVectorName, useFlatArrayNotation)
-    let booltype = "Bool"
-    let boolvars = initValst(varDecls, booltype, vars.boolAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, context, stateDerVectorName, useFlatArrayNotation)
+    let boolvars = initValst(varDecls, "Bool", vars.boolAlgVars, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, context, stateDerVectorName, useFlatArrayNotation)
     <<
     <%varDecls%>
     <%algvars%>
@@ -9599,21 +9395,33 @@ case SIMCODE(modelInfo = MODELINFO(__), modelStructure = fmims) then
       let intvl = match fmims case SOME(FmiModelStructure) then spec else
         match baseClock
         case REAL_CLOCK()
-        case INTEGER_CLOCK()
-        case BOOLEAN_CLOCK() then
+        case RATIONAL_CLOCK()
+        case EVENT_CLOCK() then
           spec
         else "unspecified"
       let interval = match intvl case "unspecified" then '1.0' else intvl
       let warning = match intvl case "unspecified" then
-        'ModelicaMessage("Using default Clock(1.0)!");'
+        'LOGGER_WRITE("Using default Clock(1.0)!", LC_MODEL, LL_WARNING);'
+      let isEventBased = match baseClock case EVENT_CLOCK() then "true"
       let subClocks = (subPartitions |> subPartition =>
         match subPartition
         case SUBPARTITION(subClock=SUBCLOCK(factor=RATIONAL(nom=fnom, denom=fres), shift=RATIONAL(nom=snom, denom=sres))) then
           <<
           <%preExp%>
+          <%if isEventBased then
+          <<
+          _clockInterval[<%i%>] = DBL_MAX; // determined at runtime
+          _clockShift[<%i%>] = <%snom%>.0 / <%sres%>.0;
+          _clockTime[<%i%>] = -DBL_MAX; // determined at runtime
+          _clockEventBased[<%i%>] = true;
+          >>
+          else
+          <<
           _clockInterval[<%i%>] = <%interval%> * <%fnom%>.0 / <%fres%>.0;
           _clockShift[<%i%>] = <%snom%>.0 / <%sres%>.0;
           _clockTime[<%i%>] = _simTime + _clockShift[<%i%>] * _clockInterval[<%i%>];
+          >>
+          %>
           _clockStart[<%i%>] = true;
           _clockSubactive[<%i%>] = false;
           <%i%> ++;
@@ -9676,21 +9484,6 @@ bool <%lastIdentOfPath(modelInfo.name)%>::isODE()
 }
 >>
 end isODE;
-
-template testdimension(Dimension d)
-::=
-  match d
-  case DAE.DIM_BOOLEAN(__) then ''
-  case DAE.DIM_INTEGER(__) then ''
-  case DAE.DIM_ENUM(__) then ''
-  case DAE.DIM_EXP(exp=e) then
-   match e
-  case DAE.CREF(componentRef = cr) then ''
-  else '-1'
-  end match
-  case DAE.DIM_UNKNOWN(__) then '-1'
-  else '-1'
-end testdimension;
 
 template functionInitial(list<SimEqSystem> startValueEquations, Text &varDecls, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
@@ -9959,53 +9752,24 @@ template equationString(SimEqSystem eq, Context context, Text &varDecls, SimCode
     <<
     FOR LOOPS ARE NOT IMPLEMENTED
     >>
-  case SES_IFEQUATION(ifbranches=ifbranches, elsebranch=elsebranch) then
-  let &preExp = buffer ""
-  let IfEquation = (ifbranches |> (e, eqns) hasindex index0 =>
-    let condition = daeExp(e, context, &preExp, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-    let ifequations = (eqns |> eqn =>
-      let eqnStr = equation_(eqn, context, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, &extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-      <<
-      <%eqnStr%>
-      >>
-      ; separator="\n")
-    let conditionline = if index0 then 'else if(<%condition%>)' else 'if(<%condition%>)'
+  case e as SES_IFEQUATION(__)
+    then
     <<
-    <%conditionline%>
-    {
-      <%ifequations%>
-    }
+    IF EQUATIONS ARE NOT IMPLEMENTED
     >>
-    ; separator="\n")
-  let elseequations = (elsebranch |> eqn =>
-    let eqnStr = equation_(eqn, context, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, &extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-    <<
-    <%eqnStr%>
-    >>
-    ; separator="\n")
-  <<
-  <%preExp%>
-  <%IfEquation%>
   else
-  {
-    <%elseequations%>
-  }
-  >>
-  else
-    error(sourceInfo(),"NOT IMPLEMENTED EQUATION 2")
+    error(sourceInfo(), 'NOT IMPLEMENTED EQUATION 2: <%dumpEqs(fill(eq,1))%>')
 end equationString;
 
-template equation_function_call(SimEqSystem eq, Context context, Text &varDecls, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace,Text method)
+template equation_function_call(SimEqSystem eq, Context context, SimCode simCode, Text method)
  "Generates an equation.
   This template should not be used for a SES_RESIDUAL.
   Residual equations are handled differently."
 ::=
-
-    let ix_str = equationIndex(eq)
-     <<
-     <%method%>_<%ix_str%>();
-     >>
-
+  let ix_str = equationIndex(eq)
+  <<
+  <%method%>_<%ix_str%>();
+  >>
 end equation_function_call;
 
 template equation_function_create_single_func(SimEqSystem eq, Context context, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace,
@@ -10027,6 +9791,7 @@ template equation_function_create_single_func(SimEqSystem eq, Context context, S
      then
      equationIfEquation(e, context, &varDeclsLocal, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
    case e as SES_ALGORITHM(__)
+   case e as SES_INVERSE_ALGORITHM(__)
       then
       equationAlgorithm(e, context, &varDeclsLocal,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
    case e as SES_WHEN(__)
@@ -10048,14 +9813,14 @@ template equation_function_create_single_func(SimEqSystem eq, Context context, S
       then
         equationForLoop(e, context, &varDeclsLocal,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation, assignToStartValues)
     else
-      error(sourceInfo(),"NOT IMPLEMENTED EQUATION")
+      error(sourceInfo(), 'NOT IMPLEMENTED EQUATION: <%dumpEqs(fill(eq,1))%>')
   end match
   let &measureTimeStartVar += if createMeasureTime then generateMeasureTimeStartCode("measuredProfileBlockStartValues", 'evaluate<%ix_str%>', "MEASURETIME_PROFILEBLOCKS") else ""
   let &measureTimeEndVar += if createMeasureTime then generateMeasureTimeEndCode("measuredProfileBlockStartValues", "measuredProfileBlockEndValues", '(*measureTimeProfileBlocksArray)[<%ix_str_array%>]', 'evaluate<%ix_str%>', "MEASURETIME_PROFILEBLOCKS") else ""
     <<
     <%additionalFuncs%>
     /*
-    <%dumpEqs(fill(eq,1))%>
+    <%match simCode case SIMCODE(fmuTargetName="") then dumpEqs(fill(eq,1))%>
     */
     void <%lastIdentOfPathFromSimCode(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)%><%classnameext%>::<%method%>_<%ix_str%>()
     {
@@ -10566,7 +10331,7 @@ template generateAlgloopSystems2(SimEqSystem eq, Context context, Text &varDecls
     ""
  end generateAlgloopSystems2;
 /*
-let jacAlgloopsolver = (jacobianMatrixes |> (mat, _, _, _, _, _, _) hasindex index0 =>
+let jacAlgloopsolver = (jacobianMatrices |> (mat, _, _, _, _, _, _) hasindex index0 =>
        (mat |> (eqs,_,_) =>  generateAlgloopsSystemVariables(eqs,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace) ;separator="\n")
      ;separator="")
 */
@@ -10597,19 +10362,14 @@ template generateAlgloopsolverVariables( ModelInfo modelInfo,SimCode simCode ,Te
       >>
    end match
 
-
 end generateAlgloopsolverVariables;
-
-
-
-
 
 template generateAlgloopsolverVariables2( SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
 ::=
   match simCode
     case SIMCODE(__) then
    let algloopsolvers = generateAlgloopsolverVariables3(modelInfo,listAppend(listAppend(allEquations, initialEquations), getClockedEquations(getSubPartitions(clockedPartitions))), simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
-   let jacalgloopsolver =  (jacobianMatrixes |> JAC_MATRIX(columns=mat) hasindex index0 =>
+   let jacalgloopsolver =  (jacobianMatrices |> JAC_MATRIX(columns=mat) hasindex index0 =>
                        (mat |> JAC_COLUMN(columnEqns=eqs) =>  generateAlgloopsolverVariables3(modelInfo,eqs,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace) ;separator="\n")
                     ;separator="")
   <<
@@ -10620,7 +10380,6 @@ template generateAlgloopsolverVariables2( SimCode simCode ,Text& extraFuncs,Text
 
   >>
 end generateAlgloopsolverVariables2;
-
 
 template generateAlgloopsolverVariables3(ModelInfo modelInfo,list<SimEqSystem> allEquationsPlusWhen,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
 ::=
@@ -10921,14 +10680,16 @@ template algloopfiles2(SimEqSystem eq, Context context, Integer clockIndex, Text
   This template should not be used for a SES_RESIDUAL.
   Residual equations are handled differently."
 ::=
+  let &extraFuncsAlg = buffer "" /* extra functions for each algebraic loop */
+  let &extraFuncsDeclAlg = buffer "" /* extra function declarations for each algebraic loop */
   match eq
   case SES_LINEAR(lSystem = ls as LINEARSYSTEM(__))
     then
       let num = ls.index
       match simCode
           case SIMCODE(modelInfo = MODELINFO(__)) then
-              let()= textFile(algloopHeaderFile(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, eq, context, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%num%>.h')
-              let()= textFile(algloopCppFile(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, eq, context, clockIndex, stateDerVectorName, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%num%>.cpp')
+              let()= textFile(algloopCppFile(simCode, &extraFuncsAlg, &extraFuncsDeclAlg, extraFuncsNamespace, eq, context, clockIndex, stateDerVectorName, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%num%>.cpp')
+              let()= textFile(algloopHeaderFile(simCode, &extraFuncsAlg, &extraFuncsDeclAlg, extraFuncsNamespace, eq, context, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%num%>.h')
             " "
       end match
   case e as SES_NONLINEAR(nlSystem = nls as NONLINEARSYSTEM(__))
@@ -10936,16 +10697,16 @@ template algloopfiles2(SimEqSystem eq, Context context, Integer clockIndex, Text
       let num = nls.index
       match simCode
           case SIMCODE(modelInfo = MODELINFO(__)) then
-              let()= textFile(algloopHeaderFile(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, eq, context, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%num%>.h')
-              let()= textFile(algloopCppFile(simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, eq, context, clockIndex, stateDerVectorName, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%num%>.cpp')
+              let()= textFile(algloopCppFile(simCode, &extraFuncsAlg, &extraFuncsDeclAlg, extraFuncsNamespace, eq, context, clockIndex, stateDerVectorName, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%num%>.cpp')
+              let()= textFile(algloopHeaderFile(simCode, &extraFuncsAlg, &extraFuncsDeclAlg, extraFuncsNamespace, eq, context, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%num%>.h')
             " "
       end match
   case e as SES_MIXED(cont = eq_sys)
     then
        match simCode
           case SIMCODE(modelInfo = MODELINFO(__)) then
-              let()= textFile(algloopHeaderFile(simCode ,&extraFuncs, &extraFuncsDecl, extraFuncsNamespace, eq_sys,context, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%algloopfilesindex(eq_sys)%>.h')
-              let()= textFile(algloopCppFile(simCode ,&extraFuncs, &extraFuncsDecl, extraFuncsNamespace, eq_sys, context, clockIndex, stateDerVectorName, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%algloopfilesindex(eq_sys)%>.cpp')
+              let()= textFile(algloopCppFile(simCode, &extraFuncsAlg, &extraFuncsDeclAlg, extraFuncsNamespace, eq_sys, context, clockIndex, stateDerVectorName, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%algloopfilesindex(eq_sys)%>.cpp')
+              let()= textFile(algloopHeaderFile(simCode, &extraFuncsAlg, &extraFuncsDeclAlg, extraFuncsNamespace, eq_sys,context, useFlatArrayNotation), 'OMCpp<%fileNamePrefix%>Algloop<%algloopfilesindex(eq_sys)%>.h')
             " "
         end match
   else
@@ -10960,7 +10721,7 @@ template algloopMainfile(SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl
     let filename = fileNamePrefix
     let modelfilename =  match context case  ALGLOOP_CONTEXT(genInitialisation=false,genJacobian=true)  then '<%filename%>Jacobian' else '<%filename%>'
 
-    let jacfiles = (jacobianMatrixes |> JAC_MATRIX(columns=mat) hasindex index0 => (mat |> JAC_COLUMN(columnEqns=eqs) =>  algloopMainfile1(eqs, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, filename) ;separator="") ;separator="")
+    let jacfiles = (jacobianMatrices |> JAC_MATRIX(columns=mat) hasindex index0 => (mat |> JAC_COLUMN(columnEqns=eqs) =>  algloopMainfile1(eqs, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, filename) ;separator="") ;separator="")
     let algloopfiles = (listAppend(listAppend(allEquations, initialEquations), getClockedEquations(getSubPartitions(clockedPartitions))) |> eqs => algloopMainfile2(eqs, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, filename) ;separator="\n")
 
     <<
@@ -11092,14 +10853,6 @@ case eqn as SES_ARRAY_CALL_ASSIGN(lhs=lhs as CREF(__)) then
       'localData->helpVars[<%hidx%>] && !localData->helpVars_saved[<%hidx%>] /* edge */'
     ;separator=" || ")C*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
   match expTypeFromExpShort(eqn.exp)
-  case "bool"
-  case "int" then
-    let lhsStr = cref1(lhs.componentRef, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, context, varDeclsCref, stateDerVectorName, useFlatArrayNotation)
-    <<
-    <%if not assignToStartValues then '<%startFixedExp%>'%>
-    <%preExp%>
-    <%lhsStr%>.assign(<%expPart%>);
-    >>
   case "double" then
     <<
     <%if not assignToStartValues then '<%startFixedExp%>'%>
@@ -11107,7 +10860,12 @@ case eqn as SES_ARRAY_CALL_ASSIGN(lhs=lhs as CREF(__)) then
     <%assignDerArray(context, expPart, lhs, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
     >>
   else
-    error(sourceInfo(), 'Unsupported type of array call assign: <%expTypeFromExpShort(eqn.exp)%>')
+    let lhsStr = cref1(lhs.componentRef, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, context, varDeclsCref, stateDerVectorName, useFlatArrayNotation)
+    <<
+    <%if not assignToStartValues then '<%startFixedExp%>'%>
+    <%preExp%>
+    <%lhsStr%>.assign(<%expPart%>);
+    >>
 end equationArrayCallAssign;
 
 template assignDerArray(Context context, String arr, Exp lhs_ecr, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
@@ -11672,7 +11430,7 @@ template equationForLoop(SimEqSystem eq, Context context, Text &varDecls, SimCod
       let startExp = daeExp(startIt, context, preExp, varDecls, simCode, extraFuncs, extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, false)
       let endExp = daeExp(endIt, context, preExp, varDecls, simCode, extraFuncs, extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, false)
       let expPart = daeExp(exp, context, preExp, varDecls, simCode, extraFuncs, extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, false)
-      let crefPart = daeExp(crefExp(cref), context, preExp, varDecls, simCode, extraFuncs, extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, false)
+      let crefPart = daeExpCref(true, crefExp(cref), context, preExp, varDecls, simCode, extraFuncs, extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, false)
       <<
       <%if not assignToStartValues then '<%startFixedExp%>'%>
       for (int <%iterExp%> = <%startExp%>; <%iterExp%> <= <%endExp%>; <%iterExp%>++) {
@@ -11702,8 +11460,9 @@ template testDaeDimensionExp(Exp exp)
  "Generates code for an expression."
 ::=
   match exp
-  case e as ICONST(__) then ''
-  else '-1'
+  case ICONST(integer=-1) then '---' // unknown
+  case ICONST(__) then ''            // known static
+  else '-1'                          // known dynamic
 end testDaeDimensionExp;
 
 template daeDimension(DAE.Dimension dim, Context context, Text &preExp, Text &varDecls, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName, Boolean useFlatArrayNotation)
@@ -11737,7 +11496,7 @@ template assertCommon(Exp condition, Exp message,Exp level, Context context, Tex
       if (!<%condVar%>)
       {
         <%preExpMsg%>
-        <%match level case ENUM_LITERAL(index=2)
+        <%match level case ENUM_LITERAL(index=1)
           then 'LOGGER_WRITE(<%msgVar%>, LC_MODEL, LL_WARNING);'
           else 'throw ModelicaSimulationError(MODEL_EQ_SYSTEM, <%msgVar%>);'
         %>
@@ -11749,7 +11508,7 @@ template assertCommon(Exp condition, Exp message,Exp level, Context context, Tex
       {
         <%preExpCond%>
         <%preExpMsg%>
-        <%match level case ENUM_LITERAL(index=2)
+        <%match level case ENUM_LITERAL(index=1)
           then 'LOGGER_WRITE("Assert in model equation", LC_MODEL, LL_WARNING);'
           else 'throw ModelicaSimulationError() << error_id(MODEL_EQ_SYSTEM);'
         %>
@@ -12067,18 +11826,6 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
   int <%lastIdentOfPath(modelInfo.name)%>::getDimClock()
   {
     return _dimClock;
-  }
-  double* <%lastIdentOfPath(modelInfo.name)%>::clockInterval()
-  {
-    return SystemDefaultImplementation::clockInterval();
-  }
-  void <%lastIdentOfPath(modelInfo.name)%>::setIntervalInTimEventData(int clockIdx, double interval)
-  {
-    SystemDefaultImplementation::setIntervalInTimEventData(clockIdx, interval);
-  }
-  void <%lastIdentOfPath(modelInfo.name)%>::setClock(const bool* tick, const bool* subactive)
-  {
-    SystemDefaultImplementation::setClock(tick,subactive);
   }
   >>
 end dimZeroFunc;
@@ -12466,42 +12213,41 @@ template giveZeroFunc3(Integer index1, Exp relation, Text &varDecls /*BUFP*/,Tex
       case LESS(__) then
         <<
         if(_conditions[<%zerocrossingIndex%>])
-            f[<%index1%>]=(<%e1%> - 1e-6 - <%e2%>);
+            f[<%index1%>]=(<%e1%> - _zeroTol - <%e2%>);
         else
-            f[<%index1%>]=(<%e2%> - <%e1%> -  1e-6);
+            f[<%index1%>]=(<%e2%> - <%e1%> - _zeroTol);
         >>
       case LESSEQ(__) then
         <<
         if(_conditions[<%zerocrossingIndex%>])
-            f[<%index1%>] = (<%e1%> - 1e-6 - <%e2%>);
+            f[<%index1%>] = (<%e1%> - _zeroTol - <%e2%>);
         else
-            f[<%index1%>] = (<%e2%> - <%e1%> - 1e-6);
+            f[<%index1%>] = (<%e2%> - <%e1%> - _zeroTol);
         >>
       case GREATER(__) then
         <<
         if(_conditions[<%zerocrossingIndex%>])
-            f[<%index1%>] = (<%e2%> - <%e1%> - 1e-6);
+            f[<%index1%>] = (<%e2%> - <%e1%> - _zeroTol);
         else
-            f[<%index1%>] = (<%e1%> - 1e-6 - <%e2%>);
+            f[<%index1%>] = (<%e1%> - _zeroTol - <%e2%>);
         >>
       case GREATEREQ(__) then
         <<
         if(_conditions[<%zerocrossingIndex%>])
-            f[<%index1%>] = (<%e2%> - <%e1%> - 1e-6);
+            f[<%index1%>] = (<%e2%> - <%e1%> - _zeroTol);
         else
-            f[<%index1%>] = (<%e1%> - 1e-6 - <%e2%>);
+            f[<%index1%>] = (<%e1%> - _zeroTol - <%e2%>);
         >>
-    else
+      else
         <<
-        f[<%index1%>] = -1;
-        /*error(sourceInfo(), 'Unknown relation: <%ExpressionDumpTpl.dumpExp(rel,"\"")%> for <%index1%>')*/
+        error(sourceInfo(), 'Unsupported relation: <%ExpressionDumpTpl.dumpExp(rel,"\"")%> for <%index1%>')
         >>
       end match
   case CALL(path=IDENT(name="sample"), expLst={_, start, interval}) then
     //error(sourceInfo(), ' sample not supported for <%index1%> ')
     '//sample for <%index1%>'
   else
-    error(sourceInfo(), ' UNKNOWN ZERO CROSSING for <%index1%> ')
+    error(sourceInfo(), 'Unsupported zero crossing at <%index1%>: <%ExpressionDumpTpl.dumpExp(relation, "\"")%>')
   end match
 end giveZeroFunc3;
 
@@ -12568,11 +12314,9 @@ template checkForDiscreteEvents(list<ComponentRef> discreteModelVars,SimCode sim
 ::=
    let &preExp = buffer ""
   let &varDecls = buffer ""
-  let changediscreteVars = 
-    (discreteModelVars |> var => match var case CREF_QUAL(__) case CREF_IDENT(__) then
+  let changediscreteVars = (discreteModelVars |> var => match var case CREF_QUAL(__) case CREF_IDENT(__) then
        'if (_discrete_events->changeDiscreteVar(<%cref(var, useFlatArrayNotation)%>)) {  return true; }'
        ;separator="\n")
-   
   match simCode
   case SIMCODE(modelInfo = MODELINFO(__)) then
   <<
@@ -12653,14 +12397,15 @@ template clockedPartFunctions(Integer i, list<tuple<SimCodeVar.SimVar, Boolean>>
 
   void <%className%>::<%funcName%>(const UPDATETYPE command)
   {
+    if (_clockTime[<%idx%>] == -DBL_MAX) {
+      _clockTime[<%idx%>] = _simTime;
+    }
     if (_simTime > _clockTime[<%idx%>]) {
       _clockStart[<%idx%>] = false;
-    }
-    <%funcCalls%>
-    if (_simTime > _clockTime[<%idx%>]) {
       _clockInterval[<%idx%>] = _simTime - _clockTime[<%idx%>];
       _clockTime[<%idx%>] = _simTime;
     }
+    <%funcCalls%>
   }
   >>
 end clockedPartFunctions;
@@ -12671,12 +12416,9 @@ match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
   let className = lastIdentOfPathFromSimCode(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)
 
-  let equation_all_func_calls =
- 
-        (List.partition(allEquationsPlusWhen, 100) |> eqs hasindex i0 =>
+  let equation_all_func_calls = (List.partition(allEquationsPlusWhen, 100) |> eqs hasindex i0 =>
                                  createEvaluateWithSplit(i0, context, eqs, "evaluateAll","evaluate", className, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
                                  ;separator="\n")
-     
 
   <<
   bool <%className%>::evaluateAll(const UPDATETYPE command)
@@ -12685,6 +12427,8 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
     <%createTimeConditionTreatments(timeEventLength(simCode), clockedPartitions)%>
 
     // Evaluate Equations
+    if (_dimAE > 0)
+      evaluateDAE(command);
     <%equation_all_func_calls%>
 
     <%if createMeasureTime then generateMeasureTimeEndCode("measuredFunctionStartValues", "measuredFunctionEndValues", "(*measureTimeFunctionsArray)[1]", "evaluateAll", "MEASURETIME_MODELFUNCTIONS") else ""%>
@@ -12715,7 +12459,7 @@ end createTimeConditionTreatments;
 template booleanSubClockActivation1(Integer absBaseClockIdx, ClockedPartition baseClock, String numberOfTimeEvents)
 ::=
 match baseClock
-case CLOCKED_PARTITION(baseClock = BOOLEAN_CLOCK(__)) then
+case CLOCKED_PARTITION(baseClock = EVENT_CLOCK(__)) then
   let subClocks = (subPartitions |> subClock  hasindex i0  =>
                     booleanSubClockActivation2(absBaseClockIdx, i0, subClock, numberOfTimeEvents)
                     ;separator="\n")
@@ -12735,9 +12479,12 @@ template booleanSubClockActivation2(Integer absClockIdx, Integer subClockIdx, Su
 if intNe(subClockIdx,0) then
   let absSubClockIdx = intAdd(absClockIdx,subClockIdx)
   <<
-  //activate boolean triggered subclock <%absSubClockIdx%> of the base sub-clock <%absClockIdx%> is triggered
-  if (_time_conditions[<%absClockIdx%> -1+<%numberOfTimeEvents%>] && (_simTime >= _clockShift[<%absSubClockIdx%> -1]*_clockInterval[<%absClockIdx%> -1])) {
-  _time_conditions[<%absSubClockIdx%> -1+<%numberOfTimeEvents%>] = (_simTime >= _clockShift[<%absSubClockIdx%> -1]*_clockInterval[<%absClockIdx%> -1]);
+  // activate boolean triggered subclock <%absSubClockIdx%> if its base clock <%absClockIdx%> is triggered
+  if (_time_conditions[<%absClockIdx%> -1+<%numberOfTimeEvents%>]) {
+    if (_clockTime[<%absSubClockIdx%> -1] == -DBL_MAX)
+      _clockTime[<%absSubClockIdx%> -1] = _clockTime[<%absClockIdx%> -1];
+    if (!_clockStart[<%absSubClockIdx%> -1] || _simTime >= _clockTime[<%absSubClockIdx%> -1] + _clockShift[<%absSubClockIdx%> -1] * _clockInterval[<%absClockIdx%> -1])
+      _time_conditions[<%absSubClockIdx%> -1+<%numberOfTimeEvents%>] = (_simTime >= _clockShift[<%absSubClockIdx%> -1]*_clockInterval[<%absClockIdx%> -1]);
   }
   >>
 else
@@ -12749,11 +12496,10 @@ end booleanSubClockActivation2;
 template createEvaluateConditions( list<SimEqSystem> allEquationsPlusWhen, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Context context, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
   let className = lastIdentOfPathFromSimCode(simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)
-  let &varDecls = buffer "" /*BUFD*/
 
   let &eqfuncs = buffer ""
   let equation_all_func_calls = (allEquationsPlusWhen |> eq  =>
-                    equation_function_call(eq,  context, &varDecls /*BUFC*/, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace,"evaluate")
+                    equation_function_call(eq, context, simCode, "evaluate")
                     ;separator="\n")
 
   <<
@@ -12792,16 +12538,14 @@ end createEvaluate;
 
 template createEvaluatePartitions(Integer partIdx, Context context, list<SimEqSystem> odeEquations, list<Integer> partition, list<Integer> activators, String className, SimCode simCode, Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
 ::=
-  let &varDecls = buffer "" /*BUFD*/
   let condition = partitionCondition(activators)
   let equation_func_calls = (SimCodeUtil.getSimEqSystemsByIndexLst(partition,odeEquations) |> eq  =>
-                    equation_function_call(eq, context, &varDecls /*BUFC*/, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, "evaluate")
+                    equation_function_call(eq, context, simCode, "evaluate")
                     ;separator="\n")
 <<
 // Partition <%partIdx%>
 if (<%condition%>)
 {
-    <%varDecls%>
     <%equation_func_calls%>
 }
 >>
@@ -12837,16 +12581,13 @@ end createEvaluateZeroFuncs;
 
 template createEvaluateWithSplit(Integer sectionIndex, Context context, list<SimEqSystem> sectionEquations, String functionName,String functionCallName, String className, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
 ::=
-  let &varDecls = buffer "" /*BUFD*/
   let equation_func_calls = (sectionEquations |> eq  =>
-                    equation_function_call(eq, context, &varDecls /*BUFC*/, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace,functionCallName)
+                    equation_function_call(eq, context, simCode, functionCallName)
                     ;separator="\n")
   let &extraFuncs +=
   <<
   <%\n%>void <%className%>::<%functionName%>_<%sectionIndex%>(const UPDATETYPE command)
   {
-    <%varDecls%>
-
     <%equation_func_calls%>
   }
   >>
@@ -12935,15 +12676,15 @@ then
 end setVariables;
 
 
-template functionAnalyticJacobians2(list<JacobianMatrix> JacobianMatrixes,String modelNamePrefix,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation) "template functionAnalyticJacobians
+template functionAnalyticJacobians2(list<JacobianMatrix> JacobianMatrices,String modelNamePrefix,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation) "template functionAnalyticJacobians
   This template generates source code for all given jacobians."
 ::=
   let &varDecls = buffer "" /*BUFD*/
-  let initialjacMats = (JacobianMatrixes |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=indexJacobian) =>
+  let initialjacMats = (JacobianMatrices |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=indexJacobian) =>
     initialAnalyticJacobians2(mat, vars, name, sparsepattern, colorList, maxColor, modelNamePrefix); separator="\n")
 
    /*
-  let jacMats = (JacobianMatrixes |> (mat, vars, name, sparsepattern, colorList, maxColor, indexJacobian) =>
+  let jacMats = (JacobianMatrices |> (mat, vars, name, sparsepattern, colorList, maxColor, indexJacobian) =>
     generateMatrix(mat, vars, name, modelNamePrefix) ;separator="\n")
 */
   <<
@@ -12955,7 +12696,7 @@ template functionAnalyticJacobians2(list<JacobianMatrix> JacobianMatrixes,String
 end functionAnalyticJacobians2;
 
 
-template initialAnalyticJacobians2(list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixname, SparsityPattern sparsepattern, list<list<Integer>> colorList, Integer maxColor, String modelNamePrefix)
+template initialAnalyticJacobians2(list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixname, list<tuple<Integer,list<Integer>>> sparsepattern, list<list<Integer>> colorList, Integer maxColor, String modelNamePrefix)
 "template initialAnalyticJacobians
   This template generates source code for functions that initialize the sparse-pattern for a single jacobian.
   This is a helper of template functionAnalyticJacobians"
@@ -12975,15 +12716,38 @@ case _ then
           ;separator="\n")
         '<%colorCol%>'
         ;separator="\n")
-      let index_ = listLength(seedVars)
+      let colorColumns = (colorList |> (indexes) hasindex index0 =>
+        let columns = (indexes |> i_index hasindex index1 =>
+          '<%i_index%>'
+          ;separator=", ")
+        '_AColumnsOfColor[<%index0%>] = {<%columns%>};'
+        ;separator="\n")
+      let dependencies = (sparsepattern |> (index,indexes) hasindex index0 =>
+        let jacCol = (indexes |> i_index hasindex index1 =>
+          '<%i_index%>'
+          ;separator=", ")
+        '_ADependenciesOfColumn[<%index%>] = {<%jacCol%>};'
+        ;separator="\n")
       <<
         if(_AColorOfColumn)
           delete [] _AColorOfColumn;
-        _AColorOfColumn = new int[<%index_%>];
+        _AColorOfColumn = new int[<%listLength(seedVars)%>];
         _AMaxColors = <%maxColor%>;
+        if(_AColumnsOfColor)
+          delete [] _AColumnsOfColor;
+        _AColumnsOfColor = new std::vector<int>[<%listLength(colorList)%>];
+        if(_ADependenciesOfColumn)
+          delete [] _ADependenciesOfColumn;
+        _ADependenciesOfColumn = new std::vector<int>[<%listLength(seedVars)%>];
 
-        /* write color array */
+        /* write color array (deprecated) */
         <%colorArray%>
+
+        /* write color to columns mapping */
+        <%colorColumns%>
+
+        /* write dependencies */
+        <%dependencies%>
       >>
     end match
   end match
@@ -12997,13 +12761,13 @@ template symbolName(String modelNamePrefix, String symbolName)
 end symbolName;
 
 
-template functionAnalyticJacobiansHeader(list<JacobianMatrix> JacobianMatrixes,String modelNamePrefix) "template functionAnalyticJacobians
+template functionAnalyticJacobiansHeader(list<JacobianMatrix> JacobianMatrices,String modelNamePrefix) "template functionAnalyticJacobians
   This template generates source code for all given jacobians."
 ::=
-  let initialjacMats = (JacobianMatrixes |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=indexJacobian) =>
+  let initialjacMats = (JacobianMatrices |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=indexJacobian) =>
     initialAnalyticJacobiansHeader(mat, vars, name, sparsepattern, colorList, maxColor, modelNamePrefix); separator="\n")
 /*
-  let jacMats = (JacobianMatrixes |> (mat, vars, name, sparsepattern, colorList, maxColor, indexJacobian) =>
+  let jacMats = (JacobianMatrices |> (mat, vars, name, sparsepattern, colorList, maxColor, indexJacobian) =>
     generateMatrix(mat, vars, name, modelNamePrefix) ;separator="\n")
 */
   <<
@@ -13013,7 +12777,7 @@ template functionAnalyticJacobiansHeader(list<JacobianMatrix> JacobianMatrixes,S
 
 end functionAnalyticJacobiansHeader;
 
-template initialAnalyticJacobiansHeader(list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixname, SparsityPattern sparsepattern, list<list<Integer>> colorList, Integer maxColor, String modelNamePrefix)
+template initialAnalyticJacobiansHeader(list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixname, list<tuple<Integer,list<Integer>>> sparsepattern, list<list<Integer>> colorList, Integer maxColor, String modelNamePrefix)
 "template initialAnalyticJacobians
   This template generates source code for functions that initialize the sparse-pattern for a single jacobian.
   This is a helper of template functionAnalyticJacobians"
@@ -13054,7 +12818,7 @@ match matrixname
 end match
 end mkSparseFunctionHeader;
 
-template initialAnalyticJacobians(Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixName, SparsityPattern sparsepattern, list<list<Integer>> colorList, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace)
+template initialAnalyticJacobians(Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixName, list<tuple<Integer,list<Integer>>> sparsepattern, list<list<Integer>> colorList, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
  "Generates function that initialize the sparse-pattern for a jacobian matrix"
 ::=
   match simCode
@@ -13093,9 +12857,9 @@ template initialAnalyticJacobians(Integer indexJacobian, list<JacobianColumn> ja
 end initialAnalyticJacobians;
 
 
-template functionAnalyticJacobians(ModelInfo modelInfo, list<JacobianMatrix> JacobianMatrixes, SimCode simCode, Text& extraFuncs,
+template functionAnalyticJacobians(ModelInfo modelInfo, list<JacobianMatrix> JacobianMatrices, SimCode simCode, Text& extraFuncs,
                                    Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
- "Generates Matrixes for Linear Model."
+ "Generates Matrices for Linear Model."
 ::=
 
   match modelInfo
@@ -13103,23 +12867,23 @@ template functionAnalyticJacobians(ModelInfo modelInfo, list<JacobianMatrix> Jac
   let classname = lastIdentOfPath(name)
   let &varDecls = buffer "" /*BUFD*/
 
-  let jacMats = (JacobianMatrixes |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=jacIndex, partitionIndex=partIdx) =>
+  let jacMats = (JacobianMatrices |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=jacIndex, partitionIndex=partIdx) =>
     generateMatrix(jacIndex, mat, vars, name, sparsepattern, colorList, maxColor, partIdx, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     ;separator="\n\n";empty)
  /*let initialStateSetJac = (stateSets |> set hasindex i1 fromindex 0 => (match set
        case set as SES_STATESET(__) then
               match jacobianMatrix case (_,_,name,_,_,_,_) then
             'initialAnalytic<%name%>Jacobian();') ;separator="\n")
-   let initialJacMats = (JacobianMatrixes |> (mat, vars, name, (sparsepattern,_), colorList, maxColor, jacIndex) =>
+   let initialJacMats = (JacobianMatrices |> (mat, vars, name, (sparsepattern,_), colorList, maxColor, jacIndex) =>
     'initialAnalytic<%name%>Jacobian();'
     ;separator="\n";empty)
   */
 
- let jacalgloopsystems =  (JacobianMatrixes |> JAC_MATRIX(columns=mat) hasindex index0 =>
+ let jacalgloopsystems =  (JacobianMatrices |> JAC_MATRIX(columns=mat) hasindex index0 =>
        (mat |> JAC_COLUMN(columnEqns=eqs) =>  generateAlgloopSystems(eqs,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace) ;separator="")
       ;separator="")
 
- let jacalgloopsolvers=  (JacobianMatrixes |> JAC_MATRIX(columns=mat) hasindex index0 =>
+ let jacalgloopsolvers=  (JacobianMatrices |> JAC_MATRIX(columns=mat) hasindex index0 =>
        (mat |> JAC_COLUMN(columnEqns=eqs) =>  generateAlgloopSolvers(modelInfo,eqs,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace) ;separator="")
       ;separator="")
 
@@ -13164,7 +12928,7 @@ end functionJac;
 template generateMatrix(Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixname,
                         SparsityPattern sparsepattern, list<list<Integer>>colorList, Integer maxColor, Integer partIdx,
                         SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
- "Generates Matrixes for Linear Model."
+ "Generates Matrices for Linear Model."
 ::=
   match simCode
   case SIMCODE(modelInfo = MODELINFO(__)) then
@@ -13172,11 +12936,12 @@ template generateMatrix(Integer indexJacobian, list<JacobianColumn> jacobianColu
   end match
 end generateMatrix;
 
+
 template generateJacobianMatrix(ModelInfo modelInfo, Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars,
                                 String matrixName, SparsityPattern sparsepattern, list<list<Integer>> colorList, Integer partIdx,
                                 Integer maxColor, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace,
                                 Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
- "Generates Matrixes for Linear Model."
+ "Generates Matrices for Linear Model."
 ::=
 match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
@@ -13261,17 +13026,17 @@ case _ then
 end generateJacobianMatrix;
 
 
-template variableDefinitionsJacobians_skip(list<JacobianMatrix> JacobianMatrixes, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text &jacobianVarsInit, Boolean createDebugCode)
+template variableDefinitionsJacobians_skip(list<JacobianMatrix> JacobianMatrices, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text &jacobianVarsInit, Boolean createDebugCode)
  "Skips generation of defines for jacobian vars."
 ::=
  ''
 end variableDefinitionsJacobians_skip;
 
 
-template variableDefinitionsJacobians(list<JacobianMatrix> JacobianMatrixes, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text &jacobianVarsInit, Boolean createDebugCode)
+template variableDefinitionsJacobians(list<JacobianMatrix> JacobianMatrices, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text &jacobianVarsInit, Boolean createDebugCode)
  "Generates defines for jacobian vars."
 ::=
-  let analyticVars = (JacobianMatrixes |> JAC_MATRIX(columns=jacColumn, seedVars=vars, matrixName=name, jacobianIndex=jacIndex)  =>
+  let analyticVars = (JacobianMatrices |> JAC_MATRIX(columns=jacColumn, seedVars=vars, matrixName=name, jacobianIndex=jacIndex)  =>
     let varsDef = variableDefinitionsJacobians2(jacIndex, jacColumn, seedVars, name, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, &jacobianVarsInit, createDebugCode)
     <<
     <%varsDef%>
@@ -13285,7 +13050,7 @@ template variableDefinitionsJacobians(list<JacobianMatrix> JacobianMatrixes, Sim
 end variableDefinitionsJacobians;
 
 template variableDefinitionsJacobians2(Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String name, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text& jacobianVarsInit, Boolean createDebugCode)
- "Generates Matrixes for Linear Model."
+ "Generates Matrices for Linear Model."
 ::=
   let seedVarsResult = (seedVars |> var hasindex index0 =>
     jacobianVarDefine(var, indexJacobian, index0, name, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, &jacobianVarsInit, createDebugCode)
@@ -13412,16 +13177,14 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, SimC
     let &preExp = buffer "" /*BUFD*/
     let expPart = daeExp(e, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     <<
-
     <%preExp%>
     >>
   case STMT_ASSIGN(exp1=CREF(ty = T_FUNCTION_REFERENCE_VAR(__)))
   case STMT_ASSIGN(exp1=CREF(ty = T_FUNCTION_REFERENCE_FUNC(__))) then
     let &preExp = buffer "" /*BUFD*/
-    let varPart = scalarLhsCref(exp1, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+    let varPart = daeExpCref(true, exp1, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     let expPart = daeExp(exp, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     <<
-
     <%preExp%>
     <%varPart%> = (modelica_fnptr) <%expPart%>;
     >>
@@ -13430,7 +13193,6 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, SimC
     let &preExp = buffer ""
     let rec = daeExp(exp, context, &preExp, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     <<
-
     <%preExp%>
     <% varLst |> var as TYPES_VAR(__) =>
       let varNameStr = crefStr(makeUntypedCrefIdent(var.name))
@@ -13447,7 +13209,6 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, SimC
     let &preExp = buffer ""
     let rec = daeExp(exp, context, &preExp, &varDecls,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     <<
-
     <%preExp%>
     <% varLst |> var as TYPES_VAR(__) hasindex i1 fromindex 1 =>
       let re = daeExp(listGet(expLst,i1), context, &preExp, &varDecls,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
@@ -13457,13 +13218,11 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, SimC
     >>
   case STMT_ASSIGN(exp1=CREF(__)) then
     let &preExp = buffer "" /*BUFD*/
-    let varPart = scalarLhsCref(exp1, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+    let varPart = daeExpCref(true, exp1, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     let expPart = daeExp(exp, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     <<
-
     <%preExp%>
-    <%varPart%> = <%expPart%> /*stmtAssign*/;
-
+    <%varPart%> = <%expPart%>;
     >>
   case STMT_ASSIGN(exp1=exp1 as ASUB(__),exp=val) then
     (match expTypeFromExpShort(exp)
@@ -13475,7 +13234,6 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, SimC
         let idx1 = daeExp(idx, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
         let val1 = daeExp(val, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
         <<
-
         <%preExp%>
         arrayUpdate(<%arr1%>,<%idx1%>,<%val1%>);
         >>)
@@ -13485,7 +13243,6 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, SimC
         let varPart = daeExpAsub(exp1, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
         let expPart = daeExp(val, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
         <<
-
         <%preExp%>
         <%varPart%> = <%expPart%>;
         >>
@@ -13495,7 +13252,6 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, SimC
     let expPart1 = daeExp(exp1, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     let expPart2 = daeExp(exp, context, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
     <<
-    /*assign8*/
     <%preExp%>
     <%expPart1%> = <%expPart2%>;
     >>
@@ -13681,7 +13437,6 @@ case STMT_NORETCALL(__) then
   //No retcall
   <%preExp%>
   <%expPart%>;
-    //No retcall
   >>
 end algStmtNoretcall;
 
@@ -13748,7 +13503,7 @@ match stmt
 case STMT_ASSIGN_ARR(exp=e, lhs=lhsexp as CREF(componentRef=cr), type_=t) then
   let &preExp = buffer "" /*BUFD*/
   let expPart = daeExp(e, context, &preExp /*BUFC*/, &varDecls /*BUFD*/, simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-  let dest = daeExp(lhsexp, context, &preExp /*BUFC*/, &varDecls /*BUFD*/, simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+  let dest = daeExpCref(true, lhsexp, context, &preExp /*BUFC*/, &varDecls /*BUFD*/, simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
   <<
   <%preExp%>
   <%dest%>.assign(<%expPart%>);
@@ -14065,13 +13820,7 @@ template generateMeasureTimeEndCode(String varNameStartValues, String varNameEnd
 end generateMeasureTimeEndCode;
 
 
-
 /*daeMode templates*/
-
-
-
-
-
 
 template simulationDAEMethodsDeclaration(SimCode simCode)
 ::=
@@ -14079,24 +13828,19 @@ match simCode
     case SIMCODE(modelInfo=MODELINFO(vars=SIMVARS(__)),
         daeModeData=SOME(DAEMODEDATA(daeEquations=daeEquations, sparsityPattern=sparsityPattern,
                                      algebraicVars=algebraicDAEVars, residualVars=residualVars))) then
- <<
-  <%generateDAEEquationMemberFuncDecls(daeEquations,"evaluateDAE")%>
-
- >>
+  <<
+  <%generateDAEEquationMemberFuncDecls(daeEquations, "evaluateDAE")%>
+  >>
 end simulationDAEMethodsDeclaration;
 
-template updateResiduals(SimCode simCode,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace,  Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
+template updateResiduals(SimCode simCode, Text& extraResidualsFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
- let &extraFuncsResidual = buffer "" /*BUFD*/
-<<
-<%simulationDAEMethods(simCode, extraFuncsResidual,extraFuncsDecl, extraFuncsNamespace,contextOther,stateDerVectorName,useFlatArrayNotation,boolNot(stringEq(getConfigString(PROFILING_LEVEL),"none")))%>
+  let &extraResidualsFuncs = buffer "" /*BUFD*/
+  <<
+  <%simulationDAEMethods(simCode, extraResidualsFuncs, extraResidualsFuncsDecl, extraFuncsNamespace, contextOther, stateDerVectorName, useFlatArrayNotation, boolNot(stringEq(getConfigString(PROFILING_LEVEL), "none")))%>
 
-<%extraFuncsResidual%>
-
-
-
-
->>
+  <%extraResidualsFuncs%>
+  >>
 end updateResiduals;
 
 template generateDAEEquationMemberFuncDecls(list<list<SimEqSystem>> DAEEquations,Text method)
@@ -14112,7 +13856,7 @@ template generateDAEEquationMemberFuncDecls(list<list<SimEqSystem>> DAEEquations
 end generateDAEEquationMemberFuncDecls;
 
 
-template simulationDAEMethods(SimCode simCode,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Context context, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation, Boolean enableMeasureTime)
+template simulationDAEMethods(SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Context context, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation, Boolean enableMeasureTime)
 "DAEmode equations generation"
 ::=
   match simCode
@@ -14122,12 +13866,9 @@ template simulationDAEMethods(SimCode simCode,Text& extraFuncs,Text& extraFuncsD
      let modelNamePrefixStr = lastIdentOfPath(modelInfo.name)
 
      <<
-
-
-
      <%algebraicDAEVar(algebraicDAEVars, modelNamePrefixStr)%>
-     <%evaluateDAEResiduals(daeEquations, simCode ,extraFuncs,extraFuncsDecl,extraFuncsNamespace, context, enableMeasureTime)%>
-     <%equationResidualFunctions(daeEquations,simCode ,extraFuncs,extraFuncsDecl,extraFuncsNamespace, context, stateDerVectorName ,  useFlatArrayNotation,  enableMeasureTime)%>
+     <%evaluateDAEResiduals(daeEquations, simCode, extraFuncs, extraFuncsDecl, extraFuncsNamespace, context, enableMeasureTime)%>
+     <%equationResidualFunctions(daeEquations, simCode, extraFuncs, extraFuncsDecl, extraFuncsNamespace, context, stateDerVectorName, useFlatArrayNotation, enableMeasureTime)%>
      void <%modelNamePrefixStr%>Mixed::getResidual(double* f)
      {
         SystemDefaultImplementation::getResidual(f);
@@ -14140,7 +13881,6 @@ template simulationDAEMethods(SimCode simCode,Text& extraFuncs,Text& extraFuncsD
     /* DAE residuals is empty */
     void <%modelNamePrefixStr%>Mixed::getResidual(double* f)
     {
-
     }
     void <%modelNamePrefixStr%>Mixed::setAlgebraicDAEVars(const double* y)
     {
@@ -14151,7 +13891,6 @@ template simulationDAEMethods(SimCode simCode,Text& extraFuncs,Text& extraFuncsD
     }
     void <%modelNamePrefixStr%>Mixed::evaluateDAE(const UPDATETYPE command )
     {
-
     }
     >>
   end match
@@ -14215,11 +13954,11 @@ template evaluateDAEResiduals(list<list<SimEqSystem>> resEquations, SimCode simC
   let &varDecls = buffer ""
 
   let equation_dae_func_calls = if not Flags.isSet(Flags.MULTIRATE_PARTITION) then (List.partition(List.flatten(resEquations), 100) |> eqs hasindex i0 =>
-                                 createEvaluateWithSplit(i0, context, eqs, "evaluateDAE","evaluateDAE", className, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
+                                 createEvaluateWithSplit(i0, context, eqs, "evaluateDAE", "evaluateDAE", className, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace)
                                  ;separator="\n")
                 else ( List.intRange(partitionData.numPartitions) |> partIdx =>
                 createEvaluatePartitions(partIdx, context, List.flatten(resEquations), listGet(partitions, partIdx),
-                listGet(activatorsForPartitions,partIdx), className,simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace) ;separator="\n")
+                listGet(activatorsForPartitions,partIdx), className, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace) ;separator="\n")
   <<
   void <%className%>::evaluateDAE(const UPDATETYPE command )
   {

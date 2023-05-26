@@ -64,7 +64,7 @@ bool OMSimulatorEditor::validateText()
         NotificationsDialog *pNotificationsDialog = new NotificationsDialog(NotificationsDialog::RevertPreviousOrFixErrorsManually,
                                                                             NotificationsDialog::CriticalIcon,
                                                                             MainWindow::instance());
-        pNotificationsDialog->setNotificationLabelString(GUIMessages::getMessage(GUIMessages::ERROR_IN_TEXT).arg("OMSimulator Model")
+        pNotificationsDialog->setNotificationLabelString(GUIMessages::getMessage(GUIMessages::ERROR_IN_TEXT).arg("SSP Model")
                                                          .append(GUIMessages::getMessage(GUIMessages::CHECK_MESSAGES_BROWSER))
                                                          .append(GUIMessages::getMessage(GUIMessages::REVERT_PREVIOUS_OR_FIX_ERRORS_MANUALLY)));
         pNotificationsDialog->getOkButton()->setText(Helper::revertToLastCorrectVersion);
@@ -141,9 +141,7 @@ void OMSimulatorEditor::contentsHasChanged(int position, int charsRemoved, int c
     } else {
       /* if user is changing, the normal file. */
       if (!mForceSetPlainText) {
-        mpModelWidget->setWindowTitle(QString(mpModelWidget->getLibraryTreeItem()->getName()).append("*"));
-        mpModelWidget->getLibraryTreeItem()->setIsSaved(false);
-        MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->updateLibraryTreeItem(mpModelWidget->getLibraryTreeItem());
+        contentsChanged();
         mTextChanged = true;
       }
     }
@@ -203,7 +201,11 @@ void OMSimulatorHighlighter::initializeSettings()
   font.setFamily(mpOMSimulatorEditorPage->getOptionsDialog()->getTextEditorPage()->getFontFamilyComboBox()->currentFont().family());
   font.setPointSizeF(mpOMSimulatorEditorPage->getOptionsDialog()->getTextEditorPage()->getFontSizeSpinBox()->value());
   mpPlainTextEdit->document()->setDefaultFont(font);
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+  mpPlainTextEdit->setTabStopDistance((qreal)(mpOMSimulatorEditorPage->getOptionsDialog()->getTextEditorPage()->getTabSizeSpinBox()->value() * QFontMetrics(font).horizontalAdvance(QLatin1Char(' '))));
+#else // QT_VERSION_CHECK
   mpPlainTextEdit->setTabStopWidth(mpOMSimulatorEditorPage->getOptionsDialog()->getTextEditorPage()->getTabSizeSpinBox()->value() * QFontMetrics(font).width(QLatin1Char(' ')));
+#endif // QT_VERSION_CHECK
   // set color highlighting
   mHighlightingRules.clear();
   HighlightingRule rule;

@@ -3,7 +3,7 @@ Introduction
 
 .. highlight:: modelica
 
-The |omlogo| system described in this document has both short-term
+The OpenModelica system described in this document has both short-term
 and long-term goals:
 
 -  The short-term goal is to develop an efficient interactive
@@ -176,8 +176,8 @@ Interactive Session with Examples
 ---------------------------------
 
 The following is an interactive session using the interactive session
-handler in the OpenModelica environment, called OMShell – the
-OpenModelica Shell). Most of these examples are also available in the
+handler in the OpenModelica environment, called OMShell - the
+OpenModelica Shell. Most of these examples are also available in the
 :ref:`omnotebook` UsersGuideExamples.onb as well as the testmodels in:
 
 .. omc-mos ::
@@ -193,9 +193,10 @@ The following commands were run using OpenModelica version:
 Starting the Interactive Session
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The Windows version which at installation is made available in the start
-menu as OpenModelica->OpenModelica Shell which responds with an
-interaction window:
+Under Windows, go to the Start Menu and run OpenModelica->OpenModelica Shell
+which responds with an interaction window.
+
+Under Linux, run ``OMShell-terminal`` to start the interactive session at the prompt.
 
 We enter an assignment of a vector expression, created by the range
 construction expression 1:12, to be stored in the variable x. The value
@@ -215,9 +216,6 @@ Here we give a few example sessions.
 Example Session 1
 ^^^^^^^^^^^^^^^^^
 
-To get help on using OMShell and OpenModelica, type "help()" and press
-enter.
-
 .. omc-mos::
 
   model A Integer t = 1.5; end A; //The type is Integer but 1.5 is of Real Type
@@ -226,8 +224,7 @@ enter.
 Example Session 2
 ^^^^^^^^^^^^^^^^^
 
-To get help on using OMShell and OpenModelica, type "help()" and press
-enter.
+If you do not see the error-message when running the example, use the command :code:`getErrorString()`.
 
 .. omc-loadstring ::
 
@@ -235,7 +232,7 @@ enter.
     Integer a;
     Real b;
   equation
-    der(a) = b;
+    der(a) = b; // der(a) is illegal since a is not a Real number
     der(b) = 12.0;
   end C;
 
@@ -324,7 +321,7 @@ can be done through the File->Load Modelica Library menu item:
 
 .. omc-mos::
 
-  loadModel(Modelica)
+  loadModel(Modelica, {"3.2.3"})
 
 We also load a file containing the dcmotor model:
 
@@ -453,7 +450,7 @@ Now, first clear all loaded libraries and models:
 
   clear()
 
-List the loaded models – nothing left:
+List the loaded models - nothing left:
 
 .. omc-mos ::
 
@@ -960,69 +957,34 @@ quit() Leave and quit the OpenModelica environment
 Running the compiler from command line
 --------------------------------------
 
-The OpenModelica compiler can also be used from command line, in Windows
-cmd.exe.
+The OpenModelica compiler can also be used from command line, in Windows cmd.exe or a Unix shell.
+The following examples assume omc is on the PATH; if it is not, you can run :code:`C:\\OpenModelica 1.16.0\\build\\bin\\omc.exe` or similar (depending on where you installed OpenModelica).
 
-**Example Session 1 – obtaining information about command line
-parameters**
+Example Session 1 - obtaining information about command line parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-| C:\\dev> C:\\OpenModelica1.9.2 \\bin\\omc -h
-| OpenModelica Compiler 1.9.2
-| Copyright © 2015 Open Source Modelica Consortium (OSMC)
-| Distributed under OMSC-PL and GPL, see https://www.openmodelica.org/
-| Usage: omc [Options] (Model.mo \| Script.mos) [Libraries \| .mo-files]
-| ...
+.. command-output :: omc --help
+  :ellipsis: 6,-2
 
-**Example Session 2 - create an TestModel.mo file and run omc on it**
+Example Session 2 - create an TestModel.mo file and run omc on it
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-| C:\\dev> echo model TestModel parameter Real x = 1; end TestModel; >
-  TestModel.mo
-| C:\\dev> C:\\OpenModelica1.9.2 \\bin\\omc TestModel.mo
-| class TestModel
-|  parameter Real x = 1.0;
-| end TestModel;
-| C:\\dev>
+.. literalinclude:: TestModel.mo
+  :language: modelica
 
-**Example Session 3 - create an script.mos file and run omc on it**
+.. command-output :: omc TestModel.mo
 
-| Create a file script.mos using your editor containing these commands:
-| // start script.mos
-| loadModel(Modelica); getErrorString();
-| simulate(Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum);
-  getErrorString();
-| // end script.mos
-| C:\\dev> notepad script.mos
-| C:\\dev> C:\\OpenModelica1.9.2 \\bin\\omc script.mos
-| true
-| ""
-| record SimulationResult
-|  resultFile =
-  "C:/dev/Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum\_res.mat",
-|  simulationOptions = "startTime = 0.0, stopTime = 5.0,
-  numberOfIntervals = 500, tolerance = 1e-006, method = 'dassl',
-  fileNamePrefix =
-  'Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum', options =
-  '', outputFormat = 'mat', variableFilter = '.\*', cflags = '',
-  simflags = ''",
-|  messages = "",
-|  timeFrontend = 1.245787339209033,
-|  timeBackend = 20.51007138993843,
-|  timeSimCode = 0.1510248469321959,
-|  timeTemplates = 0.5052317333954395,
-|  timeCompile = 5.128213942691722,
-|  timeSimulation = 0.4049189573103951,
-|  timeTotal = 27.9458487395605
-| end SimulationResult;
-| ""
+Example Session 3 - create a mos-script and run omc on it
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. literalinclude:: TestScript.mos
+  :language: modelica
+
+.. command-output :: omc TestScript.mos
 
 In order to obtain more information from the compiler one can use the
 command line options **--showErrorMessages -d=failtrace** when running
 the compiler:
 
-C:\\dev> C:\\OpenModelica1.9.2 \\bin\\omc --showErrorMessages
--d=failtrace script.mos
-
-.. |omlogo| image:: logo.*
-  :alt: OpenModelica logotype
-  :height: 14pt
-  :target: https://openmodelica.org
+.. command-output :: omc --showErrorMessages -d=failtrace TestScript.mos
+  :ellipsis: 4,-4

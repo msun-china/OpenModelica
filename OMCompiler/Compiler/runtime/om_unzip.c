@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include "../../3rdParty/FMIL/ThirdParty/Minizip/minizip/unzip.h"
 #include "util/modelica_string.h"
+#include "util/omc_file.h"
 #include "errorext.h"
 #include "systemimpl.h"
 
@@ -57,9 +58,9 @@ int om_unzip(const char *zipFileName, const char *pathToExtract, const char *des
     commonLength--;
   }
   commonPrefix[commonLength] = '\0';
-  if (commonPrefix > 0 && commonLength > pathToExtractLen && (0==strncmp(commonPrefix-pathToExtractLen-1, pathToExtract, pathToExtractLen))) {
-    commonLength = 0;
-    commonPrefix[0] = '\0';
+  if (commonLength > 0 && commonLength > pathToExtractLen && (0==strncmp(commonPrefix+commonLength-pathToExtractLen-1, pathToExtract, pathToExtractLen))) {
+    commonLength = commonLength-pathToExtractLen-1;
+    commonPrefix[commonLength] = '\0';
   }
   if (unzGoToFirstFile(zipfile) != UNZ_OK) {
     c_add_message(NULL, -1, ErrorType_runtime,ErrorLevel_error, "minizip failed to reset to first file in %s", &zipFileName, 1);
@@ -78,13 +79,15 @@ int om_unzip(const char *zipFileName, const char *pathToExtract, const char *des
     }
     filenameStart = filename + commonLength;
     const size_t filename_length = strlen(filenameStart);
-
-    if (strlen(filenameStart) < pathToExtractLen || (filenameStart[pathToExtractLen] != '\0' && filenameStart[pathToExtractLen] != '/') || 0 != strncmp(filenameStart, pathToExtract, pathToExtractLen)) {
+    if (pathToExtractLen && (strlen(filenameStart) < pathToExtractLen || (filenameStart[pathToExtractLen] != '\0' && filenameStart[pathToExtractLen] != '/') || 0 != strncmp(filenameStart, pathToExtract, pathToExtractLen))) {
       /* Do nothing; not a path we want to copy */
     } else if (filenameStart[ filename_length-1 ] == dir_delimter) {
       /* Directory */
       GC_asprintf(&renamedPrefix, "%s%s%s", destPath, filenameStart[pathToExtractLen] == '/' || filenameStart[pathToExtractLen] == '\0' ? "" : "/", filenameStart+pathToExtractLen);
       SystemImpl__createDirectory(renamedPrefix);
+#if defined(_POSIX_C_SOURCE)
+      chmod(renamedPrefix, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IROTH | S_IXGRP | S_IXOTH);
+#endif
     } else {
       /* File */
       GC_asprintf(&renamedPrefix, "%s%s%s", destPath, filenameStart[pathToExtractLen] == '/' || filenameStart[pathToExtractLen] == '\0' ? "" : "/", filenameStart+pathToExtractLen);
@@ -96,7 +99,7 @@ int om_unzip(const char *zipFileName, const char *pathToExtract, const char *des
         return 0;
       }
 
-      FILE *fout = fopen(renamedPrefix, "wb");
+      FILE *fout = omc_fopen(renamedPrefix, "wb");
       if (fout == NULL) {
         c_add_message(NULL, -1, ErrorType_runtime,ErrorLevel_error, "Failed to open file for writing %s", &renamedPrefix, 1);
         unzCloseCurrentFile(zipfile);
@@ -126,6 +129,22 @@ int om_unzip(const char *zipFileName, const char *pathToExtract, const char *des
         }
       } while (error > 0);
 
+#if defined(_POSIX_C_SOURCE)
+      /* Set executable flag, etc if we are on a POSIX system
+       * external_fa is 4 bytes - the upper 2 are POSIX permissions
+       * and the lower of those 2 bytes are the chmod permissions we
+       * are interested in (read/write/executable). We filter out the
+       * highest octet since we do not need stick/setgid/setuid
+       */
+      mode_t mode = ((file_info.external_fa >> 16L) & 0x7F) | S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+      if (fchmod(fileno(fout), mode)) {
+        const char *msgs[2] = {strerror(errno), renamedPrefix};
+        c_add_message(NULL, -1, ErrorType_runtime,ErrorLevel_error, "fchmod failed for %s: %s", msgs, 2);
+        unzCloseCurrentFile(zipfile);
+        unzClose(zipfile);
+        return 0;
+      }
+#endif
       fclose(fout);
     }
 

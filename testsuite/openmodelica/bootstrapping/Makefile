@@ -12,8 +12,7 @@ JSONParser.mos \
 PriorityQueue.mos \
 SimplifyTest.mos \
 System.mos \
-UtilTest.mos \
-VectorTest.mos
+UtilTest.mos
 
 # test that currently fail. Move up when fixed.
 # Run make testfailing
@@ -34,7 +33,8 @@ SusanTestSmall.tpl \
 main.c \
 main_records.c \
 main_separate.c \
-refactor-mc-to-m.sh
+refactor-mc-to-m.sh \
+test.json
 
 # Remove executables on Linux (no extension)
 # CLEAN = $(TESTFILES:.mos=) $(TESTFILES:.mos=_*) $(TESTFILES:.mos=.cpp) $(TESTFILES:.mos=.makefile) $(TESTFILES:.mos=.libs) $(TESTFILES:.mos=.log) output.log *.dll *.exe *.so

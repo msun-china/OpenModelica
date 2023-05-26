@@ -37,6 +37,15 @@
   extern "C" {
 #endif
 
+#define EXPANDSTRING(s) EXPANDSTRINGHELPER(s)
+#define EXPANDSTRINGHELPER(s) #s
+
+#define DEFAULT_FLAG_LSS_MAX_DENSITY 0.2
+#define DEFAULT_FLAG_LSS_MIN_SIZE 1000
+#define DEFAULT_FLAG_NLSS_MAX_DENSITY 0.1
+#define DEFAULT_FLAG_NLSS_MIN_SIZE 1000
+#define DEFAULT_FLAG_LV_MAX_WARN 3          /* Default value for flag FLAG_LV_MAX_WARN */
+
 enum _FLAG
 {
   FLAG_UNKNOWN = 0,
@@ -46,6 +55,9 @@ enum _FLAG
   FLAG_CLOCK,
   FLAG_CPU,
   FLAG_CSV_OSTEP,
+  FLAG_CVODE_ITER,
+  FLAG_CVODE_LMM,
+  FLAG_DATA_RECONCILE_Cx,
   FLAG_DAE_MODE,
   FLAG_DELTA_X_LINEARIZE,
   FLAG_DELTA_X_SOLVER,
@@ -88,7 +100,6 @@ enum _FLAG
   FLAG_IMPRK_LS,
   FLAG_INITIAL_STEP_SIZE,
   FLAG_INPUT_CSV,
-  FLAG_INPUT_FILE,
   FLAG_INPUT_FILE_STATES,
   FLAG_INPUT_PATH,
   FLAG_IPOPT_HESSE,
@@ -107,12 +118,14 @@ enum _FLAG
   FLAG_LSS_MAX_DENSITY,
   FLAG_LSS_MIN_SIZE,
   FLAG_LV,
+  FLAG_LV_MAX_WARN,
   FLAG_LV_TIME,
   FLAG_MAX_BISECTION_ITERATIONS,
   FLAG_MAX_EVENT_ITERATIONS,
   FLAG_MAX_ORDER,
   FLAG_MAX_STEP_SIZE,
   FLAG_MEASURETIMEPLOTFORMAT,
+  FLAG_NEWTON_DIAGNOSTICS,
   FLAG_NEWTON_FTOL,
   FLAG_NEWTON_MAX_STEP_FACTOR,
   FLAG_NEWTON_XTOL,
@@ -120,8 +133,8 @@ enum _FLAG
   FLAG_NLS,
   FLAG_NLS_INFO,
   FLAG_NLS_LS,
-  FLAG_NLS_MAX_DENSITY,
-  FLAG_NLS_MIN_SIZE,
+  FLAG_NLSS_MAX_DENSITY,
+  FLAG_NLSS_MIN_SIZE,
   FLAG_NOEMIT,
   FLAG_NOEQUIDISTANT_GRID,
   FLAG_NOEQUIDISTANT_OUT_FREQ,
@@ -141,6 +154,19 @@ enum _FLAG
   FLAG_PORT,
   FLAG_R,
   FLAG_DATA_RECONCILE,
+  FLAG_DATA_RECONCILE_BOUNDARY,
+  FLAG_DATA_RECONCILE_STATE,
+  FLAG_SR,
+  FLAG_SR_CTRL,
+  FLAG_SR_ERR,
+  FLAG_SR_INT,
+  FLAG_SR_NLS,
+  FLAG_MR,
+  FLAG_MR_CTRL,
+  FLAG_MR_ERR,
+  FLAG_MR_INT,
+  FLAG_MR_NLS,
+  FLAG_MR_PAR,
   FLAG_RT,
   FLAG_S,
   FLAG_SINGLE_PRECISION,
@@ -150,6 +176,7 @@ enum _FLAG
   FLAG_DATA_RECONCILE_Sx,
   FLAG_UP_HESSIAN,
   FLAG_W,
+  FLAG_PARMODNUMTHREADS,
 
   FLAG_MAX
 };
@@ -164,10 +191,117 @@ enum _FLAG_TYPE
   FLAG_TYPE_MAX
 };
 
+typedef enum {
+  FLAG_REPEAT_POLICY_FORBID = 0,
+  FLAG_REPEAT_POLICY_IGNORE,
+  FLAG_REPEAT_POLICY_REPLACE,
+  FLAG_REPEAT_POLICY_COMBINE
+} flag_repeat_policy;
+
 extern const char *FLAG_NAME[FLAG_MAX+1];
 extern const char *FLAG_DESC[FLAG_MAX+1];
 extern const char *FLAG_DETAILED_DESC[FLAG_MAX+1];
+extern const flag_repeat_policy FLAG_REPEAT_POLICIES[FLAG_MAX];
 extern const int FLAG_TYPE[FLAG_MAX];
+
+enum GB_METHOD {
+  GB_UNKNOWN = 0,
+
+  MS_ADAMS_MOULTON,   /* adams*/
+  RK_EXPL_EULER,      /* expl_euler*/
+  RK_IMPL_EULER,      /* impl_euler*/
+  RK_TRAPEZOID,       /* trapezoid */
+  RK_SDIRK2,          /* sdirk2*/
+  RK_SDIRK3,          /* sdirk3*/
+  RK_ESDIRK2,         /* esdirk2*/
+  RK_ESDIRK3,         /* esdirk3*/
+  RK_ESDIRK4,         /* esdirk4*/
+  RK_RADAU_IA_2,      /* radauIA2*/
+  RK_RADAU_IA_3,      /* radauIA3*/
+  RK_RADAU_IA_4,      /* radauIA4*/
+  RK_RADAU_IIA_2,     /* radauIIA2*/
+  RK_RADAU_IIA_3,     /* radauIIA3*/
+  RK_RADAU_IIA_4,     /* radauIIA4*/
+  RK_LOBA_IIIA_3,     /* lobattoIIIA3*/
+  RK_LOBA_IIIA_4,     /* lobattoIIIA4*/
+  RK_LOBA_IIIB_3,     /* lobattoIIIB3*/
+  RK_LOBA_IIIB_4,     /* lobattoIIIB4*/
+  RK_LOBA_IIIC_3,     /* lobattoIIIC3*/
+  RK_LOBA_IIIC_4,     /* lobattoIIIC4*/
+  RK_GAUSS2,          /* gauss2*/
+  RK_GAUSS3,          /* gauss3*/
+  RK_GAUSS4,          /* gauss4*/
+  RK_GAUSS5,          /* gauss5*/
+  RK_GAUSS6,          /* gauss6*/
+  RK_MERSON,          /* merson*/
+  RK_MERSONSSC1,      /* mersonSsc1*/
+  RK_MERSONSSC2,      /* mersonSsc2*/
+  RK_HEUN,            /* heun */
+  RK_FEHLBERG12,      /* fehlberg12*/
+  RK_FEHLBERG45,      /* fehlberg45*/
+  RK_FEHLBERG78,      /* fehlberg78*/
+  RK_FEHLBERGSSC1,    /* fehlbergSsc1*/
+  RK_FEHLBERGSSC2,    /* fehlbergSsc2*/
+  RK_RK810,           /* rk810*/
+  RK_RK1012,          /* rk1012*/
+  RK_RK1214,          /* rk1214*/
+  RK_DOPRI45,         /* dopri45*/
+  RK_DOPRISSC1,       /* dopriSsc1*/
+  RK_DOPRISSC2,       /* dopriSsc2*/
+  RK_TSIT5,           /* tsit5*/
+  RK_RUNGEKUTTA,      /* rungekutta*/
+  RK_RKSSC,           /* rungekuttaSsc */
+
+
+  RK_MAX
+};
+
+extern const char *GB_METHOD_NAME[RK_MAX];
+extern const char *GB_METHOD_DESC[RK_MAX];
+
+enum GB_NLS_METHOD {
+  GB_NLS_UNKNOWN = 0,
+
+  GB_NLS_NEWTON,
+  GB_NLS_KINSOL,
+
+  GB_NLS_MAX
+};
+
+extern const char *GB_NLS_METHOD_NAME[GB_NLS_MAX];
+extern const char *GB_NLS_METHOD_DESC[GB_NLS_MAX];
+
+/**
+ * @brief Step size controller method
+ */
+enum GB_CTRL_METHOD {
+  GB_CTRL_UNKNOWN = 0,  /* Unknown controller */
+  GB_CTRL_I = 1,        /* I controller */
+  GB_CTRL_PI = 2,       /* PI controller */
+  GB_CTRL_PID = 3,       /* PID controller */
+  GB_CTRL_CNST = 4,     /* Constant step size */
+
+  GB_CTRL_MAX
+};
+
+extern const char *GB_CTRL_METHOD_NAME[GB_CTRL_MAX];
+extern const char *GB_CTRL_METHOD_DESC[GB_CTRL_MAX];
+
+enum GB_INTERPOL_METHOD {
+  GB_INTERPOL_UNKNOWN = 0,      /* Unknown interpolation method */
+  GB_INTERPOL_LIN,              /* Linear interpolation */
+  GB_INTERPOL_HERMITE,          /* Hermite interpolation */
+  GB_INTERPOL_HERMITE_a,        /* Hermite interpolation (only for left hand side)*/
+  GB_INTERPOL_HERMITE_b,        /* Hermite interpolation (only for right hand side)*/
+  GB_INTERPOL_HERMITE_ERRCTRL,  /* Hermite interpolation with error control */
+  GB_DENSE_OUTPUT,              /* Dense output, if available else hermite */
+  GB_DENSE_OUTPUT_ERRCTRL,      /* Dense output, if available else hermite with error control */
+
+  GB_INTERPOL_MAX
+};
+
+extern const char *GB_INTERPOL_METHOD_NAME[GB_INTERPOL_MAX];
+extern const char *GB_INTERPOL_METHOD_DESC[GB_INTERPOL_MAX];
 
 enum SOLVER_METHOD
 {
@@ -179,9 +313,11 @@ enum SOLVER_METHOD
   S_IMPEULER,
   S_TRAPEZOID,
   S_IMPRUNGEKUTTA,
+  S_GBODE,
   S_IRKSCO,
   S_DASSL,
   S_IDA,
+  S_CVODE,
   S_ERKSSC,
   S_SYM_SOLVER,
   S_SYM_SOLVER_SSC,
@@ -205,7 +341,7 @@ enum INIT_INIT_METHOD
 extern const char *INIT_METHOD_NAME[IIM_MAX];
 extern const char *INIT_METHOD_DESC[IIM_MAX];
 
-enum LINEAR_SOLVER
+typedef enum LINEAR_SOLVER
 {
   LS_NONE = 0,
 
@@ -221,11 +357,12 @@ enum LINEAR_SOLVER
   LS_DEFAULT,
 
   LS_MAX
-};
+} LINEAR_SOLVER;
+
 extern const char *LS_NAME[LS_MAX];
 extern const char *LS_DESC[LS_MAX];
 
-enum LINEAR_SPARSE_SOLVER
+typedef enum LINEAR_SPARSE_SOLVER
 {
   LSS_NONE = 0,
 
@@ -238,12 +375,12 @@ enum LINEAR_SPARSE_SOLVER
   LSS_KLU,
   LSS_UMFPACK,
   LSS_MAX
-};
+} LINEAR_SPARSE_SOLVER;
 
 extern const char *LSS_NAME[LSS_MAX];
 extern const char *LSS_DESC[LSS_MAX];
 
-enum NONLINEAR_SOLVER
+typedef enum NONLINEAR_SOLVER
 {
   NLS_NONE = 0,
 
@@ -261,12 +398,12 @@ enum NONLINEAR_SOLVER
   NLS_HOMOTOPY,
 
   NLS_MAX
-};
+} NONLINEAR_SOLVER;
 
 extern const char *NLS_NAME[NLS_MAX];
 extern const char *NLS_DESC[NLS_MAX];
 
-enum NEWTON_STRATEGY
+typedef enum NEWTON_STRATEGY
 {
   NEWTON_NONE = 0,
 
@@ -277,7 +414,7 @@ enum NEWTON_STRATEGY
   NEWTON_PURE,
 
   NEWTON_MAX
-};
+} NEWTON_STRATEGY;
 
 extern const char *NEWTONSTRATEGY_NAME[NEWTON_MAX];
 extern const char *NEWTONSTRATEGY_DESC[NEWTON_MAX];
@@ -286,11 +423,11 @@ enum JACOBIAN_METHOD
 {
   JAC_UNKNOWN = 0,
 
-  COLOREDNUMJAC,
-  INTERNALNUMJAC,
-  COLOREDSYMJAC,
-  NUMJAC,
-  SYMJAC,
+  COLOREDNUMJAC,      /* Colored numeric Jacobian */
+  INTERNALNUMJAC,     /* Internal numeric Jacobian */
+  COLOREDSYMJAC,      /* Colored symbolic Jacobian */
+  NUMJAC,             /* Non-colored numeric Jacobian */
+  SYMJAC,             /* Non-colored symbolic Jacobian */
 
   JAC_MAX
 };
@@ -298,23 +435,33 @@ enum JACOBIAN_METHOD
 extern const char *JACOBIAN_METHOD[JAC_MAX];
 extern const char *JACOBIAN_METHOD_DESC[JAC_MAX];
 
+/**
+ * @brief Linear system solver method
+ *
+ * Specify method to solve linear systems inside IDA.
+ */
 enum IDA_LS
 {
-  IDA_LS_UNKNOWN = 0,
+  IDA_LS_UNKNOWN = 0, /* Unknown method */
 
-  IDA_LS_DENSE,
-  IDA_LS_KLU,
-  IDA_LS_SPGMR,
-  IDA_LS_SPBCG,
-  IDA_LS_SPTFQMR,
+  IDA_LS_DENSE,     /* Default dense linear solver method */
+  IDA_LS_KLU,       /* KLU as linear solver method */
+  IDA_LS_SPGMR,     /* Scaled, Preconditioned, Generalized Minimum Residual iterative linear solver method */
+  IDA_LS_SPBCG,     /* Scaled, Preconditioned, Bi-Conjugate Gradient, Stabilized iterative linear solver method */
+  IDA_LS_SPTFQMR,   /* Scaled, Preconditioned, Transpose-Free Quasi-Minimum Residual iterative linear solver method */
 
-  IDA_LS_MAX
+  IDA_LS_MAX        /* Maximum number of methods available. Not a method itself! */
 };
 
 extern const char *IDA_LS_METHOD[IDA_LS_MAX];
 extern const char *IDA_LS_METHOD_DESC[IDA_LS_MAX];
 
-enum NLS_LS
+/**
+ * @brief Type of non-linear solver method
+ *
+ * Specify method to solve underlying non-linear systems.
+ */
+typedef enum NLS_LS
 {
   NLS_LS_UNKNOWN = 0,
 
@@ -325,11 +472,16 @@ enum NLS_LS
   NLS_LS_KLU,
 
   NLS_LS_MAX
-};
+} NLS_LS;
 
 extern const char *NLS_LS_METHOD[NLS_LS_MAX];
 extern const char *NLS_LS_METHOD_DESC[NLS_LS_MAX];
 
+/**
+ * @brief Solver method for linear systems
+ *
+ * Will be used for implicit Runge-Kutta-Integrators.
+ */
 enum IMPRK_LS
 {
   IMPRK_LS_UNKNOWN = 0,
@@ -356,6 +508,18 @@ enum HOMOTOPY_BACKTRACE_STRATEGY
 extern const char *HOM_BACK_STRAT_NAME[HOM_BACK_STRAT_MAX];
 extern const char *HOM_BACK_STRAT_DESC[HOM_BACK_STRAT_MAX];
 
+enum FMU_FLAG
+{
+  FMU_FLAG_UNKNOWN = 0,
+
+  FMU_FLAG_SOLVER,
+  FMU_FLAG_NLS,
+
+  FMU_FLAG_MAX
+};
+
+/* Flag mapping to use the same descriptions and names for FMU.*/
+extern const int FMU_FLAG_MAP[FMU_FLAG_MAX];
 
 #if defined(__cplusplus)
   }

@@ -2,6 +2,7 @@
 // keywords: extraction algorithm
 // status:   correct
 // depends: Splitter1_Sx.csv
+// cflags: -d=-newInst
 
 //loadModel(Modelica,{"3.1"}); getErrorString();
 
@@ -61,9 +62,9 @@ getErrorString();
 // true
 // ""
 // true
-// "Notification: Automatically loaded package Complex 3.2.3 due to uses annotation.
-// Notification: Automatically loaded package ModelicaServices 3.2.3 due to uses annotation.
-// Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Notification: Automatically loaded package Complex 3.2.3 due to uses annotation from Modelica.
+// Notification: Automatically loaded package ModelicaServices 3.2.3 due to uses annotation from Modelica.
+// Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // "
 //
 // ModelInfo: DataReconciliationTests.DistillationTower
@@ -85,15 +86,15 @@ getErrorString();
 //
 // orderedVariables (9)
 // ========================================
-// 1: xT2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: xT1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: xB2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 4: xB1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 5: xF2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 6: xF1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 7: T:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 8: B:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 9: F:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: xT2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: xT1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: xB2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 4: xB1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 5: xF2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 6: xF1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 7: T:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 8: B:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 9: F:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -143,7 +144,7 @@ getErrorString();
 // SET_C : {9, 6, 5, 7, 8}
 // SET_S: {}
 //
-// FINAL SET OF EQUATIONS After Reconciliation 
+// FINAL SET OF EQUATIONS After Reconciliation
 // ==========================================================================
 // SET_C: {9, 6, 5, 7, 8}
 // SET_S: {}
@@ -164,15 +165,15 @@ getErrorString();
 //
 // knownVariables:{9, 8, 7, 6, 5, 4, 3, 2, 1} (9)
 // ========================================
-// 1: F:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: B:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: T:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 4: xF1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 5: xF2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 6: xB1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 7: xB2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 8: xT1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 9: xT2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: F:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: B:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: T:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 4: xF1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 5: xF2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 6: xB1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 7: xB2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 8: xT1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 9: xT2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // -SET_C:{9, 6, 5, 7, 8}
 // -SET_S:{}
@@ -183,7 +184,7 @@ getErrorString();
 //
 // Condition-2 "All variables of interest must be involved in SET_C or SET_S"
 // ==========================================================================
-// -Passed 
+// -Passed
 //
 // -SET_C has all known variables:{3, 4, 5, 6, 2, 7, 8, 9, 1} (9)
 // ========================================
@@ -200,15 +201,15 @@ getErrorString();
 // Condition-3 "SET_C equations must be strictly less than Variable of Interest"
 // ==========================================================================
 // -Passed
-// -SET_C contains:5 equations < 9 known variables 
+// -SET_C contains:5 equations < 9 known variables
 //
 // Condition-4 "SET_S should contain all intermediate variables involved in SET_C"
 // ==========================================================================
 // -Passed
-// -SET_C contains No Intermediate Variables 
+// -SET_C contains No Intermediate Variables
 //
 // true
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // "
 //
 // ModelInfo: DataReconciliationTests.VDI2048Exple
@@ -232,17 +233,17 @@ getErrorString();
 //
 // orderedVariables (11)
 // ========================================
-// 1: mD:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: mHDNK:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: mA5:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 4: mA6:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 5: mA7:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 6: mHK:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 7: mV:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 8: mSPLL:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 9: mSPL:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 10: mFDKELL:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 11: mFDKEL:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: mD:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: mHDNK:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: mA5:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 4: mA6:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 5: mA7:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 6: mHK:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 7: mV:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 8: mSPLL:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 9: mSPL:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 10: mFDKELL:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 11: mFDKEL:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -306,7 +307,7 @@ getErrorString();
 // SET_C : {10, 11, 9}
 // SET_S: {}
 //
-// FINAL SET OF EQUATIONS After Reconciliation 
+// FINAL SET OF EQUATIONS After Reconciliation
 // ==========================================================================
 // SET_C: {10, 11, 9}
 // SET_S: {}
@@ -325,17 +326,17 @@ getErrorString();
 //
 // knownVariables:{11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1} (11)
 // ========================================
-// 1: mFDKEL:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: mFDKELL:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: mSPL:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 4: mSPLL:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 5: mV:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 6: mHK:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 7: mA7:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 8: mA6:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 9: mA5:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 10: mHDNK:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 11: mD:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: mFDKEL:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: mFDKELL:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: mSPL:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 4: mSPLL:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 5: mV:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 6: mHK:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 7: mA7:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 8: mA6:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 9: mA5:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 10: mHDNK:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 11: mD:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // -SET_C:{10, 11, 9}
 // -SET_S:{}
@@ -350,10 +351,10 @@ getErrorString();
 //
 // knownVariables not Found:{1} (1)
 // ========================================
-// 1: mD:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: mD:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // false
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // Error: Internal error : Condition 2- Failed : The system is ill-posed.
 // Error: pre-optimization module dataReconciliation (simulation) failed.
 // "
@@ -372,10 +373,10 @@ getErrorString();
 //
 // orderedVariables (4)
 // ========================================
-// 1: q4:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: q3:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: q2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 4: q1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: q4:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: q3:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: q2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 4: q1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -414,7 +415,7 @@ getErrorString();
 // SET_C : {3, 4}
 // SET_S: {}
 //
-// FINAL SET OF EQUATIONS After Reconciliation 
+// FINAL SET OF EQUATIONS After Reconciliation
 // ==========================================================================
 // SET_C: {3, 4}
 // SET_S: {}
@@ -432,10 +433,10 @@ getErrorString();
 //
 // knownVariables:{4, 3, 2, 1} (4)
 // ========================================
-// 1: q1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: q2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: q3:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 4: q4:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: q1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: q2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: q3:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 4: q4:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // -SET_C:{3, 4}
 // -SET_S:{}
@@ -446,27 +447,27 @@ getErrorString();
 //
 // Condition-2 "All variables of interest must be involved in SET_C or SET_S"
 // ==========================================================================
-// -Passed 
+// -Passed
 //
 // -SET_C has all known variables:{1, 2, 3, 4} (4)
 // ========================================
-// 1: q4:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: q3:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: q2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 4: q1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: q4:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: q3:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: q2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 4: q1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Condition-3 "SET_C equations must be strictly less than Variable of Interest"
 // ==========================================================================
 // -Passed
-// -SET_C contains:2 equations < 4 known variables 
+// -SET_C contains:2 equations < 4 known variables
 //
 // Condition-4 "SET_S should contain all intermediate variables involved in SET_C"
 // ==========================================================================
 // -Passed
-// -SET_C contains No Intermediate Variables 
+// -SET_C contains No Intermediate Variables
 //
 // true
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // "
 //
 // ModelInfo: DataReconciliationTests.ExtractionSetS_NL_Test
@@ -485,12 +486,12 @@ getErrorString();
 //
 // orderedVariables (6)
 // ========================================
-// 1: y3:VARIABLE()  type: Real 
-// 2: y2:VARIABLE()  type: Real 
-// 3: y1:VARIABLE()  type: Real 
-// 4: x3:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 5: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: y3:VARIABLE()  type: Real
+// 2: y2:VARIABLE()  type: Real
+// 3: y1:VARIABLE()  type: Real
+// 4: x3:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 5: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -533,7 +534,7 @@ getErrorString();
 // SET_C : {}
 // SET_S: {3, 5, 4}
 // false
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // Error: Internal error : Problem is ill posed because a variable of interest is set on boundary condition B
 // Error: Internal error  Set-C is Empty! : Problem is ill posed because there are two few variables of interest
 // Error: pre-optimization module dataReconciliation (simulation) failed.
@@ -555,12 +556,12 @@ getErrorString();
 //
 // orderedVariables (6)
 // ========================================
-// 1: y3:VARIABLE()  type: Real 
-// 2: y2:VARIABLE()  type: Real 
-// 3: y1:VARIABLE()  type: Real 
-// 4: x3:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 5: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: y3:VARIABLE()  type: Real
+// 2: y2:VARIABLE()  type: Real
+// 3: y1:VARIABLE()  type: Real
+// 4: x3:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 5: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -603,7 +604,7 @@ getErrorString();
 // SET_C : {}
 // SET_S: {3, 5, 4}
 // false
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // Error: Internal error : Problem is ill posed because a variable of interest is set on boundary condition B
 // Error: Internal error  Set-C is Empty! : Problem is ill posed because there are two few variables of interest
 // Error: pre-optimization module dataReconciliation (simulation) failed.
@@ -630,17 +631,17 @@ getErrorString();
 //
 // orderedVariables (11)
 // ========================================
-// 1: z5:VARIABLE()  type: Real 
-// 2: z4:VARIABLE()  type: Real 
-// 3: z3:VARIABLE()  type: Real 
-// 4: z2:VARIABLE()  type: Real 
-// 5: z1:VARIABLE()  type: Real 
-// 6: y3:VARIABLE()  type: Real 
-// 7: y2:VARIABLE()  type: Real 
-// 8: y1:VARIABLE()  type: Real 
-// 9: x3:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 10: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 11: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: z5:VARIABLE()  type: Real
+// 2: z4:VARIABLE()  type: Real
+// 3: z3:VARIABLE()  type: Real
+// 4: z2:VARIABLE()  type: Real
+// 5: z1:VARIABLE()  type: Real
+// 6: y3:VARIABLE()  type: Real
+// 7: y2:VARIABLE()  type: Real
+// 8: y1:VARIABLE()  type: Real
+// 9: x3:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 10: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 11: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -688,7 +689,7 @@ getErrorString();
 // SET_C : {}
 // SET_S: {3, 6, 4}
 // false
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // Error: Internal error : Problem is ill posed because a variable of interest is set on boundary condition B
 // Error: Internal error  Set-C is Empty! : Problem is ill posed because there are two few variables of interest
 // Error: pre-optimization module dataReconciliation (simulation) failed.
@@ -710,12 +711,12 @@ getErrorString();
 //
 // orderedVariables (6)
 // ========================================
-// 1: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: x5:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: x4:VARIABLE()  type: Real 
-// 4: x3:VARIABLE()  type: Real 
-// 5: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: x5:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: x4:VARIABLE()  type: Real
+// 4: x3:VARIABLE()  type: Real
+// 5: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -756,7 +757,7 @@ getErrorString();
 // SET_C : {5, 6}
 // SET_S: {4, 3}
 //
-// FINAL SET OF EQUATIONS After Reconciliation 
+// FINAL SET OF EQUATIONS After Reconciliation
 // ==========================================================================
 // SET_C: {5, 6}
 // SET_S: {4, 3}
@@ -786,10 +787,10 @@ getErrorString();
 //
 // knownVariables:{6, 5, 2, 1} (4)
 // ========================================
-// 1: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 3: x5:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 4: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 3: x5:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 4: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // -SET_C:{5, 6}
 // -SET_S:{4, 3}
@@ -800,37 +801,37 @@ getErrorString();
 //
 // Condition-2 "All variables of interest must be involved in SET_C or SET_S"
 // ==========================================================================
-// -Passed 
+// -Passed
 //
 // -SET_C has known variables:{1, 2} (2)
 // ========================================
-// 1: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: x5:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: x5:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 //
 // -SET_S has known variables:{5, 6} (2)
 // ========================================
-// 1: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Condition-3 "SET_C equations must be strictly less than Variable of Interest"
 // ==========================================================================
 // -Passed
-// -SET_C contains:2 equations < 4 known variables 
+// -SET_C contains:2 equations < 4 known variables
 //
 // Condition-4 "SET_S should contain all intermediate variables involved in SET_C"
 // ==========================================================================
 //
 // -SET_C has intermediate variables:{3, 4} (2)
 // ========================================
-// 1: x4:VARIABLE()  type: Real 
-// 2: x3:VARIABLE()  type: Real 
+// 1: x4:VARIABLE()  type: Real
+// 2: x3:VARIABLE()  type: Real
 //
 //
 // -SET_S has intermediate variables involved in SET_C:{3, 4} (2)
 // ========================================
-// 1: x4:VARIABLE()  type: Real 
-// 2: x3:VARIABLE()  type: Real 
+// 1: x4:VARIABLE()  type: Real
+// 2: x3:VARIABLE()  type: Real
 //
 // -Passed
 //
@@ -840,7 +841,7 @@ getErrorString();
 //  Set_S has 2 equations and 2 variables
 //
 // true
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // "
 //
 // ModelInfo: DataReconciliationTests.RedundancyTestCase2
@@ -859,12 +860,12 @@ getErrorString();
 //
 // orderedVariables (6)
 // ========================================
-// 1: x6:VARIABLE()  type: Real 
-// 2: x5:VARIABLE()  type: Real 
-// 3: x4:VARIABLE()  type: Real 
-// 4: x3:VARIABLE()  type: Real 
-// 5: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x6:VARIABLE()  type: Real
+// 2: x5:VARIABLE()  type: Real
+// 3: x4:VARIABLE()  type: Real
+// 4: x3:VARIABLE()  type: Real
+// 5: x2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -905,7 +906,7 @@ getErrorString();
 // SET_C : {}
 // SET_S: {}
 // false
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // Error: Internal error  Set-C is Empty! : Problem is ill posed because there are two few variables of interest
 // Error: pre-optimization module dataReconciliation (simulation) failed.
 // "
@@ -926,12 +927,12 @@ getErrorString();
 //
 // orderedVariables (6)
 // ========================================
-// 1: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: x5:VARIABLE()  type: Real 
-// 3: x4:VARIABLE()  type: Real 
-// 4: x3:VARIABLE()  type: Real 
-// 5: x2:VARIABLE()  type: Real 
-// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: x5:VARIABLE()  type: Real
+// 3: x4:VARIABLE()  type: Real
+// 4: x3:VARIABLE()  type: Real
+// 5: x2:VARIABLE()  type: Real
+// 6: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -974,7 +975,7 @@ getErrorString();
 // SET_C : {6}
 // SET_S: {4, 3, 5}
 //
-// FINAL SET OF EQUATIONS After Reconciliation 
+// FINAL SET OF EQUATIONS After Reconciliation
 // ==========================================================================
 // SET_C: {6}
 // SET_S: {4, 3, 5}
@@ -1006,8 +1007,8 @@ getErrorString();
 //
 // knownVariables:{6, 1} (2)
 // ========================================
-// 1: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 2: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 2: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // -SET_C:{6}
 // -SET_S:{4, 3, 5}
@@ -1018,35 +1019,35 @@ getErrorString();
 //
 // Condition-2 "All variables of interest must be involved in SET_C or SET_S"
 // ==========================================================================
-// -Passed 
+// -Passed
 //
 // -SET_C has known variables:{1} (1)
 // ========================================
-// 1: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x6:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 //
 // -SET_S has known variables:{6} (1)
 // ========================================
-// 1: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: x1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Condition-3 "SET_C equations must be strictly less than Variable of Interest"
 // ==========================================================================
 // -Passed
-// -SET_C contains:1 equations < 2 known variables 
+// -SET_C contains:1 equations < 2 known variables
 //
 // Condition-4 "SET_S should contain all intermediate variables involved in SET_C"
 // ==========================================================================
 //
 // -SET_C has intermediate variables:{2, 3} (2)
 // ========================================
-// 1: x5:VARIABLE()  type: Real 
-// 2: x4:VARIABLE()  type: Real 
+// 1: x5:VARIABLE()  type: Real
+// 2: x4:VARIABLE()  type: Real
 //
 //
 // -SET_S has intermediate variables involved in SET_C:{2, 3} (2)
 // ========================================
-// 1: x5:VARIABLE()  type: Real 
-// 2: x4:VARIABLE()  type: Real 
+// 1: x5:VARIABLE()  type: Real
+// 2: x4:VARIABLE()  type: Real
 //
 // -Passed
 //
@@ -1056,7 +1057,7 @@ getErrorString();
 //  Set_S has 3 equations and 4 variables
 //
 // false
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // Error: Internal error : Condition 5-Failed Set_S is not square: The system is ill-posed.
 // Error: pre-optimization module dataReconciliation (simulation) failed.
 // "
@@ -1096,31 +1097,31 @@ getErrorString();
 //
 // orderedVariables (25)
 // ========================================
-// 1: T3_Q2:VARIABLE()  type: Real 
-// 2: T2_Q2:VARIABLE()  type: Real 
-// 3: T1_Q1:VARIABLE()  type: Real 
-// 4: V_P3:VARIABLE()  type: Real 
-// 5: V_P2:VARIABLE()  type: Real 
-// 6: P:VARIABLE()  type: Real 
-// 7: V_P1:VARIABLE()  type: Real 
-// 8: T3_Q1:VARIABLE()  type: Real 
-// 9: T2_Q1:VARIABLE()  type: Real 
-// 10: T1_Q2:VARIABLE()  type: Real 
-// 11: V_Q3:VARIABLE()  type: Real 
-// 12: V_Q2:VARIABLE()  type: Real 
-// 13: V_Q1:VARIABLE()  type: Real 
-// 14: T3_P1:VARIABLE()  type: Real 
-// 15: T2_P1:VARIABLE()  type: Real 
-// 16: T1_P2:VARIABLE()  type: Real 
-// 17: T3_P2:VARIABLE()  type: Real 
-// 18: T2_P2:VARIABLE()  type: Real 
-// 19: T1_P1:VARIABLE()  type: Real 
-// 20: P03:VARIABLE()  type: Real 
-// 21: P02:VARIABLE()  type: Real 
-// 22: P01:VARIABLE()  type: Real 
-// 23: Q3:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 24: Q2:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
-// 25: Q1:VARIABLE(uncertain=Uncertainty.refine)  type: Real 
+// 1: T3_Q2:VARIABLE()  type: Real
+// 2: T2_Q2:VARIABLE()  type: Real
+// 3: T1_Q1:VARIABLE()  type: Real
+// 4: V_P3:VARIABLE()  type: Real
+// 5: V_P2:VARIABLE()  type: Real
+// 6: P:VARIABLE()  type: Real
+// 7: V_P1:VARIABLE()  type: Real
+// 8: T3_Q1:VARIABLE()  type: Real
+// 9: T2_Q1:VARIABLE()  type: Real
+// 10: T1_Q2:VARIABLE()  type: Real
+// 11: V_Q3:VARIABLE()  type: Real
+// 12: V_Q2:VARIABLE()  type: Real
+// 13: V_Q1:VARIABLE()  type: Real
+// 14: T3_P1:VARIABLE()  type: Real
+// 15: T2_P1:VARIABLE()  type: Real
+// 16: T1_P2:VARIABLE()  type: Real
+// 17: T3_P2:VARIABLE()  type: Real
+// 18: T2_P2:VARIABLE()  type: Real
+// 19: T1_P1:VARIABLE()  type: Real
+// 20: P03:VARIABLE()  type: Real
+// 21: P02:VARIABLE()  type: Real
+// 22: P01:VARIABLE()  type: Real
+// 23: Q3:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 24: Q2:VARIABLE(uncertain=Uncertainty.refine)  type: Real
+// 25: Q1:VARIABLE(uncertain=Uncertainty.refine)  type: Real
 //
 // Matching
 // ========================================
@@ -1190,10 +1191,10 @@ getErrorString();
 // SET_S: {12, 6, 21, 22, 18, 17, 11, 10, 13, 14, 19, 20, 15, 16, 5, 4}
 // record SimulationResult
 //     resultFile = "",
-//     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 500, tolerance = 1e-006, method = 'dassl', fileNamePrefix = 'DataReconciliationTests.Splitter1', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = '-reconcile -sx=./Splitter1_Sx.csv -eps=0.0023'",
+//     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 500, tolerance = 1e-06, method = 'dassl', fileNamePrefix = 'DataReconciliationTests.Splitter1', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = '-reconcile -sx=./Splitter1_Sx.csv -eps=0.0023'",
 //     messages = "Failed to build model: DataReconciliationTests.Splitter1"
 // end SimulationResult;
-// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. You might experience problems if these versions are incompatible.
+// "Warning: Requested package Modelica of version 3.2.3, but this package was already loaded with version 3.2. There are no conversion annotations for this version but 3.2.3 is newer than 3.2. There is a possibility that 3.2 remains backwards compatible, but it is not loaded so OpenModelica cannot verify this.
 // Error: Internal error  Set-C is Empty! : Problem is ill posed because there are two few variables of interest
 // Error: pre-optimization module dataReconciliation (simulation) failed.
 // "

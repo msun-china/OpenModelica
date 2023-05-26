@@ -36,7 +36,7 @@ protected
   import Inst = NFInst;
   import Lookup = NFLookup;
   import NFClassTree.ClassTree;
-  import NFClass.Class;
+  import Class = NFClass;
 
   import Import = NFImport;
   import Error;
@@ -136,7 +136,7 @@ public
     Absyn.Import.UNQUAL_IMPORT(path = path) := imp;
 
     node := Lookup.lookupImport(path, scope, info);
-    node := Inst.instPackage(node);
+    node := Inst.instPackage(node, NFInstContext.NO_CONTEXT);
     tree := Class.classTree(InstNode.getClass(node));
 
     () := match tree

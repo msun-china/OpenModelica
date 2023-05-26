@@ -37,6 +37,7 @@ encapsulated uniontype NFFunctionDerivative
   import NFFunction.Function;
   import Expression = NFExpression;
   import Type = NFType;
+  import Util;
 
 protected
   import SCodeDump;
@@ -45,11 +46,11 @@ protected
   import Typing = NFTyping;
   import TypeCheck = NFTypeCheck;
   import MatchKind = NFTypeCheck.MatchKind;
-  import ExpOrigin = NFTyping.ExpOrigin;
   import Ceval = NFCeval;
   import EvalTarget = NFCeval.EvalTarget;
   import Prefixes = NFPrefixes;
   import NFPrefixes.Variability;
+  import InstContext = NFInstContext;
 
   import FunctionDerivative = NFFunctionDerivative;
 
@@ -59,8 +60,8 @@ public
   record FUNCTION_DER
     InstNode derivativeFn;
     InstNode derivedFn;
-    Expression order;
-    list<tuple<Integer, Condition>> conditions;
+    Expression order "Is evaluated to a literal Integer during typing";
+    list<tuple<Integer, String, Condition>> conditions;
     list<InstNode> lowerOrderDerivatives;
   end FUNCTION_DER;
 
@@ -92,7 +93,7 @@ public
     Function.typeNodeCache(fnDer.derivativeFn);
     info := InstNode.info(fnDer.derivedFn);
 
-    (order, order_ty, var) := Typing.typeExp(fnDer.order, ExpOrigin.FUNCTION, info);
+    (order, order_ty, var) := Typing.typeExp(fnDer.order, NFInstContext.FUNCTION, info);
     (order, _, mk) := TypeCheck.matchTypes(order_ty, Type.INTEGER(), order);
 
     if TypeCheck.isIncompatibleMatch(mk) then
@@ -131,13 +132,13 @@ public
   end toDAE;
 
   function conditionToDAE
-    input tuple<Integer, Condition> cond;
+    input tuple<Integer, String, Condition> cond;
     output tuple<Integer, DAE.derivativeCond> daeCond;
   protected
     Integer idx;
     Condition c;
   algorithm
-    (idx, c) := cond;
+    (idx, _, c) := cond;
 
     daeCond := match c
       case Condition.ZERO_DERIVATIVE
@@ -150,7 +151,72 @@ public
     end match;
   end conditionToDAE;
 
+  function toSubMod
+    input FunctionDerivative fnDer;
+    output SCode.SubMod subMod;
+  protected
+    tuple<Integer,Condition> tpl;
+    Condition condition;
+    String id;
+    SCode.Mod mod;
+    SCode.SubMod orderMod;
+    list<SCode.SubMod> subMods;
+    Integer order;
+    SourceInfo info;
+  algorithm
+    info := InstNode.info(fnDer.derivedFn);
+    Expression.INTEGER(order) := fnDer.order;
+    orderMod := SCode.NAMEMOD("order", SCode.MOD(SCode.NOT_FINAL(), SCode.NOT_EACH(), {}, SOME(Absyn.INTEGER(order)), info));
+
+    subMods := {};
+
+    for tpl in fnDer.conditions loop
+      (_, id, condition) := tpl;
+      subMods := SCode.NAMEMOD(conditionToString(condition), SCode.MOD(SCode.NOT_FINAL(), SCode.NOT_EACH(), {}, SOME(Absyn.CREF(Absyn.CREF_IDENT(id, {}))), info)) :: subMods;
+    end for;
+
+    mod := SCode.MOD(SCode.NOT_FINAL(), SCode.NOT_EACH(), orderMod::subMods, SOME(Absyn.CREF(Absyn.CREF_IDENT(AbsynUtil.pathString(InstNode.scopePath(fnDer.derivativeFn)),{}))), info);
+    subMod := SCode.NAMEMOD("derivative", mod);
+  end toSubMod;
+
+  function perfectFit
+    "checks if the derivative is a perfect fit for specified interface map"
+    input FunctionDerivative fnDer;
+    input UnorderedMap<String, Boolean> interface_map;
+    output Boolean b = true;
+  protected
+    String name;
+    Condition cond;
+  algorithm
+    for condition in fnDer.conditions loop
+      (_, name, cond) := condition;
+      // if a zero derivative is required but the argument is not in the map
+      // this function derivative cannot be used
+      if cond == Condition.ZERO_DERIVATIVE and not UnorderedMap.contains(name, interface_map) then
+        b := false;
+        return;
+      end if;
+    end for;
+    // the function derivative is a perfect fit, add all conditions to the interface
+    for condition in fnDer.conditions loop
+      (_, name, _) := condition;
+      UnorderedMap.add(name, true, interface_map);
+    end for;
+  end perfectFit;
+
 protected
+
+  function conditionToString
+    input Condition condition;
+    output String str;
+  algorithm
+    str := match condition
+      case Condition.NO_DERIVATIVE then "noDerivative";
+      case Condition.ZERO_DERIVATIVE then "zeroDerivative";
+      else String(condition);
+    end match;
+  end conditionToString;
+
   function getDerivativeAnnotations
     input SCode.Element definition;
     output list<SCode.Mod> derMods;
@@ -183,11 +249,11 @@ protected
         Absyn.ComponentRef acref;
         InstNode der_node;
         Expression order;
-        list<tuple<Integer, Condition>> conds;
+        list<tuple<Integer, String, Condition>> conds;
 
       case SCode.Mod.MOD(subModLst = attrs, binding = SOME(Absyn.CREF(acref)))
         algorithm
-          (_, der_node) := Function.instFunction(acref, scope, mod.info);
+          (_, der_node) := Function.instFunction(acref, scope, NFInstContext.NO_CONTEXT, mod.info);
           addLowerOrderDerivative(der_node, fnNode);
           (order, conds) := getDerivativeAttributes(attrs, fn, fnNode, mod.info);
         then
@@ -218,7 +284,7 @@ protected
     input InstNode scope;
     input SourceInfo info;
     output Expression order = Expression.EMPTY(Type.UNKNOWN());
-    output list<tuple<Integer, Condition>> conditions = {};
+    output list<tuple<Integer, String, Condition>> conditions = {};
   protected
     String id;
     SCode.Mod mod;
@@ -237,28 +303,28 @@ protected
                 {id, "derivative"}, info);
             end if;
 
-            order := Inst.instExp(aexp, scope, info);
+            order := Inst.instExp(aexp, scope, NFInstContext.NO_CONTEXT, info);
           then
             ();
 
         case ("noDerivative", SCode.Mod.MOD(binding = SOME(Absyn.CREF(componentRef = Absyn.CREF_IDENT(name = id)))))
           algorithm
             index := getInputIndex(id, fn, info);
-            conditions := (index, Condition.NO_DERIVATIVE) :: conditions;
+            conditions := (index, id, Condition.NO_DERIVATIVE) :: conditions;
           then
             ();
 
         case ("zeroDerivative", SCode.Mod.MOD(binding = SOME(Absyn.CREF(componentRef = Absyn.CREF_IDENT(name = id)))))
           algorithm
             index := getInputIndex(id, fn, info);
-            conditions := (index, Condition.ZERO_DERIVATIVE) :: conditions;
+            conditions := (index, id, Condition.ZERO_DERIVATIVE) :: conditions;
           then
             ();
 
         else
           algorithm
-            Error.addStrictMessage(Error.INVALID_FUNCTION_DERIVATIVE_ATTR,
-              {id + (if SCodeUtil.isEmptyMod(mod) then "" else " = " + SCodeDump.printModStr(mod))}, info);
+            Error.addStrictMessage(Error.INVALID_FUNCTION_ANNOTATION_ATTR,
+              {id + (if SCodeUtil.isEmptyMod(mod) then "" else " = " + SCodeDump.printModStr(mod)), "derivative"}, info);
           then
             ();
 
@@ -284,7 +350,7 @@ protected
       index := index + 1;
     end for;
 
-    Error.addSourceMessage(Error.INVALID_FUNCTION_DERIVATIVE_INPUT,
+    Error.addSourceMessage(Error.INVALID_FUNCTION_ANNOTATION_INPUT,
       {name, AbsynUtil.pathString(Function.name(fn))}, info);
     fail();
   end getInputIndex;

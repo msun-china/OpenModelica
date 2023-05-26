@@ -59,8 +59,8 @@ int index_spec_ok(const index_spec_t* s)
           fprintf(stderr,"index_spec_ok: the index spec dimension size for dimension %d is negative: %d!\n", i, (int)s->dim_size[i]); fflush(stderr);
           return 0;
         }
-        if((s->index[i] == 0) && (s->dim_size[i] != 1)) {
-            fprintf(stderr,"index[%d] == 0, size == %d\n", i, (unsigned int) s->dim_size[i]); fflush(stderr);
+        if((s->index[i] == 0) && (s->dim_size[i] != 1 && s->dim_size[i] != 0)) {
+            fprintf(stderr,"index_spec_ok: index[%d] == 0, size == %d\n", i, (unsigned int) s->dim_size[i]); fflush(stderr);
             return 0;
         }
     }
@@ -108,6 +108,8 @@ void create_index_spec(index_spec_t* dest, int nridx, ...)
         dest->index_type[i] = (char) va_arg(ap,_index_t); /* char is cast to int by va_arg.*/
     }
     va_end(ap);
+
+	assert(index_spec_ok(dest));
 }
 
 /* make_index_array

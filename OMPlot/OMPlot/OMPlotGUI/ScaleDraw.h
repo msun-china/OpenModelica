@@ -33,15 +33,24 @@
 #ifndef SCALEDRAW_H
 #define SCALEDRAW_H
 
-#include "qwt_scale_draw.h"
+#include "OMPlot.h"
 
 namespace OMPlot
 {
 class ScaleDraw : public QwtScaleDraw
 {
 public:
-  ScaleDraw();
+  ScaleDraw(QwtPlot::Axis axis, Plot *pParent);
+  QString getUnitPrefix() const {return mUnitPrefix;}
+  int getExponent() const {return mExponent;}
+  void invalidateCache();
   virtual QwtText label(double value) const;
+
+private:
+  QwtPlot::Axis mAxis;
+  Plot *mpParentPlot;
+  mutable QString mUnitPrefix;
+  mutable int mExponent;
 };
 }
 

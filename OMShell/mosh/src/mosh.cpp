@@ -42,7 +42,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/unistd.h>
 #include <sys/stat.h>
 
@@ -50,6 +49,7 @@
 #include <sys/param.h> /* MAXPATHLEN */
 #include "options.h"
 #include "omcinteractiveenvironment.h"
+#include "simulation/socket.h"
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
 #else
@@ -135,7 +135,11 @@ void doOMCCommunication(const string *scriptname)
       if (!done) add_history(line);
       env->evalExpression(line);
       string res = env->getResult();
-      cout << res << endl;
+      cout << res;
+      string error = env->getError();
+      if (error.size() > 3) {
+        cout << error;
+      }
     }
     free(line);
   }

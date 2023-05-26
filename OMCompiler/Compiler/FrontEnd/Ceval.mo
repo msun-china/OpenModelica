@@ -75,7 +75,6 @@ protected import Flags;
 protected import InstBinding;
 protected import InstUtil;
 protected import List;
-protected import ModelicaExternalC;
 protected import Print;
 protected import SCode;
 import SCodeUtil;
@@ -237,6 +236,27 @@ algorithm
           case ()
             equation
               dims = List.map(arrayDims, Expression.dimensionSize);
+              v = Values.ARRAY(es_1,dims);
+            then v;
+          else
+            equation
+              v = ValuesUtil.makeArray(es_1);
+            then
+              v;
+        end matchcontinue;
+      then
+        (cache,v);
+
+    // annotation(Icon(graphics))
+    case (cache,env,DAE.ARRAY(array = es, ty = DAE.T_UNKNOWN()),impl,msg,_)
+      guard Config.getGraphicsExpMode() and Config.getEvaluateParametersInAnnotations()
+      equation
+        (cache, es_1) = cevalList(cache, env, es, impl, msg, numIter);
+        v =
+        matchcontinue()
+          case ()
+            equation
+              dims = {1};
               v = Values.ARRAY(es_1,dims);
             then v;
           else
@@ -1260,49 +1280,6 @@ algorithm
       equation
         print(str);
       then Values.NORETCALL();
-    case ("ModelicaStreams_closeFile",{Values.STRING(fileName)},_)
-      equation
-        ModelicaExternalC.Streams_close(fileName);
-      then Values.NORETCALL();
-    case ("ModelicaInternal_print",{Values.STRING(str),Values.STRING(fileName)},_)
-      equation
-        ModelicaExternalC.Streams_print(str,fileName);
-      then Values.NORETCALL();
-    case ("ModelicaInternal_countLines",{Values.STRING(fileName)},_)
-      equation
-        i = ModelicaExternalC.Streams_countLines(fileName);
-      then Values.INTEGER(i);
-    case ("ModelicaInternal_readLine",{Values.STRING(fileName),Values.INTEGER(lineNumber)},_)
-      equation
-        (str,b) = ModelicaExternalC.Streams_readLine(fileName,lineNumber);
-      then Values.TUPLE({Values.STRING(str),Values.BOOL(b)});
-    case ("ModelicaInternal_fullPathName",{Values.STRING(fileName)},_)
-      equation
-        fileName = ModelicaExternalC.File_fullPathName(fileName);
-      then Values.STRING(fileName);
-    case ("ModelicaInternal_stat",{Values.STRING(str)},_)
-      equation
-        i = ModelicaExternalC.File_stat(str);
-        str = listGet({"NoFile", "RegularFile", "Directory", "SpecialFile"}, i);
-        p = AbsynUtil.stringListPath({"OpenModelica","Scripting","Internal","FileType",str});
-        v = Values.ENUM_LITERAL(p,i);
-      then v;
-
-    case ("ModelicaStrings_compare",{Values.STRING(str1),Values.STRING(str2),Values.BOOL(b)},_)
-      equation
-        i = ModelicaExternalC.Strings_compare(str1,str2,b);
-        p = listGet({EnumCompareLess,EnumCompareEqual,EnumCompareGreater},i);
-      then Values.ENUM_LITERAL(p,i);
-
-    case ("ModelicaStrings_scanReal",{Values.STRING(str),Values.INTEGER(i),Values.BOOL(b)},_)
-      equation
-        (i,r) = ModelicaExternalC.Strings_scanReal(str,i,b);
-      then Values.TUPLE({Values.INTEGER(i),Values.REAL(r)});
-
-    case ("ModelicaStrings_skipWhiteSpace",{Values.STRING(str),Values.INTEGER(i)},_)
-      equation
-        i = ModelicaExternalC.Strings_skipWhiteSpace(str,i);
-      then Values.INTEGER(i);
 
     case ("OpenModelica_regex",{Values.STRING(str),Values.STRING(re),Values.INTEGER(i),Values.BOOL(extended),Values.BOOL(insensitive)},_)
       equation
@@ -4924,35 +4901,30 @@ protected function cevalReductionIterators
   input Boolean impl;
   input Absyn.Msg msg;
   input Integer numIter;
-  output FCore.Cache outCache;
-  output list<list<Values.Value>> vals;
-  output list<String> names;
-  output list<Integer> dims;
-  output list<DAE.Type> tys;
+  output FCore.Cache outCache = inCache;
+  output list<list<Values.Value>> vals = {};
+  output list<String> names = {};
+  output list<Integer> dims = {};
+  output list<DAE.Type> tys = {};
+protected
+  Values.Value val;
+  list<Values.Value> iterVals;
+  DAE.Type ty;
+  String id;
+  DAE.Exp exp;
+  Option<DAE.Exp> guardExp;
 algorithm
-  (outCache,vals,names,dims,tys) := match (inCache,inEnv,inIterators,impl,msg,numIter)
-    local
-      Values.Value val;
-      list<Values.Value> iterVals;
-      Integer dim;
-      DAE.Type ty;
-      String id;
-      DAE.Exp exp;
-      Option<DAE.Exp> guardExp;
-      FCore.Cache cache;
-      FCore.Graph env;
-      list<DAE.ReductionIterator> iterators;
+  for iter in inIterators loop
+    DAE.REDUCTIONITER(id, exp, guardExp, ty) := iter;
+    (outCache, val) := ceval(outCache, inEnv, exp, impl, msg, numIter+1);
+    iterVals := ValuesUtil.arrayOrListVals(val, true);
+    (outCache, iterVals) := filterReductionIterator(outCache, inEnv, id, ty, iterVals, guardExp, impl, msg, numIter);
 
-    case (cache,_,{},_,_,_) then (cache,{},{},{},{});
-    case (cache,env,DAE.REDUCTIONITER(id,exp,guardExp,ty)::iterators,_,_,_)
-      equation
-        (cache,val) = ceval(cache,env,exp,impl,msg,numIter+1);
-        iterVals = ValuesUtil.arrayOrListVals(val,true);
-        (cache,iterVals) = filterReductionIterator(cache,env,id,ty,iterVals,guardExp,impl,msg,numIter);
-        dim = listLength(iterVals);
-        (cache,vals,names,dims,tys) = cevalReductionIterators(cache,env,iterators,impl,msg,numIter);
-      then (cache,iterVals::vals,id::names,dim::dims,ty::tys);
-  end match;
+    vals := iterVals :: vals;
+    names := id :: names;
+    dims := listLength(iterVals) :: dims;
+    tys := ty :: tys;
+  end for;
 end cevalReductionIterators;
 
 protected function filterReductionIterator

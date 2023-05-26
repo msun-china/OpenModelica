@@ -1,9 +1,10 @@
 // name: ScalingTest1
 // status: correct
+// cflags: -d=-newInst
 //
 //
 
-loadModel(Modelica); getErrorString();
+loadModel(Modelica, {"3.2.3"}); getErrorString();
 loadString("
 model ScalingTest1
   parameter Real nom1 =  1e30;

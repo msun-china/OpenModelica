@@ -1,9 +1,10 @@
 // name:     Crane_HPCOM_FMI_1_0_CPP_HPCOM
 // keywords: Crane FMI-Export FMI-Import
 // status:   correct
+// cflags: -d=-newInst
 // Real variables, Real input variable, continuous-time states, state events, event iteration
 
-loadModel(Modelica); getErrorString();
+loadModel(Modelica, {"3.2.3"}); getErrorString();
 setDebugFlags("hpcom,hardcodedStartValues"); getErrorString();
 setCommandLineOptions("+simCodeTarget=Cpp +n=2 +hpcomCode=openmp +hpcomScheduler=level"); getErrorString();
 loadFile("cranes.mo"); getErrorString();

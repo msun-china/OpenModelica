@@ -2,13 +2,14 @@
 // keywords: boolean array indexing
 // teardown_command: rm -rf PowerSystems.Examples.Spot.AC1ph_DC.Inverter*
 // status:   correct
+// cflags: -d=-newInst
 
 loadFile("Bug3187.mo"); getErrorString();
 simulate(PowerSystems.Examples.Spot.AC1ph_DC.Inverter); getErrorString();
 
 // Result:
 // true
-// "Notification: Automatically loaded package Complex 3.2.1 due to uses annotation.
+// "Notification: Automatically loaded package Complex 3.2.1 due to uses annotation from Modelica.
 // "
 // record SimulationResult
 //     resultFile = "PowerSystems.Examples.Spot.AC1ph_DC.Inverter_res.mat",

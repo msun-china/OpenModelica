@@ -40,13 +40,14 @@ import BackendDAE;
 
 protected
 import BackendDump;
-import GC;
+import GCExt;
 import Matching;
 
 public function Tarjan "author: lochel
   This sorting algorithm only considers equations e that have a matched variable v with e = ass1[v]."
   input BackendDAE.AdjacencyMatrix m;
   input array<Integer> ass1 "eqn := ass1[var]";
+  input Integer N = arrayLength(ass1);
   output list<list<Integer>> outComponents = {} "eqn indices";
 protected
   Integer index = 0;
@@ -54,7 +55,6 @@ protected
 
   array<Integer> number, lowlink;
   array<Boolean> onStack;
-  Integer N = arrayLength(ass1);
   Integer eqn;
 algorithm
   //BackendDump.dumpAdjacencyMatrix(m);
@@ -64,15 +64,15 @@ algorithm
   lowlink := arrayCreate(N, -1);
   onStack := arrayCreate(N, false);
 
-  for var in 1:N loop
+  for var in 1:arrayLength(ass1) loop
     eqn := ass1[var];
     if eqn > 0 and number[eqn] == -1 then
       (stack, index, outComponents) := StrongConnect(m, ass1, eqn, stack, index, number, lowlink, onStack, outComponents);
     end if;
   end for;
-  GC.free(number);
-  GC.free(lowlink);
-  GC.free(onStack);
+  GCExt.free(number);
+  GCExt.free(lowlink);
+  GCExt.free(onStack);
 
   outComponents := listReverse(outComponents);
 end Tarjan;

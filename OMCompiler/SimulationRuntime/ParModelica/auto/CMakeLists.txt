@@ -1,47 +1,37 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
+cmake_minimum_required(VERSION 3.14)
 
-PROJECT(ParModelicaAuto)
+project(ParModelicaAuto)
+set(CMAKE_INSTALL_INCLUDEDIR ${CMAKE_INSTALL_INCLUDEDIR}/auto)
 
-SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}")
+find_package(Boost COMPONENTS graph chrono REQUIRED)
 
-if( CMAKE_SIZEOF_VOID_P EQUAL 8 )
-    SET(TBB_ARCHITECTURE intel64)
-elseif( CMAKE_SIZEOF_VOID_P EQUAL 4 ) 
-    SET(TBB_ARCHITECTURE ia32)
+set(PARMODAUTO_SOURCES om_pm_equation.cpp om_pm_interface.cpp om_pm_model.cpp pm_utility.cpp)
+
+add_library(ParModelicaAuto STATIC)
+target_sources(ParModelicaAuto PRIVATE ${PARMODAUTO_SOURCES})
+if(WIN32)
+  target_sources(ParModelicaAuto PRIVATE pm_win_timer.cpp)
 else()
-    MESSAGE(FATAL "Unknown Compiler Architecture")
+  target_sources(ParModelicaAuto PRIVATE pm_posix_timer.cpp)
 endif()
 
-FIND_PACKAGE(TBB REQUIRED)
-FIND_PACKAGE(PugiXML REQUIRED)
-FIND_PACKAGE(Boost REQUIRED COMPONENTS system)
 
-SET(PARMODELICA_SRC om_pm_equation.cpp
-                    om_pm_interface.cpp
-                    om_pm_model.cpp                   
-                    pm_utility.cpp)
+target_link_libraries(ParModelicaAuto PUBLIC omc::simrt::runtime)
+target_link_libraries(ParModelicaAuto PUBLIC omc::3rd::tbb)
+target_link_libraries(ParModelicaAuto PUBLIC Boost::graph)
 
-SET(PARMODELICA_TEST_SRC test_task_graph.cpp)
-                    
-IF(UNIX)
-    SET(PARMODELICA_SRC ${PARMODELICA_SRC} pm_posix_timer.cpp)
-ELSE(UNIX)
-    SET(PARMODELICA_SRC ${PARMODELICA_SRC} pm_win_timer.cpp)
-ENDIF(UNIX)
+target_compile_definitions(ParModelicaAuto PRIVATE USE_FLOW_SCHEDULER)
 
-IF(MSVC)
-    ADD_DEFINITIONS("/DNOMINMAX")
-ENDIF()
+# For now, disable deprecation warning from the json reader. We do not plan to update any time soon.
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+  target_compile_options(ParModelicaAuto PRIVATE -Wno-deprecated-declarations)
+endif()
 
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
-INCLUDE_DIRECTORIES(${TBB_INCLUDE_DIR})
-INCLUDE_DIRECTORIES(${PUGIXML_INCLUDE_DIR})
-INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIRS})
-INCLUDE_DIRECTORIES(../../c)
+# add_executable(ParModelicaAutoTest)
+# target_sources(ParModelicaAutoTest PRIVATE test_task_graph.cpp)
+# target_link_libraries(ParModelicaAutoTest PRIVATE ParModelicaAuto)
 
-ADD_LIBRARY(ParModelicaAuto ${PARMODELICA_SRC})
 
-ADD_EXECUTABLE(ParModelicaAutoTest ${PARMODELICA_TEST_SRC})
-
-TARGET_LINK_LIBRARIES(ParModelicaAutoTest ParModelicaAuto ${TBB_LIBRARY} ${PUGIXML_LIBRARY} ${Boost_SYSTEM_LIBRARY})
-
+install(TARGETS ParModelicaAuto)
+install(FILES om_pm_interface.hpp
+        TYPE INCLUDE)

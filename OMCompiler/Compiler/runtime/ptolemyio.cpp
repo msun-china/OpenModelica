@@ -36,6 +36,7 @@
 #include <fstream>
 #include <string>
 
+#include "util/omc_numbers.h"
 
 
 using namespace std;
@@ -48,7 +49,7 @@ extern "C"
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
-#include "omc_msvc.h" /* For INFINITY and NAN */
+#include "util/omc_msvc.h" /* For INFINITY and NAN */
 #include "ptolemyio.h"
 #include "errorext.h"
 
@@ -117,7 +118,7 @@ void * read_ptolemy_dataset(const char*filename, void* vars,int datasize)
       int commapos=values.find(",");
 
       buf1 = values.substr(commapos+1).c_str();
-      val = strtod(buf1,&buf2); // Second value after comma
+      val = om_strtod(buf1,&buf2); // Second value after comma
 
       if (buf1 == buf2) {
         // We may be trying to parse Infinity on a Windows platform.

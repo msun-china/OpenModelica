@@ -73,7 +73,6 @@ import Print;
 import System;
 
 public constant SourceInfo dummyInfo = SOURCEINFO("",false,0,0,0,0,0.0);
-public constant String derivativeNamePrefix="$DER";
 
 public function isIntGreater "Author: BZ"
   input Integer lhs;
@@ -91,7 +90,7 @@ public function linuxDotSlash "If operating system is Linux/Unix, return a './',
   output String str;
 algorithm
   str := Autoconf.os;
-  str := if str == "linux" or str == "OSX" then "./" else "";
+  str := if str == "linux" or str == "darwin" then "./" else "";
 end linuxDotSlash;
 
 public function flagValue "author: x02lucpo
@@ -780,6 +779,12 @@ algorithm
   end if;
 end intPow;
 
+public function realNegative
+  "Returns true if the Real value is negative, otherwise false."
+  input Real v;
+  output Boolean res = v < 0;
+end realNegative;
+
 public function realCompare
   "Compares two reals and return -1 if the first is smallest, 1 if the second
    is smallest, or 0 if they are equal."
@@ -914,12 +919,31 @@ algorithm
   xmlString := System.stringReplace(xmlString, "\"", "&quot;");
   xmlString := System.stringReplace(xmlString, "<", "&lt;");
   xmlString := System.stringReplace(xmlString, ">", "&gt;");
+  xmlString := System.stringReplace(xmlString, "\n", "&#10;");
+  xmlString := System.stringReplace(xmlString, "\r", "&#13;");
   // TODO! FIXME!, we have issues with accented chars in comments
   // that end up in the Model_init.xml file and makes it not well
   // formed but the line below does not work if the xmlString is
   // already UTF-8. We should somehow detect the encoding.
   // xmlString := System.iconv(xmlString, "", "UTF-8");
 end escapeModelicaStringToXmlString;
+
+public function makeQuotedIdentifier
+  input String str;
+  output String quotedIdentifier;
+algorithm
+  quotedIdentifier := System.stringReplace(str, "\\", "\\\\");
+  quotedIdentifier := System.stringReplace(quotedIdentifier, "'", "\\'");
+  quotedIdentifier := "'" + quotedIdentifier + "'";
+end makeQuotedIdentifier;
+
+public function escapeQuotes
+  input String str;
+  output String quotes;
+algorithm
+  quotes := System.stringReplace(str, "\\", "\\\\");
+  quotes := System.stringReplace(quotes, "'", "\\'");
+end escapeQuotes;
 
 public function makeTuple<T1, T2>
   input T1 inValue1;
@@ -1480,17 +1504,20 @@ end anyReturnTrue;
 
 public function absoluteOrRelative
 "@author: adrpo
- returns the given path if it exists if not it considers it relative and returns that"
+ returns the given path if it exists
+ if not it considers it relative and if it exists returns that
+ if the releative path does not exists it returns the given path"
  input String inFileName;
- output String outFileName;
+ output String outFileName = inFileName;
 protected
- String pwd, pd;
+ String pwd, pd, f;
 algorithm
  pwd := System.pwd();
  pd := Autoconf.pathDelimiter;
- outFileName := if System.regularFileExists(inFileName)
-                then inFileName
-                else stringAppendList({pwd,pd,inFileName});
+ if not System.regularFileExists(inFileName) then
+   f := stringAppendList({pwd,pd,inFileName});
+   outFileName := if System.regularFileExists(f) then f else outFileName;
+ end if;
 end absoluteOrRelative;
 
 public function intLstString
@@ -1617,6 +1644,42 @@ algorithm
    t := System.realtimeTock(ClockIndexes.RT_PROFILER2);
 end profilertock2;
 
+function applyTuple21<T1, T2>
+  "Applies a function to the first element of a tuple."
+  input tuple<T1, T2> inTuple;
+  input FuncT func;
+  output tuple<T1, T2> outTuple;
+
+  partial function FuncT
+    input output T1 e;
+  end FuncT;
+protected
+  T1 e1_1, e1_2;
+  T2 e2;
+algorithm
+  (e1_1, e2) := inTuple;
+  e1_2 := func(e1_1);
+  outTuple := if referenceEq(e1_1, e1_2) then inTuple else (e1_2, e2);
+end applyTuple21;
+
+function applyTuple22<T1, T2>
+  "Applies a function to the second element of a tuple."
+  input tuple<T1, T2> inTuple;
+  input FuncT func;
+  output tuple<T1, T2> outTuple;
+
+  partial function FuncT
+    input output T2 e;
+  end FuncT;
+protected
+  T1 e1;
+  T2 e2_1, e2_2;
+algorithm
+  (e1, e2_1) := inTuple;
+  e2_2 := func(e2_1);
+  outTuple := if referenceEq(e2_1, e2_2) then inTuple else (e1, e2_2);
+end applyTuple22;
+
 function applyTuple31<T1, T2, T3>
   input tuple<T1, T2, T3> inTuple;
   input FuncT func;
@@ -1648,6 +1711,56 @@ external "C" result = referenceCompareExt(ref1, ref2) annotation(Include="
   }
 ");
 end referenceCompare;
+
+function gcd
+  "Returns the greatest common divisor of two integers."
+  input Integer a;
+  input Integer b;
+  output Integer res;
+algorithm
+  res := if b == 0 then a else gcd(b, intMod(a, b));
+end gcd;
+
+function lcm
+  "Returns the least common multiplier of two integers."
+  input Integer a;
+  input Integer b;
+  output Integer res;
+algorithm
+  res := if a < 0 or b < 0 then -1 else intDiv((a * b), gcd(a, b));
+end lcm;
+
+function msb
+  "Returns the one-based index of the most significant set bit in an integer > 0,
+   or 0 for an integer <= 0."
+  input Integer n;
+  output Integer res = 0;
+protected
+  Integer i = n;
+algorithm
+  while i > 0 loop
+    i := intBitRShift(i, 1);
+    res := res + 1;
+  end while;
+end msb;
+
+public function foldcallN<FT>
+  "Takes a value and a function operating on the value n times.
+     Example: foldcallN(1, intAdd, 4) => 4"
+  input Integer n;
+  input FoldFunc inFoldFunc;
+  input FT inStartValue;
+  output FT outResult = inStartValue;
+
+  partial function FoldFunc
+    input FT inFoldArg;
+    output FT outFoldArg;
+  end FoldFunc;
+algorithm
+  for i in 1:n loop
+    outResult := inFoldFunc(outResult);
+  end for;
+end foldcallN;
 
 annotation(__OpenModelica_Interface="util");
 end Util;

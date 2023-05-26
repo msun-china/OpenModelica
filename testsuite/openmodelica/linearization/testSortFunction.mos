@@ -2,9 +2,10 @@
 // keywords: jacobian differentiation linearization
 // status:   correct
 // teardown_command: rm -rf SortTest* output.log
+// cflags: -d=-newInst
 //
 
-loadModel(Modelica);getErrorString();
+loadModel(Modelica, {"3.2.3"});getErrorString();
 loadString("
 model SortTest
   input Real u; // prevent evaluation by frontend
@@ -20,8 +21,8 @@ end SortTest;
 setCommandLineOptions("--generateSymbolicLinearization");
 linearize(SortTest, stopTime=1.0);getErrorString();
 
-loadFile("linear_SortTest.mo");
-list(linear_SortTest);
+loadFile("linearized_model.mo");
+list(linearized_model);
 
 
 // Result:
@@ -32,31 +33,28 @@ list(linear_SortTest);
 // record SimulationResult
 //     resultFile = "SortTest_res.mat",
 //     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 500, tolerance = 1e-06, method = 'dassl', fileNamePrefix = 'SortTest', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = ''",
-//     messages = "stdout            | info    | Linearization will performed at point of time: 1.000000
+//     messages = "LOG_STDOUT        | info    | Linearization will be performed at point of time: 1.000000
 // LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
 // LOG_SUCCESS       | info    | The simulation finished successfully.
-// stdout            | info    | Linear model is created!
+// LOG_STDOUT        | info    | Linear model is created.
 // "
 // end SimulationResult;
-// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
+// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions(\"-d=initialization\").
 // "
 // true
-// "model linear_SortTest \"
-//   states[1] = [x]
-//   inputs[1] = [u]
-//   outputs[4] = [N[1,1], N[1,2], N[2,1], N[2,2]]\"
+// "model linearized_model \"SortTest\"
 //   parameter Integer n = 1 \"number of states\";
-//   parameter Integer p = 1 \"number of inputs\";
-//   parameter Integer q = 4 \"number of outputs\";
-//   parameter Real x0[n] = {2.801060045691952};
-//   parameter Real u0[p] = {0};
-//   parameter Real A[n, n] = [-0.9425769139614838];
-//   parameter Real B[n, p] = [1];
-//   parameter Real C[q, n] = [0; 0; 0; -1.878100615247814];
-//   parameter Real D[q, p] = [1; 0; 0; 0];
+//   parameter Integer m = 1 \"number of inputs\";
+//   parameter Integer p = 4 \"number of outputs\";
+//   parameter Real x0[n] = {2.801060045691936};
+//   parameter Real u0[m] = {0};
+//   parameter Real A[n, n] = [-0.9425769139614785];
+//   parameter Real B[n, m] = [1];
+//   parameter Real C[p, n] = [0; 0; 0; -1.878100615247845];
+//   parameter Real D[p, m] = [1; 0; 0; 0];
 //   Real x[n](start = x0);
-//   input Real u[p](start = u0);
-//   output Real y[q];
+//   input Real u[m](start = u0);
+//   output Real y[p];
 //   Real 'x_x' = x[1];
 //   Real 'u_u' = u[1];
 //   Real 'y_N[1,1]' = y[1];
@@ -64,7 +62,7 @@ list(linear_SortTest);
 //   Real 'y_N[2,1]' = y[3];
 //   Real 'y_N[2,2]' = y[4];
 // equation
-//   der(x) = A * x + B * u;
-//   y = C * x + D * u;
-// end linear_SortTest;"
+//   der(x) = A*x + B*u;
+//   y = C*x + D*u;
+// end linearized_model;"
 // endResult

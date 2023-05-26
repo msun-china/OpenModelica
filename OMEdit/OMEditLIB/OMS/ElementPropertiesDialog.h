@@ -34,24 +34,16 @@
 #ifndef ELEMENTPROPERTIESDIALOG_H
 #define ELEMENTPROPERTIESDIALOG_H
 
-#include "Component/Component.h"
-
-class ElementProperties
-{
-public:
-  ElementProperties();
-
-  QList<QString> mParameterValues;
-  QList<QString> mInputValues;
-};
+#include "Element/Element.h"
 
 class ElementPropertiesDialog : public QDialog
 {
   Q_OBJECT
 public:
-  ElementPropertiesDialog(Component *pComponent, QWidget *pParent = 0);
+  ElementPropertiesDialog(Element *pComponent, QWidget *pParent = 0);
+  bool eventFilter(QObject *pObject, QEvent *pEvent);
 private:
-  Component *mpComponent;
+  Element *mpComponent;
   Label *mpHeading;
   QFrame *mpHorizontalLine;
   Label *mpNameLabel;
@@ -97,10 +89,10 @@ private:
   QList<QLineEdit*> mParameterLineEdits;
   QList<Label*> mInputLabels;
   QList<QLineEdit*> mInputLineEdits;
-  ElementProperties mOldElementProperties;
   QPushButton *mpOkButton;
   QPushButton *mpCancelButton;
   QDialogButtonBox *mpButtonBox;
+  void deleteStartValueAndRestoreDefault(const QString name, QLineEdit * pLineEdit);
 private slots:
   void updateProperties();
 };

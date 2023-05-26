@@ -2,10 +2,11 @@
 // keywords: reserved names
 // status: correct
 // teardown_command: rm -f *NameClash.Test*
+// cflags: -d=-newInst
 
 setCommandLineOptions("+simCodeTarget=Cpp");
 
-loadModel(Modelica);
+loadModel(Modelica, {"3.2.3"});
 loadString("
 package NameClash
   function f

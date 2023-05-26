@@ -2,10 +2,11 @@
 // keywords: built-in math functions
 // status: correct
 // teardown_command: rm -f *MathFunctions.Test*
+// cflags: -d=-newInst
 
 setCommandLineOptions("+simCodeTarget=Cpp");
 
-loadModel(Modelica);
+loadModel(Modelica, {"3.2.3"});
 loadString("
 package MathFunctions
   function f

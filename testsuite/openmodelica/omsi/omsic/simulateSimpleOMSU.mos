@@ -2,6 +2,7 @@
 // keywords: omsi omsic fmu fmi
 // status: correct
 // teardown_command: rm -rf helloWorldOMSU.fmutmp helloWorldOMSU.fmu helloWorldOMSU_systemCall.log helloWorldOMSU-tmp helloWorldOMSU_res.mat
+// cflags: -d=-newInst
 //
 // Tests simulating OMSIC OMSU/FMU with OMSimulator
 //
@@ -29,16 +30,16 @@ val(der(x), {0.0,1.0}, "helloWorldOMSU_res.mat");
 // true
 // ""
 // "helloWorldOMSU.fmu"
-// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
+// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions(\"-d=initialization\").
 // "
 // 0
 // ""
-// "info:    maximum step size for 'model.root': 0.100000
+// "info:    maximum step size for 'model.root': 0.001000
 // info:    Result file: helloWorldOMSU_res.mat (bufferSize=1)
 // info:    Final Statistics for 'model.root':
-//          NumSteps = 26 NumRhsEvals  = 32 NumLinSolvSetups = 8
-//          NumNonlinSolvIters = 31 NumNonlinSolvConvFails = 0 NumErrTestFails = 1
+//          NumSteps = 1001 NumRhsEvals  = 1002 NumLinSolvSetups = 51
+//          NumNonlinSolvIters = 1001 NumNonlinSolvConvFails = 0 NumErrTestFails = 0
 // "
-// {1.0,7.394290445175167}
-// {2.0,14.78858089035033}
+// {1.0,7.403868772384289}
+// {2.0,14.80773754476858}
 // endResult

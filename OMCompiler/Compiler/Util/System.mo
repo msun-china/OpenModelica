@@ -40,6 +40,7 @@ encapsulated package System
 
 protected
 import Autoconf;
+import Error;
 
 public function trim
 "removes chars in charsToRemove from begin and end of inString"
@@ -172,6 +173,8 @@ public function tolower
 end tolower;
 
 public function strtok
+  "Break string into a series of tokens using the delimiter token.
+   See strtok from C standard."
   input String string;
   input String token;
   output list<String> strings;
@@ -257,11 +260,14 @@ public function getLDFlags
 end getLDFlags;
 
 public function loadLibrary
+  "Loads and returns a handle to the library given by the filename. If the
+   filename is empty the returned handle will be for the whole program."
   input String inLib;
-  input Boolean inPrintDebug;
+  input Boolean relativePath "If the path is relative or absolute";
+  input Boolean printDebug;
   output Integer outLibHandle;
 
-  external "C" outLibHandle=System_loadLibrary(inLib, inPrintDebug) annotation(Library = "omcruntime");
+  external "C" outLibHandle=System_loadLibrary(inLib, relativePath, printDebug) annotation(Library = "omcruntime");
 end loadLibrary;
 
 public function lookupFunction
@@ -361,6 +367,17 @@ public function plotCallBack
   input String variables;
   external "C" SystemImpl__plotCallBack(OpenModelica.threadData(), externalWindow, filename, title, grid, plotType, logX, logY, xLabel, yLabel, x1, x2, y1, y2, curveWidth, curveStyle, legendPosition, footer, autoScale, variables) annotation(Library = "omcruntime");
 end plotCallBack;
+
+public function loadModelCallBackDefined
+  output Boolean isDefined;
+  external "C"
+  isDefined=SystemImpl__loadModelCallBackDefined(OpenModelica.threadData()) annotation(Library = "omcruntime");
+end loadModelCallBackDefined;
+
+public function loadModelCallBack
+  input String modelName;
+  external "C" SystemImpl__loadModelCallBack(OpenModelica.threadData(), modelName) annotation(Library = "omcruntime");
+end loadModelCallBack;
 
 public function cd
   input String inString;
@@ -864,10 +881,12 @@ literal in C. For example unescapedStringLength('\"')=1, unescapedStringLength('
 end unescapedStringLength;
 
 public function unquoteIdentifier
-  "Quoted identifiers which can use Modelica's allowed Q-CHARs need to be translated into canonical (valid c89 identifier) form
-   using ascii representations; for example,
-    '+' ->  QQ_2B_QQ
-    'xyz@d!' -> QQ_xyz40d21_QQ "
+  "Quoted identifiers, for example 'xyz' need to be translated into canonical form; for example _omcQ_27xyz_27
+
+   The prefix is _omcQ, there is no suffix. The escape character is _ (an identifier with _ would be _5F)
+
+   This name presents a unique mapping that is also reversible (so the debugger can show the quoted identifier's nam.
+   The returned name is a valid C89 identifier."
   input String str;
   output String outStr;
   external "C" outStr=System_unquoteIdentifier(str) annotation(Library = "omcruntime");
@@ -957,16 +976,6 @@ public function dgesv
   output Integer info;
   external "C" info=SystemImpl__dgesv(A,B,X) annotation(Library = {"omcruntime","Lapack"});
 end dgesv;
-
-public function lpsolve55
-  "lpsolve55"
-  input list<list<Real>> A;
-  input list<Real> B;
-  input list<Integer> intIndices;
-  output list<Real> X;
-  output Integer info;
-  external "C" info=SystemImpl__lpsolve55(A,B,intIndices,X) annotation(Library = {"omcruntime"});
-end lpsolve55;
 
 public function reopenStandardStream
   input Integer _stream "stdin,stdout,stderr";
@@ -1066,9 +1075,22 @@ public function numBits
 end numBits;
 
 public function realpath
+  "Return the canonicalized absolute pathname"
   input String path;
   output String fullpath;
-  external "C" fullpath = System_realpath(path) annotation(Library = {"omcruntime"});
+protected
+  function system_realpath
+    input String path;
+    output String fullpath;
+    external "C" fullpath = System_realpath(path) annotation(Library = {"omcruntime"});
+  end system_realpath;
+algorithm
+  try
+    fullpath := system_realpath(path);
+  else
+    Error.addInternalError(getInstanceName() + " failed", sourceInfo());
+    fail();
+  end try;
 end realpath;
 
 public function getSimulationHelpText
@@ -1097,7 +1119,7 @@ public function fileContentsEqual
   external "C" result = SystemImpl__fileContentsEqual(file1,file2) annotation(Library = {"omcruntime"});
 end fileContentsEqual;
 
-public function rename
+public function rename "returns true if success, false otherwise"
   input String source;
   input String dest;
   output Boolean result;
@@ -1149,12 +1171,15 @@ external "C" str=SystemImpl__ctime(t) annotation(Library = {"omcruntime"},Docume
 </html>"));
 end ctime;
 
+type StatFileType = enumeration(NoFile, RegularFile, Directory, SpecialFile);
+
 public function stat
   input String filename;
   output Boolean success;
   output Real st_size; /* An integer stored as double for higher precision  */
   output Real st_mtime; /* An integer stored as double for higher precision  */
-external "C" success=SystemImpl__stat(filename,st_size,st_mtime) annotation(Library = {"omcruntime"},Documentation(info="<html>
+  output StatFileType fileType;
+external "C" success=SystemImpl__stat(filename,st_size,st_mtime,fileType) annotation(Library = {"omcruntime"},Documentation(info="<html>
 <p>Like <a href=\"http://linux.die.net/man/2/stat\">stat(2)</a>, except the output is of type real because of limited precision of Integer.</p>
 </html>"));
 end stat;
@@ -1274,7 +1299,7 @@ end fflush;
 
 function updateUriMapping
   input array<String> namesAndDirs;
-external "C" OpenModelica_updateUriMapping(OpenModelica.threadData(), namesAndDirs) annotation(Documentation(info="<html>
+external "C" OpenModelica_updateUriMapping(OpenModelica.threadData(), namesAndDirs) annotation(include="#include \"util/utility.h\"", Documentation(info="<html>
 <p>Used to set the mapping from package names to directories, for loadResource. Part of the C runtime.</p>
 <p>Odd indexes are names and even indexes are the corresponding directory.</p>
 </html>"));
@@ -1290,6 +1315,17 @@ Counts the number of bytes that were allocated to hold the given data structure.
 Includes constant data and handles cycles.
 </html>"));
 end getSizeOfData;
+
+type StreamType = enumeration(STDOUT, STDERR);
+
+function fputs
+  input String str;
+  input StreamType streamType;
+  output Integer res "Nonnegative on success, EOF on error";
+  external "C" res=SystemImpl__fputs(str, streamType) annotation(Library = "omcruntime", Documentation(info="<html>
+Outputs a string using the C function fputs.
+</html>"));
+end fputs;
 
 annotation(__OpenModelica_Interface="util");
 end System;

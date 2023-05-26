@@ -5,10 +5,10 @@ AC_DEFUN([OMC_AC_LAPACK], [
     [LD_LAPACK="$withval"],
     [LD_LAPACK="auto"])
 
+  # No lapack
   if test "$LD_LAPACK" = "no"; then
     FINAL_MESSAGES="$FINAL_MESSAGES\nLAPACK IS NOT AVAILABLE! ONLY USED FOR CROSS-COMPILING/BOOTSTRAPPING"
     LD_LAPACK=""
-    NO_LAPACK="#define NO_LAPACK"
   else
 
     AC_LANG_PUSH([C])
@@ -22,6 +22,7 @@ AC_DEFUN([OMC_AC_LAPACK], [
     done
     LIBS=""
 
+    # Auto detect using pkg-config
     if test "$LD_LAPACK" = "auto"; then
       LD_LAPACK=""
       if test "$1" = "static" || test "$2" = "static"; then
@@ -36,7 +37,9 @@ AC_DEFUN([OMC_AC_LAPACK], [
           THESELIBS="$LD_LAPACK_STATIC_HEAD $flags $extra $LD_LAPACK_STATIC_TAIL"
           LIBS="-shared $THESELIBS $LAPACK_LINKER_FLAGS"
           AC_LINK_IFELSE([AC_LANG_CALL([], [dgesv_])],[
-            AC_LINK_IFELSE([AC_LANG_CALL([], [dswap_])],[LD_LAPACK="$THESELIBS"],[])
+            AC_LINK_IFELSE([AC_LANG_CALL([], [dswap_])],[
+              AC_LINK_IFELSE([AC_LANG_CALL([], [dgetrf_])],[LD_LAPACK="$THESELIBS"],[])
+            ],[])
           ],[])
           if test ! -z "$LD_LAPACK"; then
             break;
@@ -51,7 +54,9 @@ AC_DEFUN([OMC_AC_LAPACK], [
           THESELIBS="$LD_LAPACK_STATIC_HEAD $flags $LD_LAPACK_STATIC_TAIL $extra_dynamic"
           LIBS="-shared $THESELIBS $LAPACK_LINKER_FLAGS"
           AC_LINK_IFELSE([AC_LANG_CALL([], [dgesv_])],[
-            AC_LINK_IFELSE([AC_LANG_CALL([], [dswap_])],[LD_LAPACK="$THESELIBS"],[])
+            AC_LINK_IFELSE([AC_LANG_CALL([], [dswap_])],[
+              AC_LINK_IFELSE([AC_LANG_CALL([], [dgetrf_])],[LD_LAPACK="$THESELIBS"],[])
+            ],[])
           ],[])
           if test ! -z "$LD_LAPACK"; then
             break;
@@ -64,13 +69,14 @@ AC_DEFUN([OMC_AC_LAPACK], [
       done
       if test -z "$LD_LAPACK"; then
         if test "$1" = "RequireFound"; then
-          AC_MSG_ERROR([dgesv or dswap not found])
+          AC_MSG_ERROR([dgesv, dswap or dgetrf not found])
         else
           AC_MSG_RESULT([not found])
         fi
       else
         AC_MSG_RESULT([$LD_LAPACK])
       fi
+    # User provided lapack
     elif test ! -z "$LD_LAPACK"; then
       LIBS="$LD_LAPACK"
       AC_LINK_IFELSE([AC_LANG_CALL([], [dgesv_])],[],[
@@ -87,11 +93,22 @@ AC_DEFUN([OMC_AC_LAPACK], [
           AC_MSG_RESULT([dgesv (BLAS) linking failed using $LD_LAPACK]); LD_LAPACK=""
         fi
       ])
+      AC_LINK_IFELSE([AC_LANG_CALL([], [dgetrf_])],[AC_MSG_RESULT([$LD_LAPACK])],[
+        if test "$1" = "RequireFound"; then
+          AC_MSG_ERROR([dgetrf (BLAS) linking failed using $LD_LAPACK])
+        else
+          AC_MSG_RESULT([dgetrf (BLAS) linking failed using $LD_LAPACK]); LD_LAPACK=""
+        fi
+      ])
     fi
+
     if test ! -z "$LD_LAPACK"; then
+      LD_LAPACK=`echo $LD_LAPACK | sed -e 's/-lm$//' -e 's/-lm  *//'`
+      HAVE_LAPACK="#define HAVE_LAPACK"
+
       # lapack 3.6.0 deprecated dgegv, dgelsx, dgeqpf
       AC_MSG_CHECKING([for deprecated LAPACK routines])
-      AC_LINK_IFELSE([AC_LANG_CALL([], [dgegv_])],[AC_MSG_RESULT([yes]); NO_LAPACK="#define HAVE_LAPACK_DEPRECATED 1"],[
+      AC_LINK_IFELSE([AC_LANG_CALL([], [dgegv_])],[AC_MSG_RESULT([yes]); HAVE_LAPACK_DEPRECATED="#define HAVE_LAPACK_DEPRECATED"],[
         AC_MSG_RESULT([no])
       ])
     fi

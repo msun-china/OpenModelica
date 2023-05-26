@@ -2,10 +2,11 @@
 // keywords: return tuple record array
 // status: correct
 // teardown_command: rm -f *RecordTupleReturn*
+// cflags: -d=-newInst
 
 setCommandLineOptions("+simCodeTarget=Cpp");
 
-loadModel(Modelica);
+loadModel(Modelica, {"3.2.3"});
 loadString("
 model RecordTupleReturn
   record R // record with array member

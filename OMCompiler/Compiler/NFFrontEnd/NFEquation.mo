@@ -42,8 +42,8 @@ protected
   import ElementSource;
   import Equation = NFEquation;
   import Error;
+  import FlatModelicaUtil = NFFlatModelicaUtil;
   import IOStream;
-  import NFComponent.Component;
   import Util;
 
 public
@@ -58,6 +58,49 @@ public
       Branch branch;
       list<ErrorTypes.TotalMessage> errors;
     end INVALID_BRANCH;
+
+    function mapExp
+      input output Branch branch;
+      input MapExpFn func;
+      input Boolean mapBody = true;
+    protected
+      Expression cond;
+      list<Equation> eql;
+    algorithm
+      branch := match branch
+        case Branch.BRANCH()
+          algorithm
+            cond := func(branch.condition);
+
+            if mapBody then
+              eql := list(Equation.mapExp(e, func) for e in branch.body);
+            else
+              eql := branch.body;
+            end if;
+          then
+            Branch.BRANCH(cond, branch.conditionVar, eql);
+
+        case Branch.INVALID_BRANCH()
+          algorithm
+            // The body of an invalid branch might not be safe to traverse, but
+            // the condition still needs to be valid and should be traversed.
+            branch.branch := mapExp(branch.branch, func, mapBody = false);
+          then
+            branch;
+
+        else branch;
+      end match;
+    end mapExp;
+
+    function sizeOf
+      input Branch branch;
+      output Integer size;
+    algorithm
+      size := match branch
+        case Branch.BRANCH() then Equation.sizeOfList(branch.body);
+        else 0;
+      end match;
+    end sizeOf;
 
     function toStream
       input Branch branch;
@@ -116,25 +159,22 @@ public
     Expression lhs "The left hand side expression.";
     Expression rhs "The right hand side expression.";
     Type ty;
+    InstNode scope;
     DAE.ElementSource source;
   end EQUALITY;
-
-  record CREF_EQUALITY
-    ComponentRef lhs;
-    ComponentRef rhs;
-    DAE.ElementSource source;
-  end CREF_EQUALITY;
 
   record ARRAY_EQUALITY
     Expression lhs;
     Expression rhs;
     Type ty;
+    InstNode scope;
     DAE.ElementSource source;
   end ARRAY_EQUALITY;
 
   record CONNECT
     Expression lhs;
     Expression rhs;
+    InstNode scope;
     DAE.ElementSource source;
   end CONNECT;
 
@@ -142,16 +182,19 @@ public
     InstNode iterator;
     Option<Expression> range;
     list<Equation> body   "The body of the for loop.";
+    InstNode scope;
     DAE.ElementSource source;
   end FOR;
 
   record IF
     list<Branch> branches;
+    InstNode scope;
     DAE.ElementSource source;
   end IF;
 
   record WHEN
     list<Branch> branches;
+    InstNode scope;
     DAE.ElementSource source;
   end WHEN;
 
@@ -159,22 +202,26 @@ public
     Expression condition "The assert condition.";
     Expression message "The message to display if the assert fails.";
     Expression level "Error or warning";
+    InstNode scope;
     DAE.ElementSource source;
   end ASSERT;
 
   record TERMINATE
     Expression message "The message to display if the terminate triggers.";
+    InstNode scope;
     DAE.ElementSource source;
   end TERMINATE;
 
   record REINIT
     Expression cref "The variable to reinitialize.";
     Expression reinitExp "The new value of the variable.";
+    InstNode scope;
     DAE.ElementSource source;
   end REINIT;
 
   record NORETCALL
     Expression exp;
+    InstNode scope;
     DAE.ElementSource source;
   end NORETCALL;
 
@@ -182,12 +229,27 @@ public
     input Expression lhs;
     input Expression rhs;
     input Type ty;
+    input InstNode scope;
     input DAE.ElementSource src;
     output Equation eq;
   algorithm
-    eq := EQUALITY(lhs, rhs, ty, src);
+    eq := EQUALITY(lhs, rhs, ty, scope, src);
     annotation(__OpenModelica_EarlyInline=true);
   end makeEquality;
+
+  function makeCrefEquality
+    input ComponentRef lhsCref;
+    input ComponentRef rhsCref;
+    input InstNode scope;
+    input DAE.ElementSource src;
+    output Equation eq;
+  protected
+    Expression e1, e2;
+  algorithm
+    e1 := Expression.fromCref(lhsCref);
+    e2 := Expression.fromCref(rhsCref);
+    eq := makeEquality(e1, e2, Expression.typeOf(e1), scope, src);
+  end makeCrefEquality;
 
   function makeBranch
     input Expression condition;
@@ -201,10 +263,11 @@ public
 
   function makeIf
     input list<Branch> branches;
+    input InstNode scope;
     input DAE.ElementSource src;
     output Equation eq;
   algorithm
-    eq := IF(branches, src);
+    eq := IF(branches, scope, src);
     annotation(__OpenModelica_EarlyInline=true);
   end makeIf;
 
@@ -214,7 +277,6 @@ public
   algorithm
     source := match eq
       case EQUALITY() then eq.source;
-      case CREF_EQUALITY() then eq.source;
       case ARRAY_EQUALITY() then eq.source;
       case CONNECT() then eq.source;
       case FOR() then eq.source;
@@ -226,6 +288,42 @@ public
       case NORETCALL() then eq.source;
     end match;
   end source;
+
+  function setSource
+    input DAE.ElementSource source;
+    input output Equation eq;
+  algorithm
+    () := match eq
+      case EQUALITY()       algorithm eq.source := source; then ();
+      case ARRAY_EQUALITY() algorithm eq.source := source; then ();
+      case CONNECT()        algorithm eq.source := source; then ();
+      case FOR()            algorithm eq.source := source; then ();
+      case IF()             algorithm eq.source := source; then ();
+      case WHEN()           algorithm eq.source := source; then ();
+      case ASSERT()         algorithm eq.source := source; then ();
+      case TERMINATE()      algorithm eq.source := source; then ();
+      case REINIT()         algorithm eq.source := source; then ();
+      case NORETCALL()      algorithm eq.source := source; then ();
+    end match;
+  end setSource;
+
+  function scope
+    input Equation eq;
+    output InstNode scope;
+  algorithm
+    scope := match eq
+      case EQUALITY() then eq.scope;
+      case ARRAY_EQUALITY() then eq.scope;
+      case CONNECT() then eq.scope;
+      case FOR() then eq.scope;
+      case IF() then eq.scope;
+      case WHEN() then eq.scope;
+      case ASSERT() then eq.scope;
+      case TERMINATE() then eq.scope;
+      case REINIT() then eq.scope;
+      case NORETCALL() then eq.scope;
+    end match;
+  end scope;
 
   function info
     input Equation eq;
@@ -349,6 +447,124 @@ public
     eq := func(eq);
   end map;
 
+  function applyExpList
+    input list<Equation> eq;
+    input ApplyFunc func;
+
+    partial function ApplyFunc
+      input Expression exp;
+    end ApplyFunc;
+  algorithm
+    for e in eq loop
+      applyExp(e, func);
+    end for;
+  end applyExpList;
+
+  function applyExp
+    input Equation eq;
+    input ApplyFunc func;
+
+    partial function ApplyFunc
+      input Expression exp;
+    end ApplyFunc;
+  algorithm
+    () := match eq
+      case Equation.EQUALITY()
+        algorithm
+          func(eq.lhs);
+          func(eq.rhs);
+        then
+          ();
+
+      case Equation.ARRAY_EQUALITY()
+        algorithm
+          func(eq.lhs);
+          func(eq.rhs);
+        then
+          ();
+
+      case Equation.CONNECT()
+        algorithm
+          func(eq.lhs);
+          func(eq.rhs);
+        then
+          ();
+
+      case Equation.FOR()
+        algorithm
+          applyExpList(eq.body, func);
+
+          if isSome(eq.range) then
+            func(Util.getOption(eq.range));
+          end if;
+        then
+          ();
+
+      case Equation.IF()
+        algorithm
+          for b in eq.branches loop
+            () := match b
+              case Branch.BRANCH()
+                algorithm
+                  func(b.condition);
+                  applyExpList(b.body, func);
+                then
+                  ();
+
+              else ();
+            end match;
+          end for;
+        then
+          ();
+
+      case Equation.WHEN()
+        algorithm
+          for b in eq.branches loop
+            () := match b
+              case Branch.BRANCH()
+                algorithm
+                  func(b.condition);
+                  applyExpList(b.body, func);
+                then
+                  ();
+
+              else ();
+            end match;
+          end for;
+        then
+          ();
+
+      case Equation.ASSERT()
+        algorithm
+          func(eq.condition);
+          func(eq.message);
+          func(eq.level);
+        then
+          ();
+
+      case Equation.TERMINATE()
+        algorithm
+          func(eq.message);
+        then
+          ();
+
+      case Equation.REINIT()
+        algorithm
+          func(eq.cref);
+          func(eq.reinitExp);
+        then
+          ();
+
+      case Equation.NORETCALL()
+        algorithm
+          func(eq.exp);
+        then
+          ();
+
+      else ();
+    end match;
+  end applyExp;
+
   partial function MapExpFn
     input output Expression MapExpFn;
   end MapExpFn;
@@ -367,6 +583,7 @@ public
     eq := match eq
       local
         Expression e1, e2, e3;
+        ComponentRef cr1, cr2;
 
       case EQUALITY()
         algorithm
@@ -374,7 +591,7 @@ public
           e2 := func(eq.rhs);
         then
           if referenceEq(e1, eq.lhs) and referenceEq(e2, eq.rhs)
-            then eq else EQUALITY(e1, e2, eq.ty, eq.source);
+            then eq else EQUALITY(e1, e2, eq.ty, eq.scope, eq.source);
 
       case ARRAY_EQUALITY()
         algorithm
@@ -382,7 +599,14 @@ public
           e2 := func(eq.rhs);
         then
           if referenceEq(e1, eq.lhs) and referenceEq(e2, eq.rhs)
-            then eq else ARRAY_EQUALITY(e1, e2, eq.ty, eq.source);
+            then eq else ARRAY_EQUALITY(e1, e2, eq.ty, eq.scope, eq.source);
+
+      //case CREF_EQUALITY()
+      //  algorithm
+      //    Expression.CREF(cref = cr1) := func(Expression.fromCref(eq.lhs));
+      //    Expression.CREF(cref = cr2) := func(Expression.fromCref(eq.rhs));
+      //  then
+      //    Equation.CREF_EQUALITY(cr1, cr2, eq.source);
 
       case CONNECT()
         algorithm
@@ -390,7 +614,7 @@ public
           e2 := func(eq.rhs);
         then
           if referenceEq(e1, eq.lhs) and referenceEq(e2, eq.rhs)
-            then eq else CONNECT(e1, e2, eq.source);
+            then eq else CONNECT(e1, e2, eq.scope, eq.source);
 
       case FOR()
         algorithm
@@ -401,13 +625,13 @@ public
 
       case IF()
         algorithm
-          eq.branches := list(mapExpBranch(b, func) for b in eq.branches);
+          eq.branches := list(Branch.mapExp(b, func) for b in eq.branches);
         then
           eq;
 
       case WHEN()
         algorithm
-          eq.branches := list(mapExpBranch(b, func) for b in eq.branches);
+          eq.branches := list(Branch.mapExp(b, func) for b in eq.branches);
         then
           eq;
 
@@ -418,13 +642,13 @@ public
           e3 := func(eq.level);
         then
           if referenceEq(e1, eq.condition) and referenceEq(e2, eq.message) and
-            referenceEq(e3, eq.level) then eq else ASSERT(e1, e2, e3, eq.source);
+            referenceEq(e3, eq.level) then eq else ASSERT(e1, e2, e3, eq.scope, eq.source);
 
       case TERMINATE()
         algorithm
           e1 := func(eq.message);
         then
-          if referenceEq(e1, eq.message) then eq else TERMINATE(e1, eq.source);
+          if referenceEq(e1, eq.message) then eq else TERMINATE(e1, eq.scope, eq.source);
 
       case REINIT()
         algorithm
@@ -432,36 +656,100 @@ public
           e2 := func(eq.reinitExp);
         then
           if referenceEq(e1, eq.cref) and referenceEq(e2, eq.reinitExp) then
-            eq else REINIT(e1, e2, eq.source);
+            eq else REINIT(e1, e2, eq.scope, eq.source);
 
       case NORETCALL()
         algorithm
           e1 := func(eq.exp);
         then
-          if referenceEq(e1, eq.exp) then eq else NORETCALL(e1, eq.source);
+          if referenceEq(e1, eq.exp) then eq else NORETCALL(e1, eq.scope, eq.source);
 
       else eq;
     end match;
   end mapExp;
 
-  function mapExpBranch
-    input output Branch branch;
+  function mapExpShallow
+    input output Equation eq;
     input MapExpFn func;
-  protected
-    Expression cond;
-    list<Equation> eql;
   algorithm
-    branch := match branch
-      case Branch.BRANCH()
-        algorithm
-          cond := func(branch.condition);
-          eql := list(mapExp(e, func) for e in branch.body);
-        then
-          Branch.BRANCH(cond, branch.conditionVar, eql);
+    eq := match eq
+      local
+        Expression e1, e2, e3;
 
-      else branch;
+      case EQUALITY()
+        algorithm
+          e1 := func(eq.lhs);
+          e2 := func(eq.rhs);
+        then
+          if referenceEq(e1, eq.lhs) and referenceEq(e2, eq.rhs)
+            then eq else EQUALITY(e1, e2, eq.ty, eq.scope, eq.source);
+
+      case ARRAY_EQUALITY()
+        algorithm
+          e1 := func(eq.lhs);
+          e2 := func(eq.rhs);
+        then
+          if referenceEq(e1, eq.lhs) and referenceEq(e2, eq.rhs)
+            then eq else ARRAY_EQUALITY(e1, e2, eq.ty, eq.scope, eq.source);
+
+      case CONNECT()
+        algorithm
+          e1 := func(eq.lhs);
+          e2 := func(eq.rhs);
+        then
+          if referenceEq(e1, eq.lhs) and referenceEq(e2, eq.rhs)
+            then eq else CONNECT(e1, e2, eq.scope, eq.source);
+
+      case FOR()
+        algorithm
+          eq.range := Util.applyOption(eq.range, func);
+        then
+          eq;
+
+      case IF()
+        algorithm
+          eq.branches := list(Branch.mapExp(b, func, mapBody = false) for b in eq.branches);
+        then
+          eq;
+
+      case WHEN()
+        algorithm
+          eq.branches := list(Branch.mapExp(b, func, mapBody = false) for b in eq.branches);
+        then
+          eq;
+
+      case ASSERT()
+        algorithm
+          e1 := func(eq.condition);
+          e2 := func(eq.message);
+          e3 := func(eq.level);
+        then
+          if referenceEq(e1, eq.condition) and referenceEq(e2, eq.message) and
+            referenceEq(e3, eq.level) then eq else ASSERT(e1, e2, e3, eq.scope, eq.source);
+
+      case TERMINATE()
+        algorithm
+          e1 := func(eq.message);
+        then
+          if referenceEq(e1, eq.message) then eq else TERMINATE(e1, eq.scope, eq.source);
+
+      case REINIT()
+        algorithm
+          e1 := func(eq.cref);
+          e2 := func(eq.reinitExp);
+        then
+          if referenceEq(e1, eq.cref) and referenceEq(e2, eq.reinitExp) then
+            eq else REINIT(e1, e2, eq.scope, eq.source);
+
+      case NORETCALL()
+        algorithm
+          e1 := func(eq.exp);
+        then
+          if referenceEq(e1, eq.exp) then eq else NORETCALL(e1, eq.scope, eq.source);
+
+      else eq;
     end match;
-  end mapExpBranch;
+  end mapExpShallow;
 
   function foldExpList<ArgT>
     input list<Equation> eq;
@@ -665,6 +953,118 @@ public
     res := false;
   end containsList;
 
+  function containsExp
+    input Equation eq;
+    input Predicate fn;
+    output Boolean res;
+
+    partial function Predicate
+      input Expression exp;
+      output Boolean res;
+    end Predicate;
+  algorithm
+    res := match eq
+      case Equation.EQUALITY() then fn(eq.lhs) or fn(eq.rhs);
+      case Equation.ARRAY_EQUALITY() then fn(eq.lhs) or fn(eq.rhs);
+      case Equation.CONNECT() then fn(eq.lhs) or fn(eq.rhs);
+
+      case Equation.FOR()
+        algorithm
+          res := if isSome(eq.range) then fn(Util.getOption(eq.range)) else false;
+
+          if not res then
+            res := containsExpList(eq.body, fn);
+          end if;
+        then
+          res;
+
+      case Equation.IF()
+        algorithm
+          res := false;
+          for b in eq.branches loop
+            () := match b
+              case Branch.BRANCH()
+                algorithm
+                  if fn(b.condition) then
+                    res := true;
+                    return;
+                  end if;
+
+                  if containsExpList(b.body, fn) then
+                    res := true;
+                    return;
+                  end if;
+                then
+                  ();
+
+              else ();
+            end match;
+          end for;
+        then
+          res;
+
+      case Equation.WHEN()
+        algorithm
+          res := false;
+          for b in eq.branches loop
+            () := match b
+              case Branch.BRANCH()
+                algorithm
+                  if fn(b.condition) then
+                    res := true;
+                    return;
+                  end if;
+
+                  if containsExpList(b.body, fn) then
+                    res := true;
+                    return;
+                  end if;
+                then
+                  ();
+
+              else ();
+            end match;
+          end for;
+        then
+          res;
+
+      case Equation.ASSERT() then fn(eq.condition) or fn(eq.message) or fn(eq.level);
+      case Equation.TERMINATE() then fn(eq.message);
+      case Equation.REINIT() then fn(eq.cref) or fn(eq.reinitExp);
+      case Equation.NORETCALL() then fn(eq.exp);
+      else false;
+    end match;
+  end containsExp;
+
+  function containsExpList
+    input list<Equation> eql;
+    input Predicate func;
+    output Boolean res;
+
+    partial function Predicate
+      input Expression eq;
+      output Boolean res;
+    end Predicate;
+  algorithm
+    for eq in eql loop
+      if containsExp(eq, func) then
+        res := true;
+        return;
+      end if;
+    end for;
+
+    res := false;
+  end containsExpList;
+
+  function replaceIteratorList
+    input output list<Equation> eql;
+    input InstNode iterator;
+    input Expression value;
+  algorithm
+    eql := mapExpList(eql,
+      function Expression.replaceIterator(iterator = iterator, iteratorValue = value));
+  end replaceIteratorList;
+
   function isConnect
     input Equation eq;
     output Boolean isConnect;
@@ -674,6 +1074,35 @@ public
       else false;
     end match;
   end isConnect;
+
+  function sizeOfList
+    input list<Equation> eqs;
+    output Integer size = 0;
+  algorithm
+    for eq in eqs loop
+      size := size + sizeOf(eq);
+    end for;
+  end sizeOfList;
+
+  function sizeOf
+    input Equation eq;
+    output Integer size;
+  algorithm
+    size := matchcontinue eq
+      case EQUALITY() then Type.sizeOf(eq.ty);
+      case ARRAY_EQUALITY() then Type.sizeOf(eq.ty);
+      case CONNECT() then Type.sizeOf(Expression.typeOf(eq.lhs));
+      case FOR()
+        algorithm
+          size := Type.sizeOf(Expression.typeOf(Util.getOption(eq.range)));
+        then
+          size * sizeOfList(eq.body);
+
+      case IF() then Branch.sizeOf(listHead(eq.branches));
+      case WHEN() then Branch.sizeOf(listHead(eq.branches));
+      else 0;
+    end matchcontinue;
+  end sizeOf;
 
   function toString
     input Equation eq;
@@ -717,14 +1146,6 @@ public
         then
           s;
 
-      case CREF_EQUALITY()
-        algorithm
-          s := IOStream.append(s, ComponentRef.toString(eq.lhs));
-          s := IOStream.append(s, " = ");
-          s := IOStream.append(s, ComponentRef.toString(eq.rhs));
-        then
-          s;
-
       case ARRAY_EQUALITY()
         algorithm
           s := IOStream.append(s, Expression.toString(eq.lhs));
@@ -737,7 +1158,7 @@ public
         algorithm
           s := IOStream.append(s, "connect(");
           s := IOStream.append(s, Expression.toString(eq.lhs));
-          s := IOStream.append(s, " = ");
+          s := IOStream.append(s, ", ");
           s := IOStream.append(s, Expression.toString(eq.rhs));
           s := IOStream.append(s, ")");
         then
@@ -871,14 +1292,6 @@ public
         then
           s;
 
-      case CREF_EQUALITY()
-        algorithm
-          s := IOStream.append(s, ComponentRef.toFlatString(eq.lhs));
-          s := IOStream.append(s, " = ");
-          s := IOStream.append(s, ComponentRef.toFlatString(eq.rhs));
-        then
-          s;
-
       case ARRAY_EQUALITY()
         algorithm
           s := IOStream.append(s, Expression.toFlatString(eq.lhs));
@@ -891,7 +1304,7 @@ public
         algorithm
           s := IOStream.append(s, "connect(");
           s := IOStream.append(s, Expression.toFlatString(eq.lhs));
-          s := IOStream.append(s, " = ");
+          s := IOStream.append(s, ", ");
           s := IOStream.append(s, Expression.toFlatString(eq.rhs));
           s := IOStream.append(s, ")");
         then
@@ -900,7 +1313,7 @@ public
       case FOR()
         algorithm
           s := IOStream.append(s, "for ");
-          s := IOStream.append(s, InstNode.name(eq.iterator));
+          s := IOStream.append(s, Util.makeQuotedIdentifier(InstNode.name(eq.iterator)));
 
           if isSome(eq.range) then
             s := IOStream.append(s, " in ");
@@ -981,6 +1394,8 @@ public
 
       else IOStream.append(s, "#UNKNOWN EQUATION#");
     end match;
+
+    s := FlatModelicaUtil.appendElementSourceComment(source(eq), s);
   end toFlatStream;
 
   function toFlatStreamList

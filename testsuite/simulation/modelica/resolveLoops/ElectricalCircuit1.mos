@@ -1,6 +1,7 @@
 // name:      ElectricalCircuit1
 // keywords:  resolveLoops
 // status:    correct
+// cflags: -d=-newInst
 //
 
 loadModel(Modelica, {"3.2.1"}); getErrorString();
@@ -35,45 +36,49 @@ res := OpenModelica.Scripting.compareSimulationResults("ElectricalCircuit1_res.m
 // "Notification: Model statistics after passing the front-end and creating the data structures used by the back-end:
 //  * Number of equations: 89
 //  * Number of variables: 89
-// Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
+// Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions(\"-d=initialization\").
 // Notification: Model statistics after passing the back-end for initialization:
 //  * Number of independent subsystems: 2
 //  * Number of states: 0 ()
 //  * Number of discrete variables: 0 ('-d=discreteinfo' for list of discrete vars)
 //  * Number of discrete states: 0 ('-d=discreteinfo' for list of discrete states)
+//  * Number of clocked states: 0 ('-d=discreteinfo' for list of clocked states)
 //  * Top-level inputs: 0
-// Notification: Strong component statistics for initialization (27):
-//  * Single equations (assignments): 23
+// Notification: Strong component statistics for initialization (32):
+//  * Single equations (assignments): 28
 //  * Array equations: 0
 //  * Algorithm blocks: 0
 //  * Record equations: 0
 //  * When equations: 0
 //  * If-equations: 0
-//  * Equation systems (linear and non-linear blocks): 0
+//  * Equation systems (not torn): 0
 //  * Torn equation systems: 4
 //  * Mixed (continuous/discrete) equation systems: 0
 // Notification: Torn system details for strict tearing set:
-//  * Linear torn systems: 4 {(1,100.0%) 5,(1,100.0%) 3,(1,100.0%) 3,(1,100.0%) 3}
-//  * Non-linear torn systems: 0
+//  * Linear torn systems (#iteration vars, #inner vars, density): 4 systems
+//    {(1,7,100.0%), (1,2,100.0%), (1,2,100.0%), (1,2,100.0%)}
+//  * Non-linear torn systems (#iteration vars, #inner vars): 0 systems
 // Notification: Model statistics after passing the back-end for simulation:
-//  * Number of independent subsystems: 5
+//  * Number of independent subsystems: 7
 //  * Number of states: 2 (C2.v,C3.v)
 //  * Number of discrete variables: 0 ('-d=discreteinfo' for list of discrete vars)
 //  * Number of discrete states: 0 ('-d=discreteinfo' for list of discrete states)
+//  * Number of clocked states: 0 ('-d=discreteinfo' for list of clocked states)
 //  * Top-level inputs: 0
-// Notification: Strong component statistics for simulation (17):
-//  * Single equations (assignments): 13
+// Notification: Strong component statistics for simulation (23):
+//  * Single equations (assignments): 19
 //  * Array equations: 0
 //  * Algorithm blocks: 0
 //  * Record equations: 0
 //  * When equations: 0
 //  * If-equations: 0
-//  * Equation systems (linear and non-linear blocks): 0
+//  * Equation systems (not torn): 0
 //  * Torn equation systems: 4
 //  * Mixed (continuous/discrete) equation systems: 0
 // Notification: Torn system details for strict tearing set:
-//  * Linear torn systems: 4 {(1,100.0%) 5,(1,100.0%) 3,(1,100.0%) 3,(1,100.0%) 3}
-//  * Non-linear torn systems: 0
+//  * Linear torn systems (#iteration vars, #inner vars, density): 4 systems
+//    {(1,6,100.0%), (1,2,100.0%), (1,2,100.0%), (1,2,100.0%)}
+//  * Non-linear torn systems (#iteration vars, #inner vars): 0 systems
 // "
 // {"Files Equal!"}
 // endResult

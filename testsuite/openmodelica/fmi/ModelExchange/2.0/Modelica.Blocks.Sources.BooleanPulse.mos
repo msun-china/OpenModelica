@@ -2,6 +2,7 @@
 // keywords: simulation MSL Examples
 // status: correct
 // teardown_command: rm -rf binaries sources modelDescription.xml Modelica_Blocks_Sources_BooleanPulse.fmu Modelica_Blocks_Sources_BooleanPulse_* Modelica.Blocks.Sources.BooleanPulse_* Modelica_Blocks_Sources_BooleanPulse_me_FMU.mo Modelica_Blocks_Sources_BooleanPulse.libs Modelica_Blocks_Sources_BooleanPulse.lib Modelica_Blocks_Sources_BooleanPulse.so Modelica_Blocks_Sources_BooleanPulse.dll Modelica_Blocks_Sources_BooleanPulse.c Modelica_Blocks_Sources_BooleanPulse.makefile
+// cflags: -d=-newInst
 // Simulation Results
 // Modelica Standard Library
 //
@@ -24,7 +25,7 @@ val(y, 1);
 // Result:
 // true
 // "Modelica.Blocks.Sources.BooleanPulse.fmu"
-// "[Modelica 3.2.1/Blocks/Sources.mo:2790:5-2791:39:writable] Warning: Parameter period has no value, and is fixed during initialization (fixed=true), using available start value (start=1.0) as default value.
+// "[Modelica 3.2.1+maint.om/Blocks/Sources.mo:2790:5-2791:39:writable] Warning: Parameter period has no value, and is fixed during initialization (fixed=true), using available start value (start=1.0) as default value.
 // "
 // "Modelica_Blocks_Sources_BooleanPulse_me_FMU.mo"
 // ""
@@ -47,7 +48,7 @@ val(y, 1);
 // LOG_SUCCESS            | info    | The simulation finished successfully.
 // "
 // end SimulationResult;
-// "[Modelica 3.2.1/Blocks/Sources.mo:2790:5-2791:39:writable] Warning: Parameter period has no value, and is fixed during initialization (fixed=true), using available start value (start=1.0) as default value.
+// "[Modelica 3.2.1+maint.om/Blocks/Sources.mo:2790:5-2791:39:writable] Warning: Parameter period has no value, and is fixed during initialization (fixed=true), using available start value (start=1.0) as default value.
 // "
 // 1.0
 // 1.0

@@ -2,9 +2,11 @@
 // keywords: synchronous, algebraic loop, model structure, analytic Jacobian
 // status: correct
 // teardown_command: rm -f *CSTRModel* modelDescription.tmp.xml
+// cflags: -d=-newInst
 
 setCommandLineOptions("+simCodeTarget=Cpp");
 setCommandLineOptions("--std=3.3");
+setCommandLineOptions("--exportClocksInModeldescription=true"); getErrorString();
 
 loadFile("CSTR.mo"); getErrorString();
 loadString("
@@ -43,17 +45,19 @@ getErrorString();
 // true
 // true
 // true
-// "Notification: Automatically loaded package Modelica 3.2.2 due to uses annotation.
-// Notification: Automatically loaded package Complex 3.2.2 due to uses annotation.
-// Notification: Automatically loaded package ModelicaServices 3.2.2 due to uses annotation.
+// ""
+// true
+// "Notification: Automatically loaded package Modelica 3.2.2 due to uses annotation from CSTR.
+// Notification: Automatically loaded package Complex 3.2.2 due to uses annotation from Modelica.
+// Notification: Automatically loaded package ModelicaServices 3.2.2 due to uses annotation from Modelica.
 // "
 // true
 // ""
 // true
 // ""
 // "CSTRModel.fmu"
-// "[openmodelica/cppruntime/fmu/modelExchange/2.0/CSTR.mo:24:3-28:72:writable] Warning: Variable cA has attribute stateSelect=StateSelect.always, but was selected as a continuous variable.
-// [openmodelica/cppruntime/fmu/modelExchange/2.0/CSTR.mo:24:3-28:72:writable] Warning: Variable $outputAlias_cA.$pDERFMIDER.dummyVarFMIDER has attribute stateSelect=StateSelect.always, but was selected as a continuous variable.
+// "[openmodelica/cppruntime/fmu/modelExchange/2.0/CSTR.mo:24:3-28:72:writable] Warning: Variable cA has attribute stateSelect=StateSelect.always, but can't be selected as a state.
+// [openmodelica/cppruntime/fmu/modelExchange/2.0/CSTR.mo:24:3-28:72:writable] Warning: Variable $outputAlias_cA.$pDERFMIDER.dummyVarFMIDER has attribute stateSelect=StateSelect.always, but can't be selected as a state.
 // "
 // 0
 // "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -66,6 +70,44 @@ getErrorString();
 //   <ModelExchange
 //     modelIdentifier=\"CSTRModel\" providesDirectionalDerivative=\"true\">
 //   </ModelExchange>
+//   <UnitDefinitions>
+//     <Unit name=\"s\">
+//       <BaseUnit s=\"1\" />
+//     </Unit>
+//     <Unit name=\"kg/m3\">
+//       <BaseUnit m=\"-3\" kg=\"1\" />
+//     </Unit>
+//     <Unit name=\"kg\">
+//       <BaseUnit kg=\"1\" />
+//     </Unit>
+//     <Unit name=\"W/(m2.K)\">
+//       <BaseUnit s=\"-3\" K=\"-1\" kg=\"1\" />
+//     </Unit>
+//     <Unit name=\"m3\">
+//       <BaseUnit m=\"3\" />
+//     </Unit>
+//     <Unit name=\"J/mol\">
+//       <BaseUnit mol=\"-1\" m=\"2\" s=\"-2\" kg=\"1\" />
+//     </Unit>
+//     <Unit name=\"J/(kg.K)\">
+//       <BaseUnit m=\"2\" s=\"-2\" K=\"-1\" />
+//     </Unit>
+//     <Unit name=\"m2\">
+//       <BaseUnit m=\"2\" />
+//     </Unit>
+//     <Unit name=\"1/h\">
+//       <BaseUnit s=\"-1\" factor=\"0.0002777777777777778\" />
+//     </Unit>
+//     <Unit name=\"kJ/h\">
+//       <BaseUnit m=\"2\" s=\"-3\" kg=\"1\" factor=\"0.2777777777777778\" />
+//     </Unit>
+//     <Unit name=\"mol/l\">
+//       <BaseUnit mol=\"1\" m=\"-3\" factor=\"1000.0\" />
+//     </Unit>
+//     <Unit name=\"degC\">
+//       <BaseUnit K=\"1\" />
+//     </Unit>
+//   </UnitDefinitions>
 //   <TypeDefinitions>
 //     <Clocks>
 //       <Clock><Inferred
@@ -86,7 +128,7 @@ getErrorString();
 //     <Category name=\"logAll\" />
 //     <Category name=\"logFmi2Call\" />
 //   </LogCategories>
-//   <DefaultExperiment startTime=\"0.0\" stopTime=\"1.0\" tolerance=\"1e-006\"/>
+//   <DefaultExperiment startTime=\"0.0\" stopTime=\"1.0\" tolerance=\"1e-06\"/>
 //   <ModelVariables>
 //   <!-- Index of variable = \"1\" -->
 //   <ScalarVariable
@@ -430,7 +472,7 @@ getErrorString();
 //     variability=\"fixed\"
 //     causality=\"parameter\"
 //     >
-//     <Real start=\"2511944.444444445\"/>
+//     <Real start=\"2511944.444444444\"/>
 //   </ScalarVariable>
 //   <!-- Index of variable = \"37\" -->
 //   <ScalarVariable
@@ -458,7 +500,7 @@ getErrorString();
 //     variability=\"fixed\"
 //     causality=\"parameter\"
 //     >
-//     <Real start=\"934.2000000000001\" min=\"0.0\" unit=\"kg/m3\"/>
+//     <Real start=\"934.2\" min=\"0.0\" unit=\"kg/m3\"/>
 //   </ScalarVariable>
 //   <!-- Index of variable = \"40\" -->
 //   <ScalarVariable

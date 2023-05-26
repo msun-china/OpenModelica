@@ -60,7 +60,6 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.FAILTRACE,
   Flags.CEVAL,
   Flags.CHECK_BACKEND_DAE,
-  Flags.PARMODAUTO,
   Flags.PTHREADS,
   Flags.EVENTS,
   Flags.DUMP_INLINE_SOLVER,
@@ -116,7 +115,6 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.EXEC_HASH,
   Flags.PARAM_DLOW_DUMP,
   Flags.DUMP_ENCAPSULATECONDITIONS,
-  Flags.ON_RELAXATION,
   Flags.SHORT_OUTPUT,
   Flags.COUNT_OPERATIONS,
   Flags.CGRAPH,
@@ -138,7 +136,6 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.GRAPH_INST,
   Flags.GRAPH_INST_RUN_DEP,
   Flags.GRAPH_INST_GEN_GRAPH,
-  Flags.GRAPH_INST_SHOW_GRAPH,
   Flags.DUMP_CONST_REPL,
   Flags.SHOW_EQUATION_SOURCE,
   Flags.LS_ANALYTIC_JACOBIAN,
@@ -157,8 +154,6 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.RESOLVE_LOOPS_DUMP,
   Flags.DISABLE_WINDOWS_PATH_CHECK_WARNING,
   Flags.DISABLE_RECORD_CONSTRUCTOR_OUTPUT,
-  Flags.DUMP_TRANSFORMED_MODELICA_MODEL,
-  Flags.EVALUATE_CONST_FUNCTIONS,
   Flags.IMPL_ODE,
   Flags.EVAL_FUNC_DUMP,
   Flags.PRINT_STRUCTURAL,
@@ -181,22 +176,15 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.USEMPI,
   Flags.DUMP_CSE,
   Flags.DUMP_CSE_VERBOSE,
-  Flags.ADD_DER_ALIASES,
-  Flags.DISABLE_COMSUBEXP,
   Flags.NO_START_CALC,
-  Flags.NO_PARTITIONING,
   Flags.CONSTJAC,
-  Flags.REDUCE_DYN_OPT,
   Flags.VISUAL_XML,
-  Flags.ADD_SCALED_VARS,
-  Flags.ADD_SCALED_VARS_INPUT,
   Flags.VECTORIZE,
   Flags.CHECK_EXT_LIBS,
   Flags.RUNTIME_STATIC_LINKING,
   Flags.SORT_EQNS_AND_VARS,
   Flags.DUMP_SIMPLIFY_LOOPS,
   Flags.DUMP_RTEARING,
-  Flags.DIS_SIMP_FUN,
   Flags.DIS_SYMJAC_FMI20,
   Flags.EVAL_OUTPUT_ONLY,
   Flags.HARDCODED_START_VALUES,
@@ -248,9 +236,20 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.DUMP_JL,
   Flags.DUMP_ASSC,
   Flags.SPLIT_CONSTANT_PARTS_SYMJAC,
-  Flags.NF_DUMP_FLAT,
   Flags.DUMP_FORCE_FMI_ATTRIBUTES,
-  Flags.DUMP_FORCE_FMI_INTERNAL_VARIABLES
+  Flags.DUMP_DATARECONCILIATION,
+  Flags.ARRAY_CONNECT,
+  Flags.COMBINE_SUBSCRIPTS,
+  Flags.ZMQ_LISTEN_TO_ALL,
+  Flags.DUMP_CONVERSION_RULES,
+  Flags.PRINT_RECORD_TYPES,
+  Flags.DUMP_SIMPLIFY,
+  Flags.DUMP_BACKEND_CLOCKS,
+  Flags.DUMP_SET_BASED_GRAPHS,
+  Flags.MERGE_COMPONENTS,
+  Flags.DUMP_SLICE,
+  Flags.VECTORIZE_BINDINGS,
+  Flags.DUMP_EVENTS
 };
 
 protected
@@ -303,7 +302,6 @@ constant list<Flags.ConfigFlag> allConfigFlags = {
   Flags.DELAY_BREAK_LOOP,
   Flags.TEARING_METHOD,
   Flags.TEARING_HEURISTIC,
-  Flags.DISABLE_LINEAR_TEARING,
   Flags.SCALARIZE_MINMAX,
   Flags.STRICT,
   Flags.SCALARIZE_BINDINGS,
@@ -318,15 +316,11 @@ constant list<Flags.ConfigFlag> allConfigFlags = {
   Flags.PROFILING_LEVEL,
   Flags.RESHUFFLE,
   Flags.GENERATE_DYN_OPTIMIZATION_PROBLEM,
-  Flags.CSE_CALL,
-  Flags.CSE_BINARY,
-  Flags.CSE_EACHCALL,
   Flags.MAX_SIZE_FOR_SOLVE_LINIEAR_SYSTEM,
   Flags.CPP_FLAGS,
   Flags.REMOVE_SIMPLE_EQUATIONS,
   Flags.DYNAMIC_TEARING,
   Flags.SYM_SOLVER,
-  Flags.ADD_TIME_AS_STATE,
   Flags.LOOP2CON,
   Flags.FORCE_TEARING,
   Flags.SIMPLIFY_LOOPS,
@@ -378,7 +372,7 @@ constant list<Flags.ConfigFlag> allConfigFlags = {
   Flags.LABELED_REDUCTION,
   Flags.DISABLE_EXTRA_LABELING,
   Flags.LOAD_MSL_MODEL,
-  Flags.Load_PACKAGE_FILE,
+  Flags.LOAD_PACKAGE_FILE,
   Flags.BUILDING_FMU,
   Flags.BUILDING_MODEL,
   Flags.POST_OPT_MODULES_DAE,
@@ -390,6 +384,9 @@ constant list<Flags.ConfigFlag> allConfigFlags = {
   Flags.LINEARIZATION_DUMP_LANGUAGE,
   Flags.NO_ASSC,
   Flags.FULL_ASSC,
+  Flags.REAL_ASSC,
+  Flags.INIT_ASSC,
+  Flags.MAX_SIZE_ASSC,
   Flags.USE_ZEROMQ_IN_SIM,
   Flags.ZEROMQ_PUB_PORT,
   Flags.ZEROMQ_SUB_PORT,
@@ -397,8 +394,24 @@ constant list<Flags.ConfigFlag> allConfigFlags = {
   Flags.ZEROMQ_SERVER_ID,
   Flags.ZEROMQ_CLIENT_ID,
   Flags.FMI_VERSION,
-  Flags.FLAT_MODELICA
-
+  Flags.FLAT_MODELICA,
+  Flags.FMI_FILTER,
+  Flags.FMI_SOURCES,
+  Flags.FMI_FLAGS,
+  Flags.FMU_CMAKE_BUILD,
+  Flags.NEW_BACKEND,
+  Flags.PARMODAUTO,
+  Flags.INTERACTIVE_PORT,
+  Flags.ALLOW_NON_STANDARD_MODELICA,
+  Flags.EXPORT_CLOCKS_IN_MODELDESCRIPTION,
+  Flags.LINK_TYPE,
+  Flags.TEARING_ALWAYS_DERIVATIVES,
+  Flags.DUMP_FLAT_MODEL,
+  Flags.SIMULATION,
+  Flags.OBFUSCATE,
+  Flags.FMU_RUNTIME_DEPENDS,
+  Flags.FRONTEND_INLINE,
+  Flags.EXPOSE_LOCAL_IOS
 };
 
 public function new
@@ -419,8 +432,6 @@ end saveFlags;
 
 protected function createConfigFlags
   output array<Flags.FlagData> configFlags;
-protected
-  Integer count, index = 0;
 algorithm
   configFlags := listArray(list(flag.defaultValue for flag in allConfigFlags));
 end createConfigFlags;
@@ -436,9 +447,6 @@ public function loadFlags
    hasn't been created yet."
   input Boolean initialize = true;
   output Flags.Flag flags;
-protected
-  array<Boolean> debug_flags;
-  array<Flags.FlagData> config_flags;
 algorithm
   try
     flags := Flags.getFlags();
@@ -534,7 +542,6 @@ public function set
 protected
   array<Boolean> debug_flags;
   array<Flags.FlagData> config_flags;
-  Flags.Flag flags;
 algorithm
   Flags.FLAGS(debug_flags, config_flags) := loadFlags();
   (debug_flags, outOldValue) := updateDebugFlagArray(debug_flags, inValue, inFlag);
@@ -606,8 +613,8 @@ end updateConfigFlagArray;
 
 public function readArgs
   "Reads the command line arguments to the compiler and sets the flags
-  accordingly. Returns a list of arguments that were not consumed, such as the
-  model filename."
+   accordingly. Returns a list of arguments that were not consumed, such as the
+   model filename."
   input list<String> inArgs;
   output list<String> outArgs = {};
 protected
@@ -633,20 +640,23 @@ algorithm
   end while;
 
   outArgs := List.append_reverse(outArgs, rest_args);
-  _ := List.map2(outArgs,System.iconv,"UTF-8","UTF-8");
+  _ := List.map2(outArgs, System.iconv, "UTF-8", "UTF-8");
   Error.assertionOrAddSourceMessage(numError == Error.getNumErrorMessages(), Error.UTF8_COMMAND_LINE_ARGS, {}, Util.dummyInfo);
   saveFlags(flags);
+
+  // after reading all flags, handle the deprecated ones
+  handleDeprecatedFlags();
 end readArgs;
 
 protected function readArg
-  "Reads a single command line argument. Returns true if the argument was not
+  "Reads a single command line argument. Returns true if the argument was
   consumed, otherwise false."
   input String inArg;
   input Flags.Flag inFlags;
   output Boolean outConsumed;
 protected
   String flagtype;
-  Integer len, pos;
+  Integer len;
 algorithm
   flagtype := stringGetStringChar(inArg, 1);
   len := stringLength(inArg);
@@ -1084,6 +1094,70 @@ algorithm
   Flags.CONFIG_FLAG(index = index2) := inFlag2;
   outEqualIndex := intEq(index1, index2);
 end configFlagsIsEqualIndex;
+
+protected function handleDeprecatedFlags
+  "Gives warnings when deprecated flags are used. Sets newer flags if
+   appropriate."
+protected
+  list<String> remaining_flags;
+algorithm
+  // At some point in the future remove all these flags and do the checks in
+  // parseConfigFlag or something like that...
+
+  // DEBUG FLAGS
+  if Flags.isSet(Flags.NF_UNITCHECK) then
+    disableDebug(Flags.NF_UNITCHECK);
+    setConfigBool(Flags.UNIT_CHECKING, true);
+    Error.addMessage(Error.DEPRECATED_FLAG, {"-d=frontEndUnitCheck", "--unitChecking"});
+  end if;
+  if Flags.isSet(Flags.OLD_FE_UNITCHECK) then
+    disableDebug(Flags.OLD_FE_UNITCHECK);
+    setConfigBool(Flags.UNIT_CHECKING, true);
+    Error.addMessage(Error.DEPRECATED_FLAG, {"-d=oldFrontEndUnitCheck", "--unitChecking"});
+  end if;
+  if Flags.isSet(Flags.INTERACTIVE_TCP) then
+    disableDebug(Flags.INTERACTIVE_TCP);
+    setConfigString(Flags.INTERACTIVE, "tcp");
+    Error.addMessage(Error.DEPRECATED_FLAG, {"-d=interactive", "--interactive=tcp"});
+    // The error message might get lost, so also print it directly here.
+    print("The flag -d=interactive is depreciated. Please use --interactive=tcp instead.\n");
+  end if;
+  if Flags.isSet(Flags.INTERACTIVE_CORBA) then
+    disableDebug(Flags.INTERACTIVE_CORBA);
+    setConfigString(Flags.INTERACTIVE, "corba");
+    Error.addMessage(Error.DEPRECATED_FLAG, {"-d=interactiveCorba", "--interactive=corba"});
+    // The error message might get lost, so also print it directly here.
+    print("The flag -d=interactiveCorba is depreciated. Please use --interactive=corba instead.\n");
+  end if;
+  // add other deprecated flags here...
+
+  // CONFIG_FLAGS
+  remaining_flags := {};
+  for flag in Flags.getConfigStringList(Flags.PRE_OPT_MODULES) loop
+    if flag == "unitChecking" then
+      setConfigBool(Flags.UNIT_CHECKING, true);
+      Error.addMessage(Error.DEPRECATED_FLAG, {"--preOptModules=unitChecking", "--unitChecking"});
+    //elseif flag ==
+    // add other deprecated flags here...
+    else
+      remaining_flags := flag :: remaining_flags;
+    end if;
+  end for;
+  setConfigStringList(Flags.PRE_OPT_MODULES, listReverse(remaining_flags));
+  remaining_flags := {};
+  for flag in Flags.getConfigStringList(Flags.PRE_OPT_MODULES_ADD) loop
+    if flag == "unitChecking" then
+      setConfigBool(Flags.UNIT_CHECKING, true);
+      Error.addMessage(Error.DEPRECATED_FLAG, {"--preOptModules+=unitChecking", "--unitChecking"});
+    //elseif flag ==
+    // add other deprecated flags here...
+    else
+      remaining_flags := flag :: remaining_flags;
+    end if;
+  end for;
+  setConfigStringList(Flags.PRE_OPT_MODULES_ADD, listReverse(remaining_flags));
+  // add other deprecated flags here...
+end handleDeprecatedFlags;
 
 protected function applySideEffects
   "Some flags have side effects, which are handled by this function."
@@ -1784,6 +1858,9 @@ function flagDataString
   output String str;
 algorithm
   str := match flagData
+    local
+      Integer v;
+
     case Flags.BOOL_FLAG() then boolString(flagData.data);
     case Flags.INT_FLAG() then intString(flagData.data);
     case Flags.INT_LIST_FLAG()
@@ -1792,7 +1869,17 @@ algorithm
     case Flags.REAL_FLAG() then realString(flagData.data);
     case Flags.STRING_FLAG() then flagData.data;
     case Flags.STRING_LIST_FLAG() then stringDelimitList(flagData.data, ",");
-    case Flags.ENUM_FLAG() then Util.tuple21(listGet(flagData.validValues, flagData.data));
+    case Flags.ENUM_FLAG()
+      algorithm
+        for vt in flagData.validValues loop
+          (str, v) := vt;
+          if v == flagData.data then
+            return;
+          end if;
+        end for;
+      then
+        "";
+
     else "";
   end match;
 end flagDataString;
@@ -1807,6 +1894,7 @@ protected
   array<Flags.FlagData> config_flags;
   String name;
   list<String> strl = {};
+  Boolean fvalue;
 algorithm
   try
     Flags.FLAGS(debugFlags = debug_flags, configFlags = config_flags) := loadFlags(false);
@@ -1826,8 +1914,10 @@ algorithm
   end for;
 
   for f in allDebugFlags loop
-    if f.default <> debug_flags[f.index] then
-      strl := f.name :: strl;
+    fvalue := debug_flags[f.index];
+    if f.default <> fvalue then
+      name := if fvalue then f.name else "no" + f.name;
+      strl := name :: strl;
     end if;
   end for;
 

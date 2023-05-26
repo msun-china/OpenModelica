@@ -1,5 +1,6 @@
 //name: forceInlineComplexEq3
 // status: correct
+// cflags: -d=-newInst
 
 setCommandLineOptions("--postOptModules+=forceInlineFunctionInLoops --initOptModules+=forceInlineFunctionInLoops +d=backenddaeinfo,dumpLoops +inlineMethod=append");
 loadString("
@@ -11,7 +12,7 @@ model foo
      output Real y2;
     protected
      Real a = x1 - x2 + 10;
-     Real b = 23*a; 
+     Real b = 23*a;
     algorithm
      y1 := b*x2 - a;
      y2 := 3*x2-5;
@@ -105,11 +106,11 @@ val(x3,{0,1});
 // 3: a$$Pfoo$Pf6:VARIABLE()  type: Real
 // 4: b$$Pfoo$Pf7:VARIABLE()  type: Real
 // 5: y1$$Pfoo$Pf4:VARIABLE()  type: Real
-// 6: x4:VARIABLE()  type: Real
-// 7: a$$Pfoo$Pf2:VARIABLE()  type: Real
-// 8: y2$$Pfoo$Pf1:VARIABLE()  type: Real
-// 9: b$$Pfoo$Pf3:VARIABLE()  type: Real
-// 10: y1$$Pfoo$Pf0:VARIABLE()  type: Real
+// 6: y1$$Pfoo$Pf0:VARIABLE()  type: Real
+// 7: x4:VARIABLE()  type: Real
+// 8: a$$Pfoo$Pf2:VARIABLE()  type: Real
+// 9: y2$$Pfoo$Pf1:VARIABLE()  type: Real
+// 10: b$$Pfoo$Pf3:VARIABLE()  type: Real
 //
 // residual vars (2)
 // 1: x2:VARIABLE()  type: Real
@@ -121,15 +122,15 @@ val(x3,{0,1});
 // 3/3 (1): a$$Pfoo$Pf6 = 10.0 + sin(time) - (x1 + x3 - x2)   [unknown |0|0|0|0|]
 // 4/4 (1): b$$Pfoo$Pf7 = 23.0 * a$$Pfoo$Pf6   [unknown |0|0|0|0|]
 // 5/5 (1): y1$$Pfoo$Pf4 = b$$Pfoo$Pf7 * (x1 + x3 - x2) - a$$Pfoo$Pf6   [unknown |0|0|0|0|]
-// 6/6 (1): x4 = y1$$Pfoo$Pf4   [dynamic |0|0|0|0|]
-// 7/7 (1): a$$Pfoo$Pf2 = 10.0 + 3.0 * x1 + cos(time) - (1.0 + 3.0 * x2 + x3 + (-5.0) * x4)   [unknown |0|0|0|0|]
-// 8/8 (1): y2$$Pfoo$Pf1 = -5.0 + 3.0 * (1.0 + 3.0 * x2 + x3 + (-5.0) * x4)   [unknown |0|0|0|0|]
-// 9/9 (1): b$$Pfoo$Pf3 = 23.0 * a$$Pfoo$Pf2   [unknown |0|0|0|0|]
-// 10/10 (1): y1$$Pfoo$Pf0 = b$$Pfoo$Pf3 * (1.0 + 3.0 * x2 + x3 + (-5.0) * x4) - a$$Pfoo$Pf2   [unknown |0|0|0|0|]
+// 6/6 (1): x1 = y1$$Pfoo$Pf0   [dynamic |0|0|0|0|]
+// 7/7 (1): x4 = y1$$Pfoo$Pf4   [dynamic |0|0|0|0|]
+// 8/8 (1): a$$Pfoo$Pf2 = 10.0 + 3.0 * x1 + cos(time) - (1.0 + 3.0 * x2 + x3 + (-5.0) * x4)   [unknown |0|0|0|0|]
+// 9/9 (1): y2$$Pfoo$Pf1 = -5.0 + 3.0 * (1.0 + 3.0 * x2 + x3 + (-5.0) * x4)   [unknown |0|0|0|0|]
+// 10/10 (1): b$$Pfoo$Pf3 = 23.0 * a$$Pfoo$Pf2   [unknown |0|0|0|0|]
 //
 // residual equations (2)
 // 1/1 (1): x2 = y2$$Pfoo$Pf1   [dynamic |0|0|0|0|]
-// 2/2 (1): x1 = y1$$Pfoo$Pf0   [dynamic |0|0|0|0|]
+// 2/2 (1): y1$$Pfoo$Pf0 = b$$Pfoo$Pf3 * (1.0 + 3.0 * x2 + x3 + (-5.0) * x4) - a$$Pfoo$Pf2   [unknown |0|0|0|0|]
 //
 // record SimulationResult
 //     resultFile = "foo_res.mat",
@@ -141,12 +142,13 @@ val(x3,{0,1});
 // "Notification: Model statistics after passing the front-end and creating the data structures used by the back-end:
 //  * Number of equations: 4
 //  * Number of variables: 4
-// Warning: There are nonlinear iteration variables with default zero start attribute found in NLSJac0. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
+// Warning: There are nonlinear iteration variables with default zero start attribute found in NLSJac0. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions(\"-d=initialization\").
 // Notification: Model statistics after passing the back-end for initialization:
 //  * Number of independent subsystems: 1
 //  * Number of states: 0 ('-d=stateselection' for list of states)
 //  * Number of discrete variables: 0 ('-d=discreteinfo' for list of discrete vars)
 //  * Number of discrete states: 0 ('-d=discreteinfo' for list of discrete states)
+//  * Number of clocked states: 0 ('-d=discreteinfo' for list of clocked states)
 //  * Top-level inputs: 0
 // Notification: Strong component statistics for initialization (1):
 //  * Single equations (assignments): 0
@@ -155,17 +157,19 @@ val(x3,{0,1});
 //  * Record equations: 0
 //  * When equations: 0
 //  * If-equations: 0
-//  * Equation systems (linear and non-linear blocks): 0
+//  * Equation systems (not torn): 0
 //  * Torn equation systems: 1
 //  * Mixed (continuous/discrete) equation systems: 0
 // Notification: Torn system details for strict tearing set:
-//  * Linear torn systems: 0
-//  * Non-linear torn systems: 1 {2 10}
+//  * Linear torn systems (#iteration vars, #inner vars, density): 0 systems
+//  * Non-linear torn systems (#iteration vars, #inner vars): 1 system
+//    {(2,10)}
 // Notification: Model statistics after passing the back-end for simulation:
 //  * Number of independent subsystems: 1
 //  * Number of states: 0 ('-d=stateselection' for list of states)
 //  * Number of discrete variables: 0 ('-d=discreteinfo' for list of discrete vars)
 //  * Number of discrete states: 0 ('-d=discreteinfo' for list of discrete states)
+//  * Number of clocked states: 0 ('-d=discreteinfo' for list of clocked states)
 //  * Top-level inputs: 0
 // Notification: Strong component statistics for simulation (3):
 //  * Single equations (assignments): 2
@@ -174,14 +178,15 @@ val(x3,{0,1});
 //  * Record equations: 0
 //  * When equations: 0
 //  * If-equations: 0
-//  * Equation systems (linear and non-linear blocks): 0
+//  * Equation systems (not torn): 0
 //  * Torn equation systems: 1
 //  * Mixed (continuous/discrete) equation systems: 0
 // Notification: Torn system details for strict tearing set:
-//  * Linear torn systems: 0
-//  * Non-linear torn systems: 1 {2 10}
+//  * Linear torn systems (#iteration vars, #inner vars, density): 0 systems
+//  * Non-linear torn systems (#iteration vars, #inner vars): 1 system
+//    {(2,10)}
 // "
-// {0.07675361072940334,0.07423981665119772}
-// {-4.868670267709003,-4.868661846237771}
+// {0.07675361072940334,0.0742398166511995}
+// {-4.868670267709003,-4.868661846237769}
 // {-4.91813581765761,-4.914352494333452}
 // endResult

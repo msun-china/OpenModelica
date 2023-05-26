@@ -172,7 +172,7 @@ ModelicaClassDialog::ModelicaClassDialog(QWidget *pParent)
   : QDialog(pParent)
 {
   setAttribute(Qt::WA_DeleteOnClose);
-  setWindowTitle(QString(Helper::applicationName).append(" - ").append(Helper::createNewModelicaClass));
+  setWindowTitle(QString("%1 - %2").arg(Helper::applicationName).arg(Helper::createNewModelicaClass));
   setMinimumWidth(400);
   // Create the name label and text box
   mpNameLabel = new Label(Helper::name);
@@ -734,22 +734,19 @@ void SaveAsClassDialog::showHideSaveContentsInOneFileCheckBox(QString text)
 
 /*!
  * \class DuplicateClassDialog
- * \brief Creates a dialog to allow users to duplicate/save as the Modelica class.
+ * \brief Creates a dialog to allow users to duplicate the Modelica class.
  */
 /*!
  * \brief DuplicateClassDialog::DuplicateClassDialog
- * \param saveAs
  * \param pLibraryTreeItem
  * \param pParent
  */
-DuplicateClassDialog::DuplicateClassDialog(bool saveAs, LibraryTreeItem *pLibraryTreeItem, QWidget *pParent)
+DuplicateClassDialog::DuplicateClassDialog(LibraryTreeItem *pLibraryTreeItem, QWidget *pParent)
   : QDialog(pParent), mpLibraryTreeItem(pLibraryTreeItem)
 {
   setMinimumWidth(400);
   setAttribute(Qt::WA_DeleteOnClose);
-  mSaveAs = saveAs;
-  QString heading = mSaveAs ? Helper::saveAs : Helper::duplicate;
-  setWindowTitle(QString("%1 - %2 %3").arg(Helper::applicationName).arg(heading).arg(mpLibraryTreeItem->getNameStructure()));
+  setWindowTitle(QString("%1 - %2 %3").arg(Helper::applicationName, Helper::duplicate, mpLibraryTreeItem->getNameStructure()));
   mpNameLabel = new Label(Helper::name);
   mpNameTextBox = new QLineEdit(mpLibraryTreeItem->getName());
   mpNameTextBox->selectAll();
@@ -998,7 +995,7 @@ void DuplicateClassDialog::syncDuplicatedModelWithOMC(LibraryTreeItem *pLibraryT
       syncDuplicatedModelWithOMC(pLibraryTreeItem->childAt(i));
     }
   }
-  pLibraryTreeItem->setClassInformation(MainWindow::instance()->getOMCProxy()->getClassInformation(pLibraryTreeItem->getNameStructure()));
+  pLibraryTreeItem->updateClassInformation();
 }
 
 /*!
@@ -1008,8 +1005,7 @@ void DuplicateClassDialog::syncDuplicatedModelWithOMC(LibraryTreeItem *pLibraryT
  * \param pSourceLibraryTreeItem
  * \param classText
  */
-void DuplicateClassDialog::folderToOneFilePackage(LibraryTreeItem *pDestinationLibraryTreeItem, LibraryTreeItem *pSourceLibraryTreeItem,
-                                                  QString *classText)
+void DuplicateClassDialog::folderToOneFilePackage(LibraryTreeItem *pDestinationLibraryTreeItem, LibraryTreeItem *pSourceLibraryTreeItem, QString *classText)
 {
   LibraryTreeModel *pLibraryTreeModel = MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel();
   for (int i = 0 ; i < pSourceLibraryTreeItem->childrenSize() ; i++) {
@@ -1022,8 +1018,7 @@ void DuplicateClassDialog::folderToOneFilePackage(LibraryTreeItem *pDestinationL
       QString lineToRemove = QString("within %1;").arg(pDestinationLibraryTreeItem->getNameStructure());
       *classText += StringHandler::removeLine(diffClassText, lineToRemove) + "\n";
     } else {
-      QString afterChildClassText = MainWindow::instance()->getOMCProxy()->listFile(pDestinationChildLibraryTreeItem->getNameStructure(),
-                                                                                    false);
+      QString afterChildClassText = MainWindow::instance()->getOMCProxy()->listFile(pDestinationChildLibraryTreeItem->getNameStructure(), false);
       QString beforeChildClassText = pSourceChildLibraryTreeItem->getClassText(pLibraryTreeModel);
       QString parentClassText = MainWindow::instance()->getOMCProxy()->diffModelicaFileListings(beforeChildClassText, afterChildClassText);
       QString lineToRemove = QString("within %1;").arg(pDestinationLibraryTreeItem->getNameStructure());
@@ -1167,9 +1162,6 @@ void DuplicateClassDialog::duplicateClass()
     syncDuplicatedModelWithOMC(pLibraryTreeItem);
     pLibraryTreeModel->checkIfAnyNonExistingClassLoaded();
     pLibraryTreeModel->showModelWidget(pLibraryTreeItem);
-    if (mSaveAs) {
-      MainWindow::instance()->getLibraryWidget()->saveLibraryTreeItem(pLibraryTreeItem);
-    }
     accept();
   } else {
     QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
@@ -1256,6 +1248,64 @@ void RenameClassDialog::renameClass()
 }
 
 /*!
+ * \class SaveTotalFileDialog
+ * \brief Creates a dialog that shows the options for saveTotalModel.
+ */
+/*!
+ * \brief SaveTotalFileDialog::SaveTotalFileDialog
+ * \param pLibraryTreeItem
+ * \param pParent
+ */
+SaveTotalFileDialog::SaveTotalFileDialog(LibraryTreeItem *pLibraryTreeItem, QWidget *pParent)
+  : QDialog(pParent)
+{
+  mpLibraryTreeItem = pLibraryTreeItem;
+  setAttribute(Qt::WA_DeleteOnClose);
+  setWindowTitle(QString("%1 - Save %2 %3 as Total File").arg(Helper::applicationName, mpLibraryTreeItem->mClassInformation.restriction, mpLibraryTreeItem->getName()));
+  setMinimumWidth(400);
+  // checkboxes
+  mpObfuscateOutputCheckBox = new QCheckBox(tr("Obfuscate output"));
+  mpStripAnnotationsCheckBox = new QCheckBox(tr("Strip annotations"));
+  mpStripCommentsCheckBox = new QCheckBox(tr("Strip comments"));
+  // buttons
+  mpOkButton = new QPushButton(Helper::ok);
+  mpOkButton->setAutoDefault(true);
+  connect(mpOkButton, SIGNAL(clicked()), this, SLOT(saveTotalModel()));
+  mpCancelButton = new QPushButton(Helper::cancel);
+  mpCancelButton->setAutoDefault(false);
+  connect(mpCancelButton, SIGNAL(clicked()), this, SLOT(reject()));
+  mpButtonBox = new QDialogButtonBox(Qt::Horizontal);
+  mpButtonBox->addButton(mpOkButton, QDialogButtonBox::ActionRole);
+  mpButtonBox->addButton(mpCancelButton, QDialogButtonBox::ActionRole);
+  QGridLayout *pMainGridLayout = new QGridLayout;
+  pMainGridLayout->addWidget(mpObfuscateOutputCheckBox, 0, 0);
+  pMainGridLayout->addWidget(mpStripAnnotationsCheckBox, 1, 0);
+  pMainGridLayout->addWidget(mpStripCommentsCheckBox, 2, 0);
+  pMainGridLayout->addWidget(mpButtonBox, 3, 0, 1, 1, Qt::AlignRight);
+  setLayout(pMainGridLayout);
+}
+
+/*!
+ * \brief SaveTotalFileDialog::saveTotalModel
+ * Saves the model as total file.
+ */
+void SaveTotalFileDialog::saveTotalModel()
+{
+  QString fileName;
+  QString name = QString("%1Total").arg(mpLibraryTreeItem->getName());
+  fileName = StringHandler::getSaveFileName(this, tr("%1 - Save %2 %3 as Total File").arg(Helper::applicationName, mpLibraryTreeItem->mClassInformation.restriction,
+                                                                                          mpLibraryTreeItem->getName()), NULL, Helper::omFileTypes, NULL, "mo", &name);
+  if (fileName.isEmpty()) { // if user press ESC
+    reject();
+  } else {
+  // save the model through OMC
+    MainWindow::instance()->getOMCProxy()->saveTotalModel(fileName, mpLibraryTreeItem->getNameStructure(), mpStripAnnotationsCheckBox->isChecked(),
+                                                          mpStripCommentsCheckBox->isChecked(), mpObfuscateOutputCheckBox->isChecked());
+    accept();
+  }
+}
+
+/*!
  * \class InformationDialog
  * \brief Creates a dialog that shows the users the result of OMCProxy::instantiateModel and OMCProxy::checkModel.
  */
@@ -1275,12 +1325,12 @@ InformationDialog::InformationDialog(QString windowTitle, QString informationTex
   TextEditor *pTextEditor = new TextEditor(pParent);
   pTextEditor->setPlainText(informationText);
   if (modelicaTextHighlighter) {
-    ModelicaHighlighter *pModelicaHighlighter = new ModelicaHighlighter(OptionsDialog::instance()->getModelicaEditorPage(),
-                                                                        pTextEditor->getPlainTextEdit());
+    ModelicaHighlighter *pModelicaHighlighter = new ModelicaHighlighter(OptionsDialog::instance()->getModelicaEditorPage(), pTextEditor->getPlainTextEdit());
     Q_UNUSED(pModelicaHighlighter);
   }
   // Create the button
   QPushButton *pOkButton = new QPushButton(Helper::ok);
+  pOkButton->setAutoDefault(true);
   connect(pOkButton, SIGNAL(clicked()), SLOT(close()));
   // set layout
   QHBoxLayout *buttonLayout = new QHBoxLayout;
@@ -1328,6 +1378,150 @@ void InformationDialog::keyPressEvent(QKeyEvent *event)
 }
 
 /*!
+ * \class ConvertClassUsesAnnotationDialog
+ * \brief Creates a dialog that shows list of libraries from the uses annotation that have newer versions available.
+ */
+/*!
+ * \brief ConvertClassUsesAnnotationDialog::ConvertClassUsesAnnotationDialog
+ * \param pLibraryTreeItem
+ * \param pParent
+ */
+ConvertClassUsesAnnotationDialog::ConvertClassUsesAnnotationDialog(LibraryTreeItem *pLibraryTreeItem, QWidget *pParent)
+  : QDialog(pParent), mpLibraryTreeItem(pLibraryTreeItem)
+{
+  setAttribute(Qt::WA_DeleteOnClose);
+  setWindowTitle(QString("%1 - Convert %2 to newer versions of used libraries").arg(Helper::applicationName, mpLibraryTreeItem->getNameStructure()));
+  setMinimumWidth(400);
+  // get the uses annotation
+  mpUsesLibrariesTreeWidget = new QTreeWidget;
+  mpUsesLibrariesTreeWidget->setItemDelegate(new ItemDelegate(mpUsesLibrariesTreeWidget));
+  mpUsesLibrariesTreeWidget->setTextElideMode(Qt::ElideMiddle);
+  mpUsesLibrariesTreeWidget->setColumnCount(3);
+  mpUsesLibrariesTreeWidget->setIndentation(0);
+  QStringList headers;
+  headers << Helper::library << tr("To") << tr("From");
+  mpUsesLibrariesTreeWidget->setHeaderLabels(headers);
+  QList<QList<QString > > usesAnnotation = MainWindow::instance()->getOMCProxy()->getUses(mpLibraryTreeItem->getNameStructure());
+  for (int i = 0 ; i < usesAnnotation.size() ; i++) {
+    const QString libraryName = usesAnnotation.at(i).at(0);
+    const QString libraryVersion = usesAnnotation.at(i).at(1);
+    // get the versions to convert to
+    QList<QString> convertsToVersions = MainWindow::instance()->getOMCProxy()->getAvailablePackageConversionsFrom(libraryName, libraryVersion);
+    if (!convertsToVersions.isEmpty()) {
+      // create a tree widget item
+      QTreeWidgetItem *pUsesLibraryTreeWidgetItem = new QTreeWidgetItem;
+      pUsesLibraryTreeWidgetItem->setCheckState(0, Qt::Checked);
+      mpUsesLibrariesTreeWidget->addTopLevelItem(pUsesLibraryTreeWidgetItem);
+      pUsesLibraryTreeWidgetItem->setText(0, libraryName);
+      // get available installed versions of the library
+      QList<QString> availableVersions = MainWindow::instance()->getOMCProxy()->getAvailableLibraryVersions(libraryName);
+      QComboBox *pComboBox = new QComboBox;
+      foreach (QString convertsToVersion, convertsToVersions) {
+        // show only the installed versions
+        if (availableVersions.contains(convertsToVersion)) {
+          pComboBox->addItem(StringHandler::convertSemVertoReadableString(convertsToVersion), convertsToVersion);
+        }
+      }
+      pComboBox->model()->sort(0);
+      pComboBox->setCurrentIndex(0);
+      mpUsesLibrariesTreeWidget->setItemWidget(pUsesLibraryTreeWidgetItem, 1, pComboBox);
+      mpUsesLibrariesTreeWidget->resizeColumnToContents(1);
+      pUsesLibraryTreeWidgetItem->setText(2, libraryVersion);
+    }
+  }
+  // Progress label & bar
+  mpProgressLabel = new Label(tr("<b>Running conversion(s). Please wait.</b>"));
+  mpProgressLabel->hide();
+  // Create the buttons
+  mpOkButton = new QPushButton(Helper::ok);
+  mpOkButton->setAutoDefault(true);
+  connect(mpOkButton, SIGNAL(clicked()), SLOT(convert()));
+  mpCancelButton = new QPushButton(Helper::cancel);
+  mpCancelButton->setAutoDefault(false);
+  connect(mpCancelButton, SIGNAL(clicked()), SLOT(reject()));
+  // create buttons box
+  mpButtonBox = new QDialogButtonBox(Qt::Horizontal);
+  mpButtonBox->addButton(mpOkButton, QDialogButtonBox::ActionRole);
+  mpButtonBox->addButton(mpCancelButton, QDialogButtonBox::ActionRole);
+  // Create a layout
+  QVBoxLayout *pMainLayout = new QVBoxLayout;
+  pMainLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+  if (mpUsesLibrariesTreeWidget->topLevelItemCount() == 0) {
+    pMainLayout->addWidget(new Label(tr("No new versions of the used libraries are found or there is no uses annotation.")));
+  } else {
+    pMainLayout->addWidget(new Label(tr("Following libraries from the uses annotation have new versions available.")));
+  }
+  pMainLayout->addWidget(mpUsesLibrariesTreeWidget);
+  pMainLayout->addWidget(new Label(tr("Note: If the library that you want to convert to is missing then please install it using File->Manage Libraries->Install Library.")));
+  pMainLayout->addWidget(new Label(tr("The converted class and used library might be reloaded.")));
+  pMainLayout->addWidget(new Label(tr("This operation can take sometime depending on the conversions.")));
+  pMainLayout->addWidget(new Label(tr("Backup your work before starting the conversion.")));
+  QHBoxLayout *pHBoxLayout = new QHBoxLayout;
+  pHBoxLayout->addWidget(mpProgressLabel);
+  pHBoxLayout->addWidget(mpButtonBox, 0, Qt::AlignRight);
+  pMainLayout->addLayout(pHBoxLayout);
+  setLayout(pMainLayout);
+}
+
+/*!
+ * \brief ConvertClassUsesAnnotationDialog::saveLibraryTreeItem
+ * \param pLibraryTreeItem
+ */
+void ConvertClassUsesAnnotationDialog::saveLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem)
+{
+  MainWindow::instance()->getOMCProxy()->save(pLibraryTreeItem->getNameStructure());
+  for (int i = 0; i < pLibraryTreeItem->childrenSize(); i++) {
+    LibraryTreeItem *pChildLibraryTreeItem = pLibraryTreeItem->child(i);
+    if (pChildLibraryTreeItem) {
+      saveLibraryTreeItem(pChildLibraryTreeItem);
+    }
+  }
+}
+
+/*!
+ * \brief ConvertClassUsesAnnotationDialog::convert
+ * Converts the uses annotation libraries to newer versions.
+ */
+void ConvertClassUsesAnnotationDialog::convert()
+{
+  mpProgressLabel->show();
+  mpOkButton->setEnabled(false);
+  repaint(); // repaint the dialog so progresslabel is updated.
+  const QString nameStructure = mpLibraryTreeItem->getNameStructure();
+  bool reloadClass = false;
+  QTreeWidgetItemIterator usesLibrariesIterator(mpUsesLibrariesTreeWidget);
+  while (*usesLibrariesIterator) {
+    QTreeWidgetItem *pUsesLibraryTreeWidgetItem = dynamic_cast<QTreeWidgetItem*>(*usesLibrariesIterator);
+    QComboBox *pComboBox = qobject_cast<QComboBox*>(mpUsesLibrariesTreeWidget->itemWidget(pUsesLibraryTreeWidgetItem, 1));
+    const QString libraryVersion = pComboBox->itemData(pComboBox->currentIndex()).toString();
+    if (!libraryVersion.isEmpty()) {
+      const QString libraryName = pUsesLibraryTreeWidgetItem->text(0);
+      if (MainWindow::instance()->getOMCProxy()->convertPackageToLibrary(nameStructure, libraryName, libraryVersion)) {
+        LibraryTreeItem *pLibraryTreeItem = MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->findLibraryTreeItemOneLevel(libraryName);
+        if (pLibraryTreeItem) {
+          MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->unloadClass(pLibraryTreeItem, false, false);
+        }
+        reloadClass |= true;
+      }
+    }
+    ++usesLibrariesIterator;
+  }
+  LibraryTreeModel *pLibraryTreeModel = MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel();
+  // if reloadClass is set then unload the class and create a LibraryTreeItem for it again.
+  if (reloadClass) {
+    if (mpLibraryTreeItem->isFilePathValid()) {
+      saveLibraryTreeItem(mpLibraryTreeItem);
+    }
+    MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->unloadClass(mpLibraryTreeItem, false, false);
+    pLibraryTreeModel->createLibraryTreeItem(nameStructure, pLibraryTreeModel->getRootLibraryTreeItem(), true, false, true);
+    pLibraryTreeModel->checkIfAnyNonExistingClassLoaded();
+  }
+  // load any dependent libraries
+  pLibraryTreeModel->loadDependentLibraries(MainWindow::instance()->getOMCProxy()->getClassNames());
+  accept();
+}
+
+/*!
  * \class GraphicsViewProperties
  * \brief Creates a dialog that shows the icon/diagram GraphicsView properties.
  */
@@ -1351,27 +1545,23 @@ GraphicsViewProperties::GraphicsViewProperties(GraphicsView *pGraphicsView)
   mpExtentGroupBox = new QGroupBox(Helper::extent);
   mpLeftLabel = new Label(QString(Helper::left).append(":"));
   mpLeftTextBox = new QLineEdit;
-  mpLeftTextBox->setPlaceholderText(QString::number(coOrdinateSystem.getLeft()));
-  if (mpGraphicsView->getCoOrdinateSystem().hasLeft()) {
-    mpLeftTextBox->setText(QString::number(mpGraphicsView->getCoOrdinateSystem().getLeft()));
-  }
+  const ExtentAnnotation &defaultExtent = coOrdinateSystem.getExtent();
+  mpLeftTextBox->setPlaceholderText(QString::number(defaultExtent.at(0).x()));
   mpBottomLabel = new Label(Helper::bottom);
   mpBottomTextBox = new QLineEdit;
-  mpBottomTextBox->setPlaceholderText(QString::number(coOrdinateSystem.getBottom()));
-  if (mpGraphicsView->getCoOrdinateSystem().hasBottom()) {
-    mpBottomTextBox->setText(QString::number(mpGraphicsView->getCoOrdinateSystem().getBottom()));
-  }
+  mpBottomTextBox->setPlaceholderText(QString::number(defaultExtent.at(0).y()));
   mpRightLabel = new Label(QString(Helper::right).append(":"));
   mpRightTextBox = new QLineEdit;
-  mpRightTextBox->setPlaceholderText(QString::number(coOrdinateSystem.getRight()));
-  if (mpGraphicsView->getCoOrdinateSystem().hasRight()) {
-    mpRightTextBox->setText(QString::number(mpGraphicsView->getCoOrdinateSystem().getRight()));
-  }
+  mpRightTextBox->setPlaceholderText(QString::number(defaultExtent.at(1).x()));
   mpTopLabel = new Label(Helper::top);
   mpTopTextBox = new QLineEdit;
-  mpTopTextBox->setPlaceholderText(QString::number(coOrdinateSystem.getTop()));
-  if (mpGraphicsView->getCoOrdinateSystem().hasTop()) {
-    mpTopTextBox->setText(QString::number(mpGraphicsView->getCoOrdinateSystem().getTop()));
+  mpTopTextBox->setPlaceholderText(QString::number(defaultExtent.at(1).y()));
+  if (mpGraphicsView->getCoOrdinateSystem().hasExtent()) {
+    ExtentAnnotation extent = mpGraphicsView->getCoOrdinateSystem().getExtent();
+    mpLeftTextBox->setText(QString::number(extent.at(0).x()));
+    mpBottomTextBox->setText(QString::number(extent.at(0).y()));
+    mpRightTextBox->setText(QString::number(extent.at(1).x()));
+    mpTopTextBox->setText(QString::number(extent.at(1).y()));
   }
   // set the extent group box layout
   QGridLayout *pExtentLayout = new QGridLayout;
@@ -1390,15 +1580,15 @@ GraphicsViewProperties::GraphicsViewProperties(GraphicsView *pGraphicsView)
   mpGridGroupBox = new QGroupBox(Helper::grid);
   mpHorizontalLabel = new Label(QString(Helper::horizontal).append(":"));
   mpHorizontalTextBox = new QLineEdit;
-  mpHorizontalTextBox->setPlaceholderText(QString::number(coOrdinateSystem.getHorizontal()));
-  if (mpGraphicsView->getCoOrdinateSystem().hasHorizontal()) {
-    mpHorizontalTextBox->setText(QString::number(mpGraphicsView->getCoOrdinateSystem().getHorizontal()));
-  }
+  PointAnnotation defaultGrid = coOrdinateSystem.getGrid();
+  mpHorizontalTextBox->setPlaceholderText(QString::number(defaultGrid.x()));
   mpVerticalLabel = new Label(QString(Helper::vertical).append(":"));
   mpVerticalTextBox = new QLineEdit;
-  mpVerticalTextBox->setPlaceholderText(QString::number(coOrdinateSystem.getVertical()));
-  if (mpGraphicsView->getCoOrdinateSystem().hasVertical()) {
-    mpVerticalTextBox->setText(QString::number(mpGraphicsView->getCoOrdinateSystem().getVertical()));
+  mpVerticalTextBox->setPlaceholderText(QString::number(defaultGrid.y()));
+  if (mpGraphicsView->getCoOrdinateSystem().hasGrid()) {
+    PointAnnotation grid = mpGraphicsView->getCoOrdinateSystem().getGrid();
+    mpHorizontalTextBox->setText(QString::number(grid.x()));
+    mpVerticalTextBox->setText(QString::number(grid.y()));
   }
   // set the grid group box layout
   QGridLayout *pGridLayout = new QGridLayout;
@@ -1675,20 +1865,23 @@ void GraphicsViewProperties::saveGraphicsViewProperties()
   // construct a new CoOrdinateSystem
   CoOrdinateSystem newCoOrdinateSystem;
   if (!mpLeftTextBox->text().isEmpty() || !mpBottomTextBox->text().isEmpty() || !mpRightTextBox->text().isEmpty() || !mpTopTextBox->text().isEmpty()) {
-    newCoOrdinateSystem.setLeft(qMin(mpLeftTextBox->text().toDouble(), mpRightTextBox->text().toDouble()));
-    newCoOrdinateSystem.setBottom(qMin(mpBottomTextBox->text().toDouble(), mpTopTextBox->text().toDouble()));
-    newCoOrdinateSystem.setRight(qMax(mpLeftTextBox->text().toDouble(), mpRightTextBox->text().toDouble()));
-    newCoOrdinateSystem.setTop(qMax(mpBottomTextBox->text().toDouble(), mpTopTextBox->text().toDouble()));
+    QString left = mpLeftTextBox->text().isEmpty() ? mpLeftTextBox->placeholderText() : mpLeftTextBox->text();
+    QString bottom = mpBottomTextBox->text().isEmpty() ? mpBottomTextBox->placeholderText() : mpBottomTextBox->text();
+    QString right = mpRightTextBox->text().isEmpty() ? mpRightTextBox->placeholderText() : mpRightTextBox->text();
+    QString top = mpTopTextBox->text().isEmpty() ? mpTopTextBox->placeholderText() : mpTopTextBox->text();
+    QVector<QPointF> extent;
+    extent.append(QPointF(qMin(left.toDouble(), right.toDouble()), qMin(bottom.toDouble(), top.toDouble())));
+    extent.append(QPointF(qMax(left.toDouble(), right.toDouble()), qMax(bottom.toDouble(), top.toDouble())));
+    newCoOrdinateSystem.setExtent(extent);
   }
   if (!mpPreserveAspectRatioComboBox->lineEdit()->text().isEmpty()) {
-    newCoOrdinateSystem.setPreserveAspectRatio(mpPreserveAspectRatioComboBox->currentText());
+    newCoOrdinateSystem.setPreserveAspectRatio(mpPreserveAspectRatioComboBox->currentText().compare(QStringLiteral("true")) == 0);
   }
   if (!mpScaleFactorTextBox->text().isEmpty()) {
-    newCoOrdinateSystem.setInitialScale(mpScaleFactorTextBox->text());
+    newCoOrdinateSystem.setInitialScale(mpScaleFactorTextBox->text().toDouble());
   }
   if (!mpHorizontalTextBox->text().isEmpty() || !mpVersionTextBox->text().isEmpty()) {
-    newCoOrdinateSystem.setHorizontal(mpHorizontalTextBox->text());
-    newCoOrdinateSystem.setVertical(mpVerticalTextBox->text());
+    newCoOrdinateSystem.setGrid(QPointF(mpHorizontalTextBox->text().toDouble(), mpVerticalTextBox->text().toDouble()));
   }
   // save old version
   QString oldVersion = mpGraphicsView->getModelWidget()->getLibraryTreeItem()->mClassInformation.version;
@@ -1806,8 +1999,7 @@ void SaveChangesDialog::listUnSavedClasses(LibraryTreeItem *pLibraryTreeItem)
 void SaveChangesDialog::saveChanges()
 {
   bool saveResult = true;
-  for (int i = 0; i < mpUnsavedClassesListWidget->count(); i++) {
-    QListWidgetItem *pListItem = mpUnsavedClassesListWidget->item(i);
+  foreach (QListWidgetItem *pListItem, mpUnsavedClassesListWidget->selectedItems()) {
     LibraryTreeItem *pLibraryTreeItem;
     pLibraryTreeItem = MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->findLibraryTreeItem(pListItem->text());
     if (pLibraryTreeItem && !MainWindow::instance()->getLibraryWidget()->saveLibraryTreeItem(pLibraryTreeItem)) {
@@ -2163,9 +2355,17 @@ void RenameItemDialog::renameItem()
     if (!mpLibraryTreeItem->getModelWidget()) {
       MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->showModelWidget(mpLibraryTreeItem, false);
     }
-    OMSRenameCommand *pOMSRenameCommand = new OMSRenameCommand(mpLibraryTreeItem, mpNameTextBox->text());
-    mpLibraryTreeItem->getModelWidget()->getUndoStack()->push(pOMSRenameCommand);
-    mpLibraryTreeItem->getModelWidget()->updateModelText();
+    if (mpLibraryTreeItem->isTopLevel()) {
+      mpLibraryTreeItem->getModelWidget()->createOMSimulatorRenameModelUndoCommand(QString("Rename %1").arg(mpLibraryTreeItem->getNameStructure()),
+                                                                                   mpLibraryTreeItem->getNameStructure(), mpNameTextBox->text());
+      mpLibraryTreeItem->getModelWidget()->updateModelText();
+    } else {
+      if (OMSProxy::instance()->rename(mpLibraryTreeItem->getNameStructure(), mpNameTextBox->text())) {
+        QString newEditedCref = QString("%1.%2").arg(mpLibraryTreeItem->parent()->getNameStructure(), mpNameTextBox->text());
+        mpLibraryTreeItem->getModelWidget()->createOMSimulatorUndoCommand(QString("Rename %1").arg(mpLibraryTreeItem->getNameStructure()), true, false,
+                                                                          mpLibraryTreeItem->getNameStructure(), newEditedCref);
+      }
+    }
   } else if (mpLibraryTreeItem->getLibraryType() == LibraryTreeItem::Modelica) {
     qDebug() << "Rename feature not implemented for Modelica library type.";
   } else {
@@ -2184,7 +2384,7 @@ void RenameItemDialog::renameItem()
  * \param pGraphicsView
  * \param pParent
  */
-ComponentNameDialog::ComponentNameDialog(QString name, GraphicsView *pGraphicsView, QWidget *pParent)
+ComponentNameDialog::ComponentNameDialog(const QString &nameStructure, QString name, GraphicsView *pGraphicsView, QWidget *pParent)
   : QDialog(pParent), mpGraphicsView(pGraphicsView)
 {
   setWindowTitle(tr("%1 - Enter Component Name").arg(Helper::applicationName));
@@ -2192,6 +2392,7 @@ ComponentNameDialog::ComponentNameDialog(QString name, GraphicsView *pGraphicsVi
   Label *pNoteLabel = new Label(tr("Please choose a meaningful name for this component, to improve the readability of simulation results."));
   pNoteLabel->setElideMode(Qt::ElideMiddle);
   // Create the name label and text box
+  mNameStructure = nameStructure;
   mpNameLabel = new Label(Helper::name);
   mpNameTextBox = new QLineEdit(name);
   mpNameTextBox->selectAll();
@@ -2247,7 +2448,7 @@ void ComponentNameDialog::updateComponentName()
     return;
   }
   // check for existing component name
-  if (!mpGraphicsView->checkComponentName(mpNameTextBox->text())) {
+  if (!mpGraphicsView->checkElementName(mNameStructure, mpNameTextBox->text())) {
     QMessageBox::information(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName).arg(Helper::information),
                              GUIMessages::getMessage(GUIMessages::SAME_COMPONENT_NAME).arg(mpNameTextBox->text()), Helper::ok);
     return;

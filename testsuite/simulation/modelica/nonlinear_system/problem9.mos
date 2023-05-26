@@ -1,6 +1,7 @@
 // name: problem9
 // status: correct
 // teardown_command: rm -f nonlinear_system.problem9* output.log
+// cflags: -d=-newInst
 
 loadFile("nlsTestPackage.mo"); getErrorString();
 simulate(nonlinear_system.problem9, stopTime=1); getErrorString();
@@ -22,7 +23,7 @@ val(y,1.0);
 // LOG_SUCCESS       | info    | The simulation finished successfully.
 // "
 // end SimulationResult;
-// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->OMCFlags, in OMNotebook call setCommandLineOptions("-d=initialization").
+// "Warning: The initial conditions are not fully specified. For more information set -d=initialization. In OMEdit Tools->Options->Simulation->Show additional information from the initialization process, in OMNotebook call setCommandLineOptions(\"-d=initialization\").
 // "
 // 0.9
 // 1.275382007893516

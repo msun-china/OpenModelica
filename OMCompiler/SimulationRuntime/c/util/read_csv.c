@@ -35,10 +35,7 @@
 #include "read_matlab4.h"
 #include "libcsv.h"
 #include "omc_file.h"
-
-#if defined(__cplusplus)
-#include <sstream>
-#endif
+#include "omc_numbers.h"
 
 struct cell_row_count
 {
@@ -109,10 +106,10 @@ int read_csv_dataset_size(const char* filename)
   }
 
   /* determine delim */
-  fread(buf, 1, 5, f);
+  omc_fread(buf, 1, 5, f, 0);
   if (0 == strcmp(buf, "\"sep="))
   {
-    fread(&delim, 1, 1, f);
+    omc_fread(&delim, 1, 1, f, 0);
     offset = 8;
   }
   fseek(f, offset, SEEK_SET);
@@ -121,7 +118,7 @@ int read_csv_dataset_size(const char* filename)
   csv_set_realloc_func(&p, realloc);
   csv_set_free_func(&p, free);
   do {
-    size_t len = fread(buf, 1, buf_size, f);
+    size_t len = omc_fread(buf, 1, buf_size, f, 1);
     if (len != buf_size && !feof(f)) {
       csv_free(&p);
       fclose(f);
@@ -146,7 +143,7 @@ char** read_csv_variables(FILE *fin, int *length, unsigned char delim)
   csv_set_realloc_func(&p, realloc);
   csv_set_free_func(&p, free);
   do {
-    size_t len = fread(buf, 1, buf_size, fin);
+    size_t len = omc_fread(buf, 1, buf_size, fin, 1);
     if (len != buf_size && !feof(fin)) {
       csv_free(&p);
       return NULL;
@@ -182,20 +179,11 @@ static void add_cell(void *data, size_t len, void *t)
     body->res[body->size++] = 0.0;
     return;
   }
-#if !defined(__cplusplus)
-  body->res[body->size++] = data ? strtod((const char*)data,&endptr) : 0;
+  body->res[body->size++] = data ? om_strtod((const char*)data,&endptr) : 0;
   if (*endptr) {
     fprintf(stderr,"Found non-double data in csv result-file: %s\n", (char*) data);
     body->error = 1;
   }
-#else
-  std::istringstream str((const char*)data);
-  str >> body->res[body->size++];
-  if (!str.eof()) {
-    fprintf(stderr,"Found non-double data in csv result-file: %s\n", (char*) data);
-    body->error = 1;
-  }
-#endif
 }
 
 static void add_row(int c, void *t)
@@ -224,10 +212,10 @@ double* read_csv_dataset_var(const char *filename, const char *var, int dimsize)
   }
 
   /* determine delim */
-  fread(buf, 1, 5, fin);
+  omc_fread(buf, 1, 5, fin, 0);
   if (0 == strcmp(buf, "\"sep="))
   {
-    fread(&delim, 1, 1, fin);
+    omc_fread(&delim, 1, 1, fin, 0);
     offset = 8;
   }
   fseek(fin, offset, SEEK_SET);
@@ -236,7 +224,7 @@ double* read_csv_dataset_var(const char *filename, const char *var, int dimsize)
   csv_set_realloc_func(&p, realloc);
   csv_set_free_func(&p, free);
   do {
-    size_t len = fread(buf, 1, buf_size, fin);
+    size_t len = omc_fread(buf, 1, buf_size, fin, 1);
     if (len != buf_size && !feof(fin)) {
       csv_free(&p);
       fclose(fin);
@@ -264,16 +252,20 @@ struct csv_data* read_csv(const char *filename)
   struct csv_data *res;
   size_t offset = 0;
   unsigned char delim = CSV_COMMA;
+  size_t len;
+
   FILE *fin = omc_fopen(filename, "r");
   if (!fin) {
     return NULL;
   }
 
   /* determine delim */
-  fread(buf, 1, 5, fin);
+  len = omc_fread(buf, 1, 5, fin, 0);
+  // Terminate the string in the buffer to make sure strcmp works as expected.
+  buf[len] = '\0';
   if (0 == strcmp(buf, "\"sep="))
   {
-    fread(&delim, 1, 1, fin);
+    omc_fread(&delim, 1, 1, fin, 0);
     offset = 8;
   }
   fseek(fin, offset, SEEK_SET);
@@ -289,7 +281,7 @@ struct csv_data* read_csv(const char *filename)
   csv_set_realloc_func(&p, realloc);
   csv_set_free_func(&p, free);
   do {
-    size_t len = fread(buf, 1, buf_size, fin);
+    len = omc_fread(buf, 1, buf_size, fin, 1);
     if (len != buf_size && !feof(fin)) {
       csv_free(&p);
       fclose(fin);

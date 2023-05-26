@@ -9,10 +9,12 @@ problem1-trapezoid.mos \
 problem1-imprk.mos \
 problem1-irksco.mos \
 problem1-ida.mos \
+problem1-cvode.mos \
 problem1-symSolverImp.mos \
 problem1-symSolverExp.mos \
 problem1-symSolverImpSsc.mos \
 problem1-symSolverExpSsc.mos \
+problem2-cvode.mos \
 problem2-dasslsteps.mos \
 problem2-impeuler.mos \
 problem2-trapezoid.mos \
@@ -36,6 +38,7 @@ problem4-symSolverExp.mos \
 problem5-symSolverImp.mos \
 problem5-symSolverExp.mos \
 problem6-irksco.mos \
+problem6-cvode.mos \
 problem6-symSolverImp.mos \
 problem6-symSolverExp.mos \
 
@@ -59,6 +62,8 @@ problem5-symSolverImp.mos \
 problem5-symSolverExp.mos \
 problem6-symSolverImp.mos \
 problem6-symSolverExp.mos \
+
+FAILINGTESTFILES = \
 
 # Dependency files that are not .mo .mos or Makefile
 # Add them here or they will be cleaned.

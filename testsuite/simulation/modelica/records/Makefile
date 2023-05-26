@@ -2,7 +2,11 @@ TEST = ../../../rtest -v
 
 TESTFILES = \
 ATotal.mos \
+constVar1.mos \
+constVar2.mos \
+constVar4.mos \
 InOutRecord.mos \
+RecordConstructor1.mos \
 TestComplexSum1.mos \
 TestComplexSum2.mos \
 Ticket5134.mos
@@ -10,7 +14,7 @@ Ticket5134.mos
 # test that currently fail. Move up when fixed. 
 # Run make testfailing
 FAILINGTESTFILES=  \
-
+constVar3.mos \
 
 
 # Dependency files that are not .mo .mos or Makefile

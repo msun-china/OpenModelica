@@ -223,8 +223,7 @@ algorithm
 
         // insert the new components into the BLT instead of the TornSystem, append the updated blocks for the other equations, update matching for the new equations
         numNewSingleEqs = listLength(compsNew)-listLength(tvarIdcs);
-        compsNew = listAppend(compsNew, otherComps);
-        compsTmp = List.replaceAtWithList(compsNew,compIdx-1,compsIn);
+        compsTmp = List.replaceAtWithList(listAppend(compsNew, otherComps),compIdx-1,compsIn);
         ((ass1All,ass2All)) = List.fold2(List.intRange(arrayLength(ass1New)),updateMatching,(listLength(eqsOld),listLength(varsOld)),(ass1New,ass2New),(ass1All,ass2All));
         syst.matching = BackendDAE.MATCHING(ass1All, ass2All, compsTmp);
 
@@ -516,8 +515,8 @@ algorithm
      //BackendDump.dumpVarList(addVarLst,"addVarLst");
      //BackendDump.dumpEquationList(addEqLst,"addEqLst");
 
-   eqsNewOut := listAppend(eqsNewOut,addEqLst);
-   varsNewOut := listAppend(varsNewOut,addVarLst);
+   eqsNewOut := listAppend(eqsNewOut,addEqLst) annotation(__OpenModelica_DisableListAppendWarning=true);
+   varsNewOut := listAppend(varsNewOut,addVarLst) annotation(__OpenModelica_DisableListAppendWarning=true);
        //BackendDump.dumpVarList(varsNewOut,"varsNew");
        //BackendDump.dumpEquationList(eqsNewOut,"eqsNew");
 
@@ -1159,7 +1158,7 @@ algorithm
         aName = "$a"+intString(tornSysIdx)+"_"+intString(resIdx)+"_"+intString(iIdx);
         ty = DAE.T_REAL_DEFAULT;
         aCRef = ComponentReference.makeCrefIdent(aName,ty,{});
-        a_ii = BackendDAE.VAR(aCRef,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),DAE.BCONST(false),NONE(),DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+        a_ii = BackendDAE.VAR(aCRef,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),NONE(),NONE(),DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false,false);
         a_ii = BackendVariable.setVarStartValue(a_ii,DAE.RCONST(0.0));
 
         // build the equations to solve for the coefficients
@@ -1188,7 +1187,7 @@ algorithm
         aName = "$a"+intString(tornSysIdx)+"_"+intString(resIdx)+"_"+intString(iIdx);
         ty = DAE.T_REAL_DEFAULT;
         aCRef = ComponentReference.makeCrefIdent(aName,ty,{});
-        a_ii = BackendDAE.VAR(aCRef,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),DAE.BCONST(false),NONE(),DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+        a_ii = BackendDAE.VAR(aCRef,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),NONE(),NONE(),DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false,false);
         a_ii = BackendVariable.setVarStartValue(a_ii,DAE.RCONST(0.0));
 
         // build the equations to solve for the coefficients
@@ -1412,7 +1411,6 @@ algorithm
     equation
       true = iValue > 0;
       str1 = "$xa"+intString(tornSysIdx)+intString(iValue);
-      _ = "$g"+intString(tornSysIdx)+intString(iValue);
       tVarCRef = listGet(tVarCRefLstIn,iValue);
       tVarCRefLst1 = listDelete(tVarCRefLstIn,iValue);
       replTmp = BackendVarTransform.emptyReplacementsSized(size);
@@ -1474,7 +1472,7 @@ algorithm
   varExp := Expression.crefExp(cRef);
   replacementOut := BackendVarTransform.addReplacement(replacementIn,oVarCRef,varExp,NONE());
   ty := ComponentReference.crefLastType(cRef);
-  replVar := BackendDAE.VAR(cRef,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),DAE.BCONST(false),NONE(),DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+  replVar := BackendDAE.VAR(cRef,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),NONE(),NONE(),DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false,false);
   replVar := BackendVariable.setVarStartValue(replVar,DAE.RCONST(0.0));
   replVarLstOut := replVar::replVarLstIn;
   tplOut := (replVarLstOut,replacementOut);
@@ -1611,8 +1609,8 @@ algorithm
       expLst1 = Expression.allTerms(lhs);
       expLst1 = List.map(expLst1,Expression.negate);
       expLst2 = Expression.allTerms(rhs);
-      expLst1 = listAppend(expLst1,expLst2);
-    then expLst1;
+      expLst2 = listAppend(expLst1,expLst2);
+    then expLst2;
   else
     equation
       print("getSummands failed! for"+BackendDump.equationString(eq)+"\n\n");
@@ -1780,7 +1778,7 @@ protected
   DAE.ComponentRef cr;
 algorithm
   cr := ComponentReference.makeCrefIdent(ident,ty,{});
-  var := BackendDAE.VAR(cr,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),DAE.BCONST(false),NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(), false);
+  var := BackendDAE.VAR(cr,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),NONE(),NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(),false,false);
 end makeVarOfIdent;
 
 protected function getNewChioRow
@@ -1834,7 +1832,7 @@ algorithm
   (detExp,_) := ExpressionSimplify.simplify(detExp);
   detVarName := "$det_a"+intString(iter)+"__"+intString(row-1)+"_"+intString(col-1);
   detCR := ComponentReference.makeCrefIdent(detVarName,ty,{});
-  detAVar := BackendDAE.VAR(detCR,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),DAE.BCONST(false), NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(), false);
+  detAVar := BackendDAE.VAR(detCR,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),NONE(), NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(), false, false);
   detVarExp := Expression.crefExp(detCR);
   detAeq :=  BackendDAE.EQUATION(exp=detVarExp,scalar=detExp,source=DAE.emptyElementSource,attr=BackendDAE.EQ_ATTR_DEFAULT_DYNAMIC);
   matrixB := Array.consToElement(row-1,detVarExp,matrixB);
@@ -1849,7 +1847,7 @@ algorithm
   (detExp,_) := ExpressionSimplify.simplify(detExp);
   detVarName := "$det_b"+intString(iter)+"__"+intString(row-1)+"_"+intString(col-1);
   detCR := ComponentReference.makeCrefIdent(detVarName,ty,{});
-  detAiVar := BackendDAE.VAR(detCR,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),DAE.BCONST(false),NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(), false);
+  detAiVar := BackendDAE.VAR(detCR,BackendDAE.VARIABLE(),DAE.BIDIR(),DAE.NON_PARALLEL(),ty,NONE(),NONE(),{},DAE.emptyElementSource,NONE(),NONE(),NONE(),NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(), false, false);
   detVarExp := Expression.crefExp(detCR);
   detAieq :=  BackendDAE.EQUATION(exp=detVarExp,scalar=detExp,source=DAE.emptyElementSource,attr=BackendDAE.EQ_ATTR_DEFAULT_DYNAMIC);
   arrayUpdate(vecAi,row-1,detVarExp);

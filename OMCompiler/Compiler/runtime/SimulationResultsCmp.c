@@ -228,7 +228,7 @@ static unsigned int cmpData(int isResultCmp, char* varname, DataField *time, Dat
   if (!isResultCmp) {
     fname = (char*) malloc(25 + strlen(prefix) + strlen(varname));
     sprintf(fname, "%s.%s.csv", prefix, varname);
-    fout = fopen(fname,"w");
+    fout = omc_fopen(fname,"w");
     if (fout) {
       fprintf(fout, "time,reference,actual,err,relerr,threshold\n");
     }
@@ -549,7 +549,7 @@ static int writeLogFile(const char *filename,DiffDataField *ddf,const char *f,co
   FILE* fout;
   unsigned int i;
   /* fprintf(stderr, "writeLogFile: %s\n",filename); */
-  fout = fopen(filename, "w");
+  fout = omc_fopen(filename, "w");
   if (!fout)
     return -1;
 
@@ -608,23 +608,21 @@ void* SimulationResultsCmp_compareResults(int isResultCmp, int runningTestsuite,
   /* open files */
   /*  fprintf(stderr, "Open File %s\n", filename); */
   if (UNKNOWN_PLOT == SimulationResultsImpl__openFile(filename,&simresglob_c)) {
-    char *str = (char*) omc_alloc_interface.malloc(25+strlen(filename));
-    void *res = NULL;
-    *str = 0;
-    strcat(strcat(str,"Error opening file: "), filename);
-    res = mmc_mk_scon(str);
-    GC_free(str);
-    return mmc_mk_cons(res,mmc_mk_nil());
+    c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("Error opening file: %s"),&filename,1);
+    if (success) {
+      *success = 0;
+      return mmc_mk_nil();
+    }
+    MMC_THROW();
   }
   /* fprintf(stderr, "Open File %s\n", reffilename); */
   if (UNKNOWN_PLOT == SimulationResultsImpl__openFile(reffilename,&simresglob_ref)) {
-    char *str = (char*) omc_alloc_interface.malloc(35+strlen(reffilename));
-    void *res = NULL;
-    *str = 0;
-    strcat(strcat(str,"Error opening reference file: "), reffilename);
-    res = mmc_mk_scon(str);
-    GC_free(str);
-    return mmc_mk_cons(res,mmc_mk_nil());
+    c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("Error opening reference file: %s"),&reffilename,1);
+    if (success) {
+      *success = 0;
+      return mmc_mk_nil();
+    }
+    MMC_THROW();
   }
 
   size = SimulationResultsImpl__readSimulationResultSize(filename,&simresglob_c);
@@ -640,7 +638,14 @@ void* SimulationResultsCmp_compareResults(int isResultCmp, int runningTestsuite,
   if (ncmpvars==0) {
     suggestReadAll = 1;
     cmpvars = getVars(allvarsref,&ncmpvars);
-    if (ncmpvars==0) return mmc_mk_cons(mmc_mk_scon("Error Get Vars!"),mmc_mk_nil());
+    if (ncmpvars==0) {
+      c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("Error getting variables"),NULL,0);
+      if (success) {
+        *success = 0;
+        return mmc_mk_nil();
+      }
+      MMC_THROW();
+    }
   }
 #ifdef DEBUGOUTPUT
   fprintf(stderr, "Compare Vars:\n");
@@ -653,12 +658,22 @@ void* SimulationResultsCmp_compareResults(int isResultCmp, int runningTestsuite,
   timeVarNameRef = getTimeVarName(allvarsref);
   time = getData(timeVarName,filename,size,suggestReadAll,&simresglob_c,runningTestsuite);
   if (time.n==0) {
-    return mmc_mk_cons(mmc_mk_scon("Error get time!"),mmc_mk_nil());
+    c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("Error getting time"),NULL,0);
+    if (success) {
+      *success = 0;
+      return mmc_mk_nil();
+    }
+    MMC_THROW();
   }
   /* fprintf(stderr, "get reftime\n"); */
   timeref = getData(timeVarNameRef,reffilename,size_ref,suggestReadAll,&simresglob_ref,runningTestsuite);
   if (timeref.n==0) {
-    return mmc_mk_cons(mmc_mk_scon("Error get ref time!"),mmc_mk_nil());
+    c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("Error getting time from reference file"),NULL,0);
+    if (success) {
+      *success = 0;
+      return mmc_mk_nil();
+    }
+    MMC_THROW();
   }
   cmpdiffvars = (char**)omc_alloc_interface.malloc(sizeof(char*)*(ncmpvars));
   /* check if time is larger or less reftime */

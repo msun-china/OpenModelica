@@ -5,7 +5,7 @@
 //
 // Test initialization, simulation with fmi2GetDirectionalDerivative and deinitialization of FMU with OMSimulator
 
-loadModel(Modelica);
+loadModel(Modelica, {"3.2.3"});
 getErrorString();
 
 setCommandLineOptions("-d=newInst,-disableDirectionalDerivatives");
@@ -55,14 +55,14 @@ readFile("directionalDerivatives_systemCall.log");
 // true
 // ""
 // 0
-// "info:    maximum step size for 'test.root': 0.100000
+// "info:    maximum step size for 'test.root': 0.001000
 // info:    Result file: directionalDerivatives.csv (bufferSize=1)
 // info:    Initialization
 // info:    system1.C1.v: 0.0
 // info:    Simulation
-// info:    system1.C1.v: 6.2188841112434e-26
+// info:    system1.C1.v: 0.0
 // info:    Final Statistics for 'test.root':
-//          NumSteps = 12 NumRhsEvals  = 13 NumLinSolvSetups = 3
-//          NumNonlinSolvIters = 12 NumNonlinSolvConvFails = 0 NumErrTestFails = 0
+//          NumSteps = 1001 NumRhsEvals  = 1002 NumLinSolvSetups = 51
+//          NumNonlinSolvIters = 1001 NumNonlinSolvConvFails = 0 NumErrTestFails = 0
 // "
 // endResult

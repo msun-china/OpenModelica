@@ -3,12 +3,16 @@ TEST = ../../../../../rtest -v
 
 TESTFILES = \
 DIC_FMU2_CPP.mos \
+exposeLocalIOs.mos \
+solveOneNonlinearEquationTest.mos \
 testArrayEquations.mos \
 testFMU2MatrixIO.mos \
 testModelDescription.mos \
 testClockDescription.mos \
 testCSTR.mos \
-testDrumBoiler.mos
+testDrumBoiler.mos \
+ticket6296.mos \
+testCombiTable2D.mos
 
 FAILINGTESTFILES = \
 Crane_FMU2_CPP.mos \
@@ -34,7 +38,7 @@ test:
 clean :
 	@echo $(DEPENDENCIES) | sed 's/ /\\|/g' > deps.tmp
 	@rm -rf $(CLEAN)
-	@rm *_me_FMU.mo
+	@rm -f *_me_FMU.mo
 
 getdeps:
 	@echo $(DEPENDENCIES) | sed 's/ /\\|/g' > deps.tmp

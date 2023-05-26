@@ -66,8 +66,8 @@ case sc as SIMCODE(modelInfo=modelInfo as MODELINFO(__)) then
   let target  = simulationCodeTarget()
   let fileNamePrefixTmpDir = '<%fileNamePrefix%>.fmutmp/sources/<%fileNamePrefix%>'
   let()= textFile(simulationLiteralsFile(fileNamePrefix, literals), '<%fileNamePrefixTmpDir%>_literals.h')
-  let()= textFile(simulationFunctionsHeaderFile(fileNamePrefix, modelInfo.functions, recordDecls), '<%fileNamePrefixTmpDir%>_functions.h')
-  let()= textFile(simulationFunctionsFile(fileNamePrefix, modelInfo.functions), '<%fileNamePrefixTmpDir%>_functions.c')
+  let()= textFile(simulationFunctionsHeaderFile(fileNamePrefix, modelInfo.functions, recordDecls, sc.generic_loop_calls), '<%fileNamePrefixTmpDir%>_functions.h')
+  let()= textFile(simulationFunctionsFile(fileNamePrefix, modelInfo.functions, generic_loop_calls), '<%fileNamePrefixTmpDir%>_functions.c')
   let()= textFile(externalFunctionIncludes(sc.externalFunctionIncludes), '<%fileNamePrefixTmpDir%>_includes.h')
   let()= textFile(recordsFile(fileNamePrefix, recordDecls, true /*isSimulation*/), '<%fileNamePrefixTmpDir%>_records.c')
   let()= textFile(simulationHeaderFile(simCode), '<%fileNamePrefixTmpDir%>_model.h')
@@ -75,7 +75,7 @@ case sc as SIMCODE(modelInfo=modelInfo as MODELINFO(__)) then
   let _ = generateSimulationFiles(simCode,guid,fileNamePrefixTmpDir,FMUVersion)
 
   let()= textFile(simulationInitFunction(simCode,guid), '<%fileNamePrefixTmpDir%>_init_fmu.c')
-  let()= textFile(fmumodel_identifierFile(simCode,guid,FMUVersion), '<%fileNamePrefixTmpDir%>_FMU.c')
+  let()= textFile(fmumodel_identifierFile(simCode,guid,FMUVersion,FMUType), '<%fileNamePrefixTmpDir%>_FMU.c')
 
   /* Doesn't seem to work properly
   let &fmuModelDescription = buffer ""
@@ -85,6 +85,15 @@ case sc as SIMCODE(modelInfo=modelInfo as MODELINFO(__)) then
   */
 
   let()= textFile(fmuModelDescriptionFile(simCode, guid, FMUVersion, FMUType, sourceFiles), '<%fileNamePrefix%>.fmutmp/modelDescription.xml')
+
+  // Generate optional <fmiPrefix>_flags.json
+  let _ = match sc.fmiSimulationFlags
+    case SOME(fmiSimFlags as FMI_SIMULATION_FLAGS(__)) then
+      let() = textFile(fmuSimulationFlagsFile(fmiSimFlags), '<%fileNamePrefix%>.fmutmp/resources/<%fileNamePrefix%>_flags.json')
+      ""
+    else
+      ""
+    end match
 
   let()= textFile(fmudeffile(simCode,FMUVersion), '<%fileNamePrefix%>.fmutmp/sources/<%fileNamePrefix%>.def')
   let()= textFile('# Dummy file so OMDEV Compile.bat works<%\n%>include Makefile<%\n%>', '<%fileNamePrefix%>.fmutmp/sources/<%fileNamePrefix%>.makefile')
@@ -172,7 +181,12 @@ end translateModel;
      // main file
      let()=tmpTickResetIndex(0, 0)
      let()=tmpTickResetIndex(0, 1)
+     let()= textFileConvertLines(simulationFile_spd(simCode), '<%modelNamePrefix%>_18spd.c')
+     // update bound start values, update bound parameters
+     let()=tmpTickResetIndex(0, 0)
+     let()=tmpTickResetIndex(0, 1)
      let()= textFileConvertLines(simulationFile(simCode,guid,fmuVersion), '<%modelNamePrefix%>.c')
+
      ""
   end match
 end generateSimulationFiles;
@@ -191,6 +205,21 @@ case SIMCODE(__) then
   >>
 end fmuModelDescriptionFile;
 
+template fmuSimulationFlagsFile(FmiSimulationFlags fmiSimulationFlags)
+  "Generates <fmiPrefix>_flags.json file for FMUs with custom simulation flags."
+ ::=
+  match fmiSimulationFlags
+  case flags as FMI_SIMULATION_FLAGS(__) then
+  let fileContent = (flags.nameValueTuples |> (name, value) =>
+      '"<%name%>" : "<%value%>"'
+      ;separator=",\n")
+    <<
+    {
+      <%fileContent%>
+    }
+    >>
+end fmuSimulationFlagsFile;
+
 template VendorAnnotations(SimCode simCode)
  "Generates code for VendorAnnotations file for FMU target."
 ::=
@@ -202,7 +231,7 @@ case SIMCODE(__) then
   >>
 end VendorAnnotations;
 
-template fmumodel_identifierFile(SimCode simCode, String guid, String FMUVersion)
+template fmumodel_identifierFile(SimCode simCode, String guid, String FMUVersion, String FMUType)
  "Generates code for ModelDescription file for FMU target."
 ::=
 match simCode
@@ -224,9 +253,17 @@ case SIMCODE(__) then
   #include "simulation/solver/initialization/initialization.h"
   #include "simulation/solver/events.h"
   <%if isFMIVersion20(FMUVersion) then
-  '#include "fmi-export/fmu2_model_interface.h"'
+  <<
+  #define FMI2_FUNCTION_PREFIX <%modelNamePrefix(simCode)%>_
+  #include "fmi2Functions.h"
+  #include "fmi-export/fmu2_model_interface.h"
+  #include "fmi-export/fmu_read_flags.h"
+  >>
   else
-  '#include "fmi-export/fmu1_model_interface.h"'%>
+  <<
+  #include "fmi2Functions.h"
+  #include "fmi-export/fmu1_model_interface.h"
+  >>%>
 
   #ifdef __cplusplus
   extern "C" {
@@ -248,6 +285,9 @@ case SIMCODE(__) then
   fmi2Status setExternalFunction(ModelInstance* c, const fmi2ValueReference vr, const void* value);
   fmi2ValueReference mapInputReference2InputNumber(const fmi2ValueReference vr);
   fmi2ValueReference mapOutputReference2OutputNumber(const fmi2ValueReference vr);
+  fmi2ValueReference mapOutputReference2RealOutputDerivatives(const fmi2ValueReference vr);
+  fmi2ValueReference mapInitialUnknownsdependentIndex(const fmi2ValueReference vr);
+  fmi2ValueReference mapInitialUnknownsIndependentIndex(const fmi2ValueReference vr);
   >>
   else
   <<
@@ -272,6 +312,7 @@ case SIMCODE(__) then
     extern void <%symbolName(modelNamePrefix(simCode),"setupDataStruc")%>(DATA *data, threadData_t *threadData);
     #define fmu2_model_interface_setupDataStruc <%symbolName(modelNamePrefix(simCode),"setupDataStruc")%>
     #include "fmi-export/fmu2_model_interface.c.inc"
+    #include "fmi-export/fmu_read_flags.c.inc"
     >>
   else
     <<
@@ -296,6 +337,9 @@ case SIMCODE(__) then
   <%setStringFunction2(simCode, modelInfo)%>
   <%setExternalFunction2(modelInfo)%>
   <%mapInputAndOutputs(simCode)%>
+  <%mapRealOutputDerivatives(simCode, FMUType)%>
+  <%mapInitialUnknownsdependentCrefs(simCode)%>
+  <%mapInitialUnknownsIndependentCrefs(simCode)%>
   >>
   else
   <<
@@ -328,11 +372,13 @@ let numberOfReals = intAdd(intMul(varInfo.numStateVars,2),intAdd(varInfo.numDisc
 let numberOfIntegers = intAdd(varInfo.numIntAlgVars,intAdd(varInfo.numIntParams,varInfo.numIntAliasVars))
 let numberOfStrings = intAdd(varInfo.numStringAlgVars,intAdd(varInfo.numStringParamVars,varInfo.numStringAliasVars))
 let numberOfBooleans = intAdd(varInfo.numBoolAlgVars,intAdd(varInfo.numBoolParams,varInfo.numBoolAliasVars))
+let numberOfRealInputs = varInfo.numRealInputVars
   <<
   // define model size
   #define NUMBER_OF_STATES <%if intEq(varInfo.numStateVars,1) then statesnumwithDummy(listStates) else  varInfo.numStateVars%>
   #define NUMBER_OF_EVENT_INDICATORS <%varInfo.numZeroCrossings%>
   #define NUMBER_OF_REALS <%numberOfReals%>
+  #define NUMBER_OF_REAL_INPUTS <%numberOfRealInputs%>
   #define NUMBER_OF_INTEGERS <%numberOfIntegers%>
   #define NUMBER_OF_STRINGS <%numberOfStrings%>
   #define NUMBER_OF_BOOLEANS <%numberOfBooleans%>
@@ -418,6 +464,7 @@ end setStartValues;
 template initializeFunction(list<SimEqSystem> allEquations)
   "Generates initialize function for c file."
 ::=
+  let &sub = buffer ""
   let &varDecls = buffer "" /*BUFD*/
   let eqPart = ""/* (allEquations |> eq as SES_SIMPLE_ASSIGN(__) =>
       equation_(eq, contextOther, &varDecls)
@@ -430,7 +477,7 @@ template initializeFunction(list<SimEqSystem> allEquations)
 
     <%eqPart%>
     <%allEquations |> SES_SIMPLE_ASSIGN(__) =>
-      'if (sim_verbose) { printf("Setting variable start value: %s(start=%f)\n", "<%escapeModelicaStringToCString(crefStrNoUnderscore(cref))%>", <%cref(cref)%>); }'
+      'if (sim_verbose) { printf("Setting variable start value: %s(start=%f)\n", "<%escapeModelicaStringToCString(crefStrNoUnderscore(cref))%>", <%cref(cref, &sub)%>); }'
     ;separator="\n"%>
 
   }
@@ -470,7 +517,7 @@ template initParamsDefault(SimVar var, String arrayName) ::=
     let str = 'comp->fmuData->modelData-><%arrayName%>Data[<%index%>].attribute.start'
     match initialValue
       case SOME(v as SCONST(__)) then
-      '<%str%> = mmc_mk_scon(<%initVal(v)%>);'
+      '<%str%> = mmc_mk_scon_persist(<%initVal(v)%>); /* TODO: these are not freed currently, see #6161 */'
       else
       '<%str%> = <%initValDefault(var)%>;'
 end initParamsDefault;
@@ -758,6 +805,10 @@ case MODELINFO(vars=SIMVARS(__),varInfo=VARINFO(numAlgAliasVars=numAlgAliasVars,
   let ixEnd = intAdd(numAlgAliasVars,intAdd(numParams, intAdd(intMul(2,numStateVars),intAdd(numAlgVars,numDiscreteReal))))
   <<
   fmi2Status setReal(ModelInstance* comp, const fmi2ValueReference vr, const fmi2Real value) {
+    // set start value attribute for all variable that has start value, till initialization mode
+    if (vr < <%ixFirstParam%> && (comp->state == model_state_instantiated || comp->state == model_state_initialization_mode)) {
+      comp->fmuData->modelData->realVarsData[vr].attribute.start = value;
+    }
     if (vr < <%ixFirstParam%>) {
       comp->fmuData->localData[0]->realVars[vr] = value;
       return fmi2OK;
@@ -836,6 +887,10 @@ case MODELINFO(vars=SIMVARS(__),varInfo=VARINFO(numIntAliasVars=numAliasVars, nu
   let ixEnd = intAdd(numAliasVars,intAdd(numParams, numAlgVars))
   <<
   fmi2Status setInteger(ModelInstance* comp, const fmi2ValueReference vr, const fmi2Integer value) {
+    // set start value attribute for all variable that has start value, till initialization mode
+    if (vr < <%ixFirstParam%> && (comp->state == model_state_instantiated || comp->state == model_state_initialization_mode)) {
+      comp->fmuData->modelData->integerVarsData[vr].attribute.start = value;
+    }
     if (vr < <%ixFirstParam%>) {
       comp->fmuData->localData[0]->integerVars[vr] = value;
       return fmi2OK;
@@ -1136,6 +1191,62 @@ case SIMCODE(modelInfo=MODELINFO(vars=SIMVARS(inputVars=inputVars, outputVars=ou
 end match
 end mapInputAndOutputs;
 
+template mapRealOutputDerivatives(SimCode simCode, String FMUType)
+""
+::=
+match simCode
+case SIMCODE(modelInfo=MODELINFO(vars=SIMVARS(outputVars=outputVars))) then
+    <<
+    /* function maps output references to an internal output Real derivatives */
+    fmi2ValueReference mapOutputReference2RealOutputDerivatives(const fmi2ValueReference vr) {
+        switch (vr) {
+          <%outputVars |> var =>  match var case SIMVAR(name=name, type_=T_REAL()) then
+          'case <%lookupVR(name, simCode)%>: return <%lookupVRForRealOutputDerivative(name, simCode, FMUType)%>; break;' ;separator="\n"%>
+          default:
+            return -1;
+        }
+    }
+    >>
+end match
+end mapRealOutputDerivatives;
+
+template mapInitialUnknownsdependentCrefs(SimCode simCode)
+""
+::=
+match simCode
+case SIMCODE(modelStructure=SOME(FMIMODELSTRUCTURE(fmiInitialUnknowns=FMIINITIALUNKNOWNS(sortedUnknownCrefs=sortedUnknownCrefs)))) then
+    <<
+    /* function maps initialUnknowns UnknownVars ValueReferences to an internal partial derivatives index */
+    fmi2ValueReference mapInitialUnknownsdependentIndex(const fmi2ValueReference vr) {
+        switch (vr) {
+          <%sortedUnknownCrefs |> (index, cref) =>
+          'case <%lookupVR(cref, simCode)%>: return <%index%>; break;' ;separator="\n"%>
+          default:
+            return -1;
+        }
+    }
+    >>
+end match
+end mapInitialUnknownsdependentCrefs;
+
+template mapInitialUnknownsIndependentCrefs(SimCode simCode)
+""
+::=
+match simCode
+case SIMCODE(modelStructure=SOME(FMIMODELSTRUCTURE(fmiInitialUnknowns=FMIINITIALUNKNOWNS(sortedknownCrefs=sortedknownCrefs)))) then
+    <<
+    /* function maps initialUnknowns knownVars ValueReferences to an internal partial derivatives index */
+    fmi2ValueReference mapInitialUnknownsIndependentIndex(const fmi2ValueReference vr) {
+        switch (vr) {
+          <%sortedknownCrefs |> (index, cref) =>
+          'case <%lookupVR(cref, simCode)%>: return <%index%>; break;' ;separator="\n"%>
+          default:
+            return -1;
+        }
+    }
+    >>
+end match
+end mapInitialUnknownsIndependentCrefs;
 
 template getPlatformString2(String modelNamePrefix, String platform, String fileNamePrefix, String fmuTargetName, String dirExtra, String libsPos1, String libsPos2, String omhome, String FMUVersion)
  "returns compilation commands for the platform. "
@@ -1147,12 +1258,12 @@ match platform
   <<
   <%fileNamePrefix%>_FMU: nozip
   <%\t%>cd .. && rm -f ../<%fileNamePrefix%>.fmu && zip -r ../<%fmuTargetName%>.fmu *
-  nozip: <%fileNamePrefix%>_functions.h <%fileNamePrefix%>_literals.h $(OFILES) $(RUNTIMEFILES)
-  <%\t%>$(CXX) -shared -I. -o <%modelNamePrefix%>$(DLLEXT) $(RUNTIMEFILES) $(OFILES) $(CPPFLAGS) <%dirExtra%> <%libsPos1%> <%libsPos2%> $(CFLAGS) $(LDFLAGS) -llis -Wl,--kill-at
+  nozip: <%fileNamePrefix%>_functions.h <%fileNamePrefix%>_literals.h $(OFILES) $(RUNTIMEFILES) $(FMISUNDIALSFILES)
+  <%\t%>$(CXX) -shared -I. -o <%modelNamePrefix%>$(DLLEXT) $(RUNTIMEFILES) $(FMISUNDIALSFILES) $(OFILES) $(CPPFLAGS) <%dirExtra%> <%libsPos1%> <%libsPos2%> $(CFLAGS) $(LDFLAGS) -llis -Wl,--kill-at
   <%\t%>mkdir.exe -p ../binaries/<%platform%>
   <%\t%>dlltool -d <%fileNamePrefix%>.def --dllname <%fileNamePrefix%>$(DLLEXT) --output-lib <%fileNamePrefix%>.lib --kill-at
   <%\t%>cp <%fileNamePrefix%>$(DLLEXT) <%fileNamePrefix%>.lib <%fileNamePrefix%>_FMU.libs ../binaries/<%platform%>/
-  <%\t%>rm -f *.o <%fileNamePrefix%>$(DLLEXT) $(OFILES) $(RUNTIMEFILES)
+  <%\t%>rm -f *.o <%fileNamePrefix%>$(DLLEXT) $(OFILES) $(RUNTIMEFILES) $(FMISUNDIALSFILES)
   <%\t%>cd .. && rm -f ../<%fileNamePrefix%>.fmu && zip -r ../<%fmuTargetName%>.fmu *
 
   >>
@@ -1160,30 +1271,33 @@ match platform
   <<
   <%fileNamePrefix%>_FMU: nozip
   <%\t%>cd .. && rm -f ../<%fileNamePrefix%>.fmu && zip -r ../<%fmuTargetName%>.fmu *
-  nozip: <%fileNamePrefix%>_functions.h <%fileNamePrefix%>_literals.h $(OFILES) $(RUNTIMEFILES)
+  nozip: <%fileNamePrefix%>_functions.h <%fileNamePrefix%>_literals.h $(OFILES) $(RUNTIMEFILES) $(FMISUNDIALSFILES)
   <%\t%>mkdir -p ../binaries/$(FMIPLATFORM)
   ifeq (@LIBTYPE_DYNAMIC@,1)
-  <%\t%>$(LD) -o <%modelNamePrefix%>$(DLLEXT) $(OFILES) $(RUNTIMEFILES) <%dirExtra%> <%libsPos1%> @BSTATIC@ <%libsPos2%> @BDYNAMIC@ $(LDFLAGS)
+  <%\t%>$(LD) -o <%modelNamePrefix%>$(DLLEXT) $(OFILES) $(RUNTIMEFILES) $(FMISUNDIALSFILES) <%dirExtra%> <%libsPos1%> <%libsPos2%> @BDYNAMIC@ $(LDFLAGS)
   <%\t%>cp <%fileNamePrefix%>$(DLLEXT) <%fileNamePrefix%>_FMU.libs ../binaries/$(FMIPLATFORM)/
   endif
-  <%\t%>head -n20 Makefile > ../resources/$(FMIPLATFORM).summary
+  <%if intLt(Flags.getConfigEnum(Flags.FMI_FILTER), 4) then
+  '<%\t%>head -n20 Makefile > ../resources/$(FMIPLATFORM).summary'
+   %>
   ifeq (@LIBTYPE_STATIC@,1)
   <%\t%>rm -f <%modelNamePrefix%>.a
-  <%\t%>$(AR) -rsu <%modelNamePrefix%>.a $(OFILES) $(RUNTIMEFILES)
+  <%\t%>$(AR) -rsu <%modelNamePrefix%>.a $(OFILES) $(RUNTIMEFILES) $(FMISUNDIALSFILES)
   <%\t%>cp <%fileNamePrefix%>.a <%fileNamePrefix%>_FMU.libs ../binaries/$(FMIPLATFORM)/
   endif
-  <%\t%>$(MAKE) distclean
+  <% if not Flags.isSet(Flags.GEN_DEBUG_SYMBOLS) then "\t$(MAKE) distclean" %>
   distclean: clean
   <%\t%>rm -f Makefile config.status config.log
   clean:
-  <%\t%>rm -f <%fileNamePrefix%>.def <%fileNamePrefix%>.o <%fileNamePrefix%>.a <%fileNamePrefix%>$(DLLEXT) $(MAINOBJ) $(OFILES) $(RUNTIMEFILES)
+  <%\t%>rm -f <%fileNamePrefix%>.def <%fileNamePrefix%>.o <%fileNamePrefix%>.a <%fileNamePrefix%>$(DLLEXT) $(MAINOBJ) $(OFILES) $(RUNTIMEFILES) $(FMISUNDIALSFILES)
   >>
 end getPlatformString2;
 
 template settingsfile(SimCode simCode)
+"Generates content of omc_simulation_settings.h"
 ::=
   match simCode
-  case SIMCODE(modelInfo=MODELINFO(varInfo=varInfo as VARINFO(__)), delayedExps=DELAYED_EXPRESSIONS(maxDelayedIndex=maxDelayedIndex)) then
+  case SIMCODE(modelInfo=MODELINFO(varInfo=varInfo as VARINFO(__)), delayedExps=DELAYED_EXPRESSIONS(maxDelayedIndex=maxDelayedIndex), fmiSimulationFlags=fmiSimulationFlags) then
   <<
   #if !defined(OMC_SIM_SETTINGS_CMDLINE)
   #define OMC_SIM_SETTINGS_CMDLINE
@@ -1200,140 +1314,147 @@ template settingsfile(SimCode simCode)
  >>
 end settingsfile;
 
-template fmuMakefile(String target, SimCode simCode, String FMUVersion, list<String> sourceFiles, list<String> runtimeObjectFiles, list<String> dgesvObjectFiles)
+template fmuMakefile(String target, SimCode simCode, String FMUVersion, list<String> sourceFiles, list<String> runtimeObjectFiles, list<String> dgesvObjectFiles, list<String> cminpackObjectFiles, list <String> sundialsObjectFiles)
  "Generates the contents of the makefile for the simulation case. Copy libexpat & correct linux fmu"
 ::=
-let common =
-  match simCode
-  case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simulationSettingsOpt = sopt) then
-  <<
-  CFILES=<%sourceFiles ; separator=" "%>
-  OFILES=$(CFILES:.c=.o)
+  let common =
+    match simCode
+    case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simulationSettingsOpt = sopt) then
+    <<
+    CFILES = <%sourceFiles ; separator=" \\\n         "%>
+    OFILES=$(CFILES:.c=.o)
 
-  RUNTIMEDIR=.
-  ifneq ($(NEED_DGESV),)
-  DGESV_OBJS = <%dgesvObjectFiles ; separator = " "%>
-  endif
-  ifneq ($(NEED_RUNTIME),)
-  RUNTIMEFILES=<%runtimeObjectFiles ; separator = " "%> $(DGESV_OBJS)
-  endif
-  >>
-match getGeneralTarget(target)
-case "msvc" then
-match simCode
-case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simulationSettingsOpt = sopt) then
-  let dirExtra = if modelInfo.directory then '/LIBPATH:"<%modelInfo.directory%>"' //else ""
-  let libsStr = (makefileParams.libs |> lib => lib ;separator=" ")
-  let libsPos1 = if not dirExtra then libsStr //else ""
-  let libsPos2 = if dirExtra then libsStr // else ""
-  let fmudirname = '<%fileNamePrefix%>.fmutmp'
-  let extraCflags = match sopt case SOME(s as SIMULATION_SETTINGS(__)) then
-    '<%match s.method
-       case "inline-euler" then "-D_OMC_INLINE_EULER"
-       case "inline-rungekutta" then "-D_OMC_INLINE_RK"%>'
-  let compilecmds = getPlatformString2(modelNamePrefix(simCode), makefileParams.platform, fileNamePrefix, fmuTargetName, dirExtra, libsPos1, libsPos2, makefileParams.omhome, FMUVersion)
-  let mkdir = match makefileParams.platform case "win32" case "win64" then '"mkdir.exe"' else 'mkdir'
-  <<
-  # Makefile generated by OpenModelica
+    RUNTIMEDIR=.
+    ifneq ($(NEED_DGESV),)
+    DGESV_OBJS = <%dgesvObjectFiles ; separator = " "%>
+    endif
+    ifneq ($(NEED_CMINPACK),)
+    CMINPACK_OBJS=<%cminpackObjectFiles ; separator = " "%>
+    endif
+    ifneq ($(NEED_RUNTIME),)
+    RUNTIMEFILES=<%runtimeObjectFiles ; separator = " "%> $(DGESV_OBJS) $(CMINPACK_OBJS)
+    endif
+    ifneq ($(NEED_SUNDIALS),)
+    FMISUNDIALSFILES=<%sundialsObjectFiles ; separator = " "%>
+    LDFLAGS+=-Wl,-Bstatic -lsundials_cvode -lsundials_nvecserial -Wl,-Bdynamic
+    endif
+    >>
 
-  # Simulations use -O3 by default
-  SIM_OR_DYNLOAD_OPT_LEVEL=
-  MODELICAUSERCFLAGS=
-  CXX=cl
-  EXEEXT=.exe
-  DLLEXT=.dll
-  FMUEXT=.fmu
-  PLATWIN32 = win32
+  match getGeneralTarget(target)
+  case "msvc" then
+    match simCode
+    case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simulationSettingsOpt = sopt) then
+      let dirExtra = if modelInfo.directory then '/LIBPATH:"<%modelInfo.directory%>"' //else ""
+      let libsStr = (makefileParams.libs |> lib => lib ;separator=" ")
+      let libsPos1 = if not dirExtra then libsStr //else ""
+      let libsPos2 = if dirExtra then libsStr // else ""
+      let fmudirname = '<%fileNamePrefix%>.fmutmp'
+      let compilecmds = getPlatformString2(modelNamePrefix(simCode), makefileParams.platform, fileNamePrefix, fmuTargetName, dirExtra, libsPos1, libsPos2, makefileParams.omhome, FMUVersion)
+      let mkdir = match makefileParams.platform case "win32" case "win64" then '"mkdir.exe"' else 'mkdir'
+      <<
+      # Makefile generated by OpenModelica
 
-  # /Od - Optimization disabled
-  # /EHa enable C++ EH (w/ SEH exceptions)
-  # /fp:except - consider floating-point exceptions when generating code
-  # /arch:SSE2 - enable use of instructions available with SSE2 enabled CPUs
-  # /I - Include Directories
-  # /DNOMINMAX - Define NOMINMAX (does what it says)
-  # /TP - Use C++ Compiler
-  CFLAGS=/MP /Od /ZI /EHa /fp:except /I"<%makefileParams.omhome%>/include/omc/c" /I"<%makefileParams.omhome%>/include/omc/msvc/" <%if isFMIVersion20(FMUVersion) then '/I"<%makefileParams.omhome%>/include/omc/c/fmi2"' else '/I"<%makefileParams.omhome%>/include/omc/c/fmi1"'%> /I. /DNOMINMAX /TP /DNO_INTERACTIVE_DEPENDENCY  <% if Flags.isSet(Flags.FMU_EXPERIMENTAL) then '/DFMU_EXPERIMENTAL'%>
+      # Simulations use -O3 by default
+      SIM_OR_DYNLOAD_OPT_LEVEL=
+      MODELICAUSERCFLAGS=
+      CXX=cl
+      EXEEXT=.exe
+      DLLEXT=.dll
+      FMUEXT=.fmu
+      PLATWIN32 = win32
 
-  # /ZI enable Edit and Continue debug info
-  CDFLAGS=/ZI
+      # /Od - Optimization disabled
+      # /EHa enable C++ EH (w/ SEH exceptions)
+      # /fp:except - consider floating-point exceptions when generating code
+      # /arch:SSE2 - enable use of instructions available with SSE2 enabled CPUs
+      # /I - Include Directories
+      # /DNOMINMAX - Define NOMINMAX (does what it says)
+      # /TP - Use C++ Compiler
+      CFLAGS=/MP /Od /ZI /EHa /fp:except /I"<%makefileParams.omhome%>/include/omc/c" /I"<%makefileParams.omhome%>/include/omc/msvc/" <%if isFMIVersion20(FMUVersion) then '/I"<%makefileParams.omhome%>/include/omc/c/fmi2"' else '/I"<%makefileParams.omhome%>/include/omc/c/fmi1"'%> /I. /DNOMINMAX /TP /DNO_INTERACTIVE_DEPENDENCY  <% if Flags.isSet(Flags.FMU_EXPERIMENTAL) then '/DFMU_EXPERIMENTAL'%>
 
-  # /MD - link with MSVCRT.LIB
-  # /link - [linker options and libraries]
-  # /LIBPATH: - Directories where libs can be found
-  LDFLAGS=/MD /link /dll /debug /pdb:"<%fileNamePrefix%>.pdb" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc/" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc/release/" <%dirExtra%> <%libsPos1%> <%libsPos2%> f2c.lib initialization.lib libexpat.lib math-support.lib meta.lib results.lib simulation.lib solver.lib sundials_kinsol.lib sundials_nvecserial.lib util.lib lapack_win32_MT.lib lis.lib  gc-lib.lib user32.lib pthreadVC2.lib wsock32.lib cminpack.lib umfpack.lib amd.lib
+      # /ZI enable Edit and Continue debug info
+      CDFLAGS=/ZI
 
-  # /MDd link with MSVCRTD.LIB debug lib
-  # lib names should not be appended with a d just switch to lib/omc/msvc/debug
+      # /MD - link with MSVCRT.LIB
+      # /link - [linker options and libraries]
+      # /LIBPATH: - Directories where libs can be found
+      LDFLAGS=/MD /link /dll /debug /pdb:"<%fileNamePrefix%>.pdb" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc/" /LIBPATH:"<%makefileParams.omhome%>/lib/<%Autoconf.triple%>/omc/msvc/release/" <%dirExtra%> <%libsPos1%> <%libsPos2%> f2c.lib initialization.lib libexpat.lib math-support.lib meta.lib results.lib simulation.lib solver.lib sundials_kinsol.lib sundials_nvecserial.lib util.lib lapack_win32_MT.lib lis.lib  omcgc.lib user32.lib pthreadVC2.lib wsock32.lib cminpack.lib umfpack.lib amd.lib
+
+      # /MDd link with MSVCRTD.LIB debug lib
+      # lib names should not be appended with a d just switch to lib/omc/msvc/debug
 
 
-  <%common%>
+      <%common%>
 
-  <%fileNamePrefix%>$(FMUEXT): <%fileNamePrefix%>$(DLLEXT) modelDescription.xml
-      if not exist <%fmudirname%>\binaries\$(PLATWIN32) <%mkdir%> <%fmudirname%>\binaries\$(PLATWIN32)
-      if not exist <%fmudirname%>\sources <%mkdir%> <%fmudirname%>\sources
+      <%fileNamePrefix%>$(FMUEXT): <%fileNamePrefix%>$(DLLEXT) modelDescription.xml
+          if not exist <%fmudirname%>\binaries\$(PLATWIN32) <%mkdir%> <%fmudirname%>\binaries\$(PLATWIN32)
+          if not exist <%fmudirname%>\sources <%mkdir%> <%fmudirname%>\sources
 
-      copy <%fileNamePrefix%>.dll <%fmudirname%>\binaries\$(PLATWIN32)
-      copy <%fileNamePrefix%>.lib <%fmudirname%>\binaries\$(PLATWIN32)
-      copy <%fileNamePrefix%>.pdb <%fmudirname%>\binaries\$(PLATWIN32)
-      copy <%fileNamePrefix%>.c <%fmudirname%>\sources\<%fileNamePrefix%>.c
-      copy <%fileNamePrefix%>_model.h <%fmudirname%>\sources\<%fileNamePrefix%>_model.h
-      copy <%fileNamePrefix%>_FMU.c <%fmudirname%>\sources\<%fileNamePrefix%>_FMU.c
-      copy <%fileNamePrefix%>_info.c <%fmudirname%>\sources\<%fileNamePrefix%>_info.c
-      copy <%fileNamePrefix%>_init_fmu.c <%fmudirname%>\sources\<%fileNamePrefix%>_init_fmu.c
-      copy <%fileNamePrefix%>_functions.c <%fmudirname%>\sources\<%fileNamePrefix%>_functions.c
-      copy <%fileNamePrefix%>_functions.h <%fmudirname%>\sources\<%fileNamePrefix%>_functions.h
-      copy <%fileNamePrefix%>_records.c <%fmudirname%>\sources\<%fileNamePrefix%>_records.c
-      copy modelDescription.xml <%fmudirname%>\modelDescription.xml
-      copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\SUNDIALS_KINSOL.DLL <%fmudirname%>\binaries\$(PLATWIN32)
-      copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\SUNDIALS_NVECSERIAL.DLL <%fmudirname%>\binaries\$(PLATWIN32)
-      copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\LAPACK_WIN32_MT.DLL <%fmudirname%>\binaries\$(PLATWIN32)
-      copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\pthreadVC2.dll <%fmudirname%>\binaries\$(PLATWIN32)
-      cd <%fmudirname%>
-      "zip.exe" -r ../<%fmuTargetName%>.fmu *
-      cd ..
-      rm -rf <%fmudirname%>
+          copy <%fileNamePrefix%>.dll <%fmudirname%>\binaries\$(PLATWIN32)
+          copy <%fileNamePrefix%>.lib <%fmudirname%>\binaries\$(PLATWIN32)
+          copy <%fileNamePrefix%>.pdb <%fmudirname%>\binaries\$(PLATWIN32)
+          copy <%fileNamePrefix%>.c <%fmudirname%>\sources\<%fileNamePrefix%>.c
+          copy <%fileNamePrefix%>_model.h <%fmudirname%>\sources\<%fileNamePrefix%>_model.h
+          copy <%fileNamePrefix%>_FMU.c <%fmudirname%>\sources\<%fileNamePrefix%>_FMU.c
+          copy <%fileNamePrefix%>_info.c <%fmudirname%>\sources\<%fileNamePrefix%>_info.c
+          copy <%fileNamePrefix%>_init_fmu.c <%fmudirname%>\sources\<%fileNamePrefix%>_init_fmu.c
+          copy <%fileNamePrefix%>_functions.c <%fmudirname%>\sources\<%fileNamePrefix%>_functions.c
+          copy <%fileNamePrefix%>_functions.h <%fmudirname%>\sources\<%fileNamePrefix%>_functions.h
+          copy <%fileNamePrefix%>_records.c <%fmudirname%>\sources\<%fileNamePrefix%>_records.c
+          copy modelDescription.xml <%fmudirname%>\modelDescription.xml
+          copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\SUNDIALS_CVODE.DLL <%fmudirname%>\binaries\$(PLATWIN32)
+          copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\SUNDIALS_KINSOL.DLL <%fmudirname%>\binaries\$(PLATWIN32)
+          copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\SUNDIALS_NVECSERIAL.DLL <%fmudirname%>\binaries\$(PLATWIN32)
+          copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\LAPACK_WIN32_MT.DLL <%fmudirname%>\binaries\$(PLATWIN32)
+          copy <%stringReplace(makefileParams.omhome,"/","\\")%>\bin\pthreadVC2.dll <%fmudirname%>\binaries\$(PLATWIN32)
+          cd <%fmudirname%>
+          "zip.exe" -r ../<%fmuTargetName%>.fmu *
+          cd ..
+          rm -rf <%fmudirname%>
 
-  <%fileNamePrefix%>$(DLLEXT): $(MAINOBJ) $(CFILES)
-      $(CXX) /Fe<%fileNamePrefix%>$(DLLEXT) <%fileNamePrefix%>_FMU.c <%fileNamePrefix%>_FMU.c $(CFILES) $(CFLAGS) $(LDFLAGS)
-  >>
-end match
-case "gcc" then
-match simCode
-case SIMCODE(modelInfo=MODELINFO(varInfo=varInfo as VARINFO(__)), delayedExps=DELAYED_EXPRESSIONS(maxDelayedIndex=maxDelayedIndex), makefileParams=MAKEFILE_PARAMS(__), simulationSettingsOpt = sopt) then
-  let dirExtra = if modelInfo.directory then '-L"<%modelInfo.directory%>"' //else ""
-  let libsStr = (makefileParams.libs |> lib => lib ;separator=" ")
-  let libsPos1 = if not dirExtra then libsStr //else ""
-  let libsPos2 = if dirExtra then libsStr // else ""
-  let extraCflags = match sopt case SOME(s as SIMULATION_SETTINGS(__)) then
-    '<%match s.method
-       case "inline-euler" then "-D_OMC_INLINE_EULER"
-       case "inline-rungekutta" then "-D_OMC_INLINE_RK"%>'
-  let compilecmds = getPlatformString2(modelNamePrefix(simCode), makefileParams.platform, fileNamePrefix, fmuTargetName, dirExtra, libsPos1, libsPos2, makefileParams.omhome, FMUVersion)
-  let platformstr = makefileParams.platform
-  <<
-  # Makefile generated by OpenModelica
-  CC=@CC@
-  AR=@AR@
-  CFLAGS=@CFLAGS@
-  LD=$(CC) -shared
-  LDFLAGS=@LDFLAGS@ @LIBS@
-  DLLEXT=@DLLEXT@
-  NEED_RUNTIME=@NEED_RUNTIME@
-  NEED_DGESV=@NEED_DGESV@
-  FMIPLATFORM=@FMIPLATFORM@
-  # Note: Simulation of the fmu with dymola does not work with -finline-small-functions (enabled by most optimization levels)
-  CPPFLAGS=@CPPFLAGS@
+      <%fileNamePrefix%>$(DLLEXT): $(MAINOBJ) $(CFILES)
+          $(CXX) /Fe<%fileNamePrefix%>$(DLLEXT) <%fileNamePrefix%>_FMU.c <%fileNamePrefix%>_FMU.c $(CFILES) $(CFLAGS) $(LDFLAGS)
+      >>
+    end match
+  case "gcc" then
+    match simCode
+    case SIMCODE(modelInfo=MODELINFO(varInfo=varInfo as VARINFO(__)), delayedExps=DELAYED_EXPRESSIONS(maxDelayedIndex=maxDelayedIndex), makefileParams=MAKEFILE_PARAMS(__), simulationSettingsOpt = sopt, fmiSimulationFlags = fmiSimulationFlags) then
+      let dirExtra = if modelInfo.directory then '-L"<%modelInfo.directory%>"' //else ""
+      let libsStr = (makefileParams.libs |> lib => lib ;separator=" ")
+      let libsPos1 = if not dirExtra then libsStr //else ""
+      let libsPos2 = if dirExtra then libsStr // else ""
+      let compilecmds = getPlatformString2(modelNamePrefix(simCode), makefileParams.platform, fileNamePrefix, fmuTargetName, dirExtra, libsPos1, libsPos2, makefileParams.omhome, FMUVersion)
+      let platformstr = makefileParams.platform
+      let thirdPartyInclude = match fmiSimulationFlags case SOME(__) then "-Isundials/ -I/util" else ""
+      <<
+      # Makefile generated by OpenModelica
+      CC=@CC@
+      AR=@AR@
+      CFLAGS=@CFLAGS@
+      LD=$(CC) -shared
+      # define OMC_LDFLAGS_LINK_TYPE env variable to override this
+      OMC_LDFLAGS_LINK_TYPE=static
+      LDFLAGS=@LDFLAGS@ @LIBS@
+      DLLEXT=@DLLEXT@
+      NEED_RUNTIME=@NEED_RUNTIME@
+      NEED_DGESV=@NEED_DGESV@
+      NEED_CMINPACK=@NEED_CMINPACK@
+      NEED_SUNDIALS=@NEED_SUNDIALS@
+      FMIPLATFORM=@FMIPLATFORM@
+      # Note: Simulation of the fmu with dymola does not work with -finline-small-functions (enabled by most optimization levels)
+      CPPFLAGS=@CPPFLAGS@
+      override CPPFLAGS += -DFMI2_OVERRIDE_FUNCTION_PREFIX
 
-  override CPPFLAGS += <%makefileParams.includes ; separator=" "%>
+      override CPPFLAGS += <%makefileParams.includes ; separator=" "%>
 
-  <%common%>
+      <%common%>
 
-  PHONY: <%fileNamePrefix%>_FMU
-  <%compilecmds%>
-  >>
-end match
-else
-  error(sourceInfo(), 'target <%target%> is not handled!')
+      PHONY: <%fileNamePrefix%>_FMU
+      <%compilecmds%>
+      >>
+    end match
+  else
+    error(sourceInfo(), 'target <%target%> is not handled!')
 end fmuMakefile;
 
 
@@ -1341,7 +1462,7 @@ template fmuSourceMakefile(SimCode simCode, String FMUVersion)
  "Generates the contents of the makefile for the simulation case. Copy libexpat & correct linux fmu"
 ::=
   match simCode
-  case SIMCODE(modelInfo=MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simulationSettingsOpt = sopt) then
+  case SIMCODE(modelInfo=modelInfo as MODELINFO(__), makefileParams=MAKEFILE_PARAMS(__), simulationSettingsOpt = sopt) then
   let includedir = '<%fileNamePrefix%>.fmutmp/sources/'
   let mkdir = match makefileParams.platform case "win32" case "win64" then '"mkdir.exe"' else 'mkdir'
   <<
@@ -1353,6 +1474,14 @@ template fmuSourceMakefile(SimCode simCode, String FMUVersion)
   <%\t%>rm -f <%fileNamePrefix%>.fmutmp/sources/<%fileNamePrefix%>_init.xml<%/*Already translated to .c*/%>
   <%\t%>cp -a "<%makefileParams.omhome%>/share/omc/runtime/c/fmi/buildproject/"* <%fileNamePrefix%>.fmutmp/sources
   <%\t%>cp -a <%fileNamePrefix%>_FMU.libs <%fileNamePrefix%>.fmutmp/sources/
+  <%if boolNot(boolOr(stringEq(makefileParams.platform, "win32"),stringEq(makefileParams.platform, "win64"))) then
+     match  Config.simCodeTarget()
+     case "omsicpp" then
+     <<
+     <%\t%>chmod +x <%dotPath(modelInfo.name)%>.sh
+     >>
+     end match
+  %>
   <%\n%>
   >>
 end fmuSourceMakefile;
@@ -1526,21 +1655,21 @@ template dumpFMUModelDescriptionInputOutputVariable(String name, String causalit
   else if boolAnd(generateOutputConnectors, boolAnd(stringEq(causality, "output"),stringEq(baseType, "Boolean"))) then "Modelica.Blocks.Interfaces.BooleanOutput "+name+""
 end dumpFMUModelDescriptionInputOutputVariable;
 
-template importFMUModelica(FmiImport fmi)
+template importFMUModelica(FmiImport fmi, String name)
  "Generates the Modelica code depending on the FMU type."
 ::=
 match fmi
 case FMIIMPORT(__) then
   match fmiInfo
     case (INFO(fmiVersion = "1.0", fmiType = 0)) then
-      importFMU1ModelExchange(fmi)
+      importFMU1ModelExchange(fmi, name)
     case (INFO(fmiVersion = "1.0", fmiType = 1)) then
-      importFMU1CoSimulationStandAlone(fmi)
+      importFMU1CoSimulationStandAlone(fmi, name)
     case (INFO(fmiVersion = "2.0", fmiType = 1)) then
-      importFMU2ModelExchange(fmi)
+      importFMU2ModelExchange(fmi, name)
 end importFMUModelica;
 
-template importFMU1ModelExchange(FmiImport fmi)
+template importFMU1ModelExchange(FmiImport fmi, String name)
  "Generates Modelica code for FMI Model Exchange version 1.0"
 ::=
 match fmi
@@ -1598,7 +1727,7 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
   let stringOutputVariablesVRs = dumpVariables(fmiModelVariablesList, "string", "output", false, 1, "1.0")
   let stringOutputVariablesNames = dumpVariables(fmiModelVariablesList, "string", "output", false, 2, "1.0")
   <<
-  model <%fmiInfo.fmiModelIdentifier%>_<%getFMIType(fmiInfo)%>_FMU<%if stringEq(fmiInfo.fmiDescription, "") then "" else " \""+fmiInfo.fmiDescription+"\""%>
+  model <%if stringEq(name, "") then fmiInfo.fmiModelIdentifier+"_"+getFMIType(fmiInfo)+"_FMU" else name%><%if stringEq(fmiInfo.fmiDescription, "") then "" else " \""+fmiInfo.fmiDescription+"\""%>
     <%dumpFMITypeDefinitions(fmiTypeDefinitionsList)%>
     constant String fmuWorkingDir = "<%fmuWorkingDirectory%>";
     parameter Integer logLevel = <%fmiLogLevel%> "log level used during the loading of FMU" annotation (Dialog(tab="FMI", group="Enable logging"));
@@ -1628,8 +1757,6 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
     Real triggerDSSEvent;
     Real nextEventTime;
   initial equation
-    flowStartTime = fmi1Functions.fmi1SetTime(fmi1me, time, 1);
-    flowInitialized = fmi1Functions.fmi1Initialize(fmi1me, flowParamsStart+flowInitInputs+flowStartTime);
     <%if intGt(listLength(fmiInfo.fmiNumberOfContinuousStates), 0) then
     <<
     fmi_x = fmi1Functions.fmi1GetContinuousStates(fmi1me, numberOfContinuousStates, flowParamsStart+flowInitialized);
@@ -1637,6 +1764,8 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
     %>
   initial algorithm
     flowParamsStart := 1;
+    flowStartTime := fmi1Functions.fmi1SetTime(fmi1me, time, 1);
+    flowInitialized := fmi1Functions.fmi1Initialize(fmi1me, flowParamsStart+flowInitInputs+flowStartTime);
     <%if not stringEq(realParametersVRs, "") then "flowParamsStart := fmi1Functions.fmi1SetRealParameter(fmi1me, {"+realParametersVRs+"}, {"+realParametersNames+"});"%>
     <%if not stringEq(integerParametersVRs, "") then "flowParamsStart := fmi1Functions.fmi1SetIntegerParameter(fmi1me, {"+integerParametersVRs+"}, {"+integerParametersNames+"});"%>
     <%if not stringEq(booleanParametersVRs, "") then "flowParamsStart := fmi1Functions.fmi1SetBooleanParameter(fmi1me, {"+booleanParametersVRs+"}, {"+booleanParametersNames+"});"%>
@@ -1890,11 +2019,11 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
         external "C" outCallEventUpdate = fmi1CompletedIntegratorStep_OMC(fmi1me, inFlowStates) annotation(Library = {"OpenModelicaFMIRuntimeC", "fmilib"});
       end fmi1CompletedIntegratorStep;
     end fmi1Functions;
-  end <%fmiInfo.fmiModelIdentifier%>_<%getFMIType(fmiInfo)%>_FMU;
+  end <%if stringEq(name, "") then fmiInfo.fmiModelIdentifier+"_"+getFMIType(fmiInfo)+"_FMU" else name%>;
   >>
 end importFMU1ModelExchange;
 
-template importFMU2ModelExchange(FmiImport fmi)
+template importFMU2ModelExchange(FmiImport fmi, String name)
  "Generates Modelica code for FMI Model Exchange version 2.0"
 ::=
 match fmi
@@ -1956,7 +2085,7 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
   let stringOutputVariablesVRs = dumpVariables(fmiModelVariablesList, "string", "output", false, 1, "2.0")
   let stringOutputVariablesNames = dumpVariables(fmiModelVariablesList, "string", "output", false, 2, "2.0")
   <<
-  model <%fmiInfo.fmiModelIdentifier%>_<%getFMIType(fmiInfo)%>_FMU<%if stringEq(fmiInfo.fmiDescription, "") then "" else " \""+fmiInfo.fmiDescription+"\""%>
+  model <%if stringEq(name, "") then fmiInfo.fmiModelIdentifier+"_"+getFMIType(fmiInfo)+"_FMU" else name%><%if stringEq(fmiInfo.fmiDescription, "") then "" else " \""+fmiInfo.fmiDescription+"\""%>
     <%dumpFMITypeDefinitions(fmiTypeDefinitionsList)%>
     constant String fmuWorkingDir = "<%fmuWorkingDirectory%>";
     parameter Integer logLevel = <%fmiLogLevel%> "log level used during the loading of FMU" annotation (Dialog(tab="FMI", group="Enable logging"));
@@ -1990,9 +2119,6 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
     Real triggerDSSEvent;
     Real nextEventTime(fixed = true);
   initial equation
-    flowStartTime = fmi2Functions.fmi2SetTime(fmi2me, time, 1);
-    flowEnterInitialization = fmi2Functions.fmi2EnterInitialization(fmi2me, flowParamsStart+flowInitInputs+flowStartTime);
-    flowInitialized = fmi2Functions.fmi2ExitInitialization(fmi2me, flowParamsStart+flowInitInputs+flowStartTime+flowEnterInitialization);
     <%if intGt(listLength(fmiInfo.fmiNumberOfContinuousStates), 0) then
     <<
     fmi_x = fmi2Functions.fmi2GetContinuousStates(fmi2me, numberOfContinuousStates, flowParamsStart+flowInitialized);
@@ -2000,18 +2126,21 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
     %>
   initial algorithm
     flowParamsStart := 1;
+    flowInitInputs := 1;
+    flowStartTime := fmi2Functions.fmi2SetupExperiment(fmi2me, false, 0.0, time, false, 0.0, flowParamsStart+flowInitInputs);
+    flowEnterInitialization := fmi2Functions.fmi2EnterInitialization(fmi2me, flowParamsStart+flowInitInputs+flowStartTime);
+    flowInitialized := fmi2Functions.fmi2ExitInitialization(fmi2me, flowParamsStart+flowInitInputs+flowStartTime+flowEnterInitialization);
     <%if not stringEq(realParametersVRs, "") then "flowParamsStart := fmi2Functions.fmi2SetRealParameter(fmi2me, {"+realParametersVRs+"}, {"+realParametersNames+"});"%>
     <%if not stringEq(integerParametersVRs, "") then "flowParamsStart := fmi2Functions.fmi2SetIntegerParameter(fmi2me, {"+integerParametersVRs+"}, {"+integerParametersNames+"});"%>
     <%if not stringEq(booleanParametersVRs, "") then "flowParamsStart := fmi2Functions.fmi2SetBooleanParameter(fmi2me, {"+booleanParametersVRs+"}, {"+booleanParametersNames+"});"%>
     <%if not stringEq(stringParametersVRs, "") then "flowParamsStart := fmi2Functions.fmi2SetStringParameter(fmi2me, {"+stringParametersVRs+"}, {"+stringParametersNames+"});"%>
-    flowInitInputs := 1;
   initial equation
     <%if not stringEq(realDependentParametersVRs, "") then "{"+realDependentParametersNames+"} = fmi2Functions.fmi2GetReal(fmi2me, {"+realDependentParametersVRs+"}, flowInitialized);"%>
     <%if not stringEq(integerDependentParametersVRs, "") then "{"+integerDependentParametersNames+"} = fmi2Functions.fmi2GetInteger(fmi2me, {"+integerDependentParametersVRs+"}, flowInitialized);"%>
     <%if not stringEq(booleanDependentParametersVRs, "") then "{"+booleanDependentParametersNames+"} = fmi2Functions.fmi2GetBoolean(fmi2me, {"+booleanDependentParametersVRs+"}, flowInitialized);"%>
     <%if not stringEq(stringDependentParametersVRs, "") then "{"+stringDependentParametersNames+"} = fmi2Functions.fmi2GetString(fmi2me, {"+stringDependentParametersVRs+"}, flowInitialized);"%>
   algorithm
-    flowTime := fmi2Functions.fmi2SetTime(fmi2me, time, flowInitialized);
+    flowTime := if not initial() then fmi2Functions.fmi2SetTime(fmi2me, time, flowInitialized) else time;
     /* algorithm section ensures that inputs to fmi (if any) are set directly after the new time is set */
     <%if not stringEq(realInputVariablesVRs, "") then "realInputVariables := fmi2Functions.fmi2SetReal(fmi2me, {"+realInputVariablesVRs+"}, {"+realInputVariablesNames+"});"%>
     <%if not stringEq(integerInputVariablesVRs, "") then "integerInputVariables := fmi2Functions.fmi2SetInteger(fmi2me, {"+integerInputVariablesVRs+"}, {"+integerInputVariablesNames+"});"%>
@@ -2097,6 +2226,18 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
     <%dumpFMITypeDefinitionsArrayMappingFunctions(fmiTypeDefinitionsList)%>
 
     package fmi2Functions
+      function fmi2SetupExperiment
+        input FMI2ModelExchange fmi2me;
+        input Boolean inToleranceDefined;
+        input Real inTolerance;
+        input Real inStartTime;
+        input Boolean inStopTimeDefined;
+        input Real inStopTime;
+        input Real inFlow;
+        output Real outFlow = inFlow;
+        external "C" fmi2SetupExperiment_OMC(fmi2me, inToleranceDefined, inTolerance, inStartTime, inStopTimeDefined, inStopTime) annotation(Library = {"OpenModelicaFMIRuntimeC", "fmilib"});
+      end fmi2SetupExperiment;
+
       function fmi2SetTime
         input FMI2ModelExchange fmi2me;
         input Real inTime;
@@ -2267,11 +2408,11 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
         external "C" outCallEventUpdate = fmi2CompletedIntegratorStep_OMC(fmi2me, inFlowStates) annotation(Library = {"OpenModelicaFMIRuntimeC", "fmilib"});
       end fmi2CompletedIntegratorStep;
     end fmi2Functions;
-  end <%fmiInfo.fmiModelIdentifier%>_<%getFMIType(fmiInfo)%>_FMU;
+  end <%if stringEq(name, "") then fmiInfo.fmiModelIdentifier+"_"+getFMIType(fmiInfo)+"_FMU" else name%>;
   >>
 end importFMU2ModelExchange;
 
-template importFMU1CoSimulationStandAlone(FmiImport fmi)
+template importFMU1CoSimulationStandAlone(FmiImport fmi, String name)
  "Generates Modelica code for FMI Co-simulation stand alone version 1.0"
 ::=
 match fmi
@@ -2329,7 +2470,7 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
   let stringOutputVariablesVRs = dumpVariables(fmiModelVariablesList, "string", "output", false, 1, "1.0")
   let stringOutputVariablesNames = dumpVariables(fmiModelVariablesList, "string", "output", false, 2, "1.0")
   <<
-  model <%fmiInfo.fmiModelIdentifier%>_<%getFMIType(fmiInfo)%>_FMU<%if stringEq(fmiInfo.fmiDescription, "") then "" else " \""+fmiInfo.fmiDescription+"\""%>
+  model <%if stringEq(name, "") then fmiInfo.fmiModelIdentifier+"_"+getFMIType(fmiInfo)+"_FMU" else name%><%if stringEq(fmiInfo.fmiDescription, "") then "" else " \""+fmiInfo.fmiDescription+"\""%>
     <%dumpFMITypeDefinitions(fmiTypeDefinitionsList)%>
     constant String fmuLocation = "file://<%fmuWorkingDirectory%>/resources";
     constant String fmuWorkingDir = "<%fmuWorkingDirectory%>";
@@ -2493,7 +2634,7 @@ case FMIIMPORT(fmiInfo=INFO(__),fmiExperimentAnnotation=EXPERIMENTANNOTATION(__)
         external "C" fmi1SetString_OMC(fmi1cs, size(stringValuesReferences, 1), stringValuesReferences, stringValues, out_Values, 2) annotation(Library = {"OpenModelicaFMIRuntimeC", "fmilib"});
       end fmi1SetString;
     end fmi1Functions;
-  end <%fmiInfo.fmiModelIdentifier%>_<%getFMIType(fmiInfo)%>_FMU;
+  end <%if stringEq(name, "") then fmiInfo.fmiModelIdentifier+"_"+getFMIType(fmiInfo)+"_FMU" else name%>;
   >>
 end importFMU1CoSimulationStandAlone;
 

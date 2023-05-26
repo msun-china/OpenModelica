@@ -14,6 +14,7 @@ m4_include([common/m4/omhome.m4])
 AC_SUBST(RPATH_QMAKE)
 AC_SUBST(SHREXT)
 AC_SUBST(APP)
+AC_SUBST(CMAKE)
 
 AC_SUBST(OMC_TARGET)
 AC_ARG_WITH(cppruntime,  [  --with-cppruntime       (build the optional cppruntime simulation libraries)],[OMC_TARGET="$withval"],[OMC_TARGET="no"])
@@ -27,40 +28,9 @@ else
   AC_MSG_RESULT([no])
 fi
 
-AC_SUBST(OMLIBRARY_TARGET)
-AC_ARG_WITH(omlibrary,  [  --with-omlibrary=[core,all,no]       (which libraries to build; default is core; the libraries used by the testsuite)],[OMLIBRARY_TARGET="$withval"],[OMLIBRARY_TARGET="core"])
-
-AC_MSG_CHECKING([for omlibrary target])
-case "$OMLIBRARY_TARGET" in
-  "yes"|"core")
-    OMLIBRARY_TARGET="omlibrary-core"
-    AC_MSG_RESULT([core])
-  ;;
-  "no")
-    OMLIBRARY_TARGET=""
-    AC_MSG_RESULT([none])
-  ;;
-  "all")
-    OMLIBRARY_TARGET="omlibrary-all"
-    AC_MSG_RESULT([all])
-  ;;
-  *)
-    AC_MSG_ERROR("unknown omlibrary target $OMLIBRARY_TARGET")
-  ;;
-esac
-
-if test ! -z "$OMLIBRARY_TARGET"; then
-  AC_MSG_CHECKING([for libraries directory])
-  if test -f libraries/Makefile; then
-    AC_MSG_RESULT([yes])
-  else
-    AC_MSG_ERROR([no])
-  fi
-fi
-
 AC_SUBST(CMAKE_LDFLAGS)
 if echo $host | grep -i darwin; then
-  CMAKE_LDFLAGS="-Wl,-undefined -Wl,dynamic_lookup"
+  CMAKE_LDFLAGS="-Wl,-U,libintl_gettext"
 fi
 
 m4_include([common/m4/corba.m4])

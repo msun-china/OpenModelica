@@ -1,6 +1,7 @@
 // name:     Bug3783.mos [BUG #3783]
 // keywords: check that we keep the redeclare modifiers!
 // status:   correct
+// cflags: -d=-newInst
 // 
 
 loadFile("Bug3783.mo"); getErrorString();
@@ -31,7 +32,7 @@ list(Bug3783); getErrorString();
 //     Placement(visible = true, transformation(origin = {-26, 0}, extent = {{-10, -10}, {10, 10}}, rotation = 0)));
 // end Bug3783;"
 // ""
-// Ok
+// true
 // ""
 // {"p"}
 // ""

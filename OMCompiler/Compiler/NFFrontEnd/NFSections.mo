@@ -39,6 +39,8 @@ encapsulated uniontype NFSections
 
 protected
   import Sections = NFSections;
+  import SCodeUtil;
+  import IOStream;
 
 public
   record SECTIONS
@@ -53,8 +55,9 @@ public
     list<Expression> args;
     ComponentRef outputRef;
     String language;
-    Option<SCode.Annotation> ann;
+    Option<Annotation> ann;
     Boolean explicit;
+    SourceInfo info;
   end EXTERNAL;
 
   record EMPTY end EMPTY;
@@ -191,8 +194,8 @@ public
 
   function map
     input output Sections sections;
-    input EquationFn eqFn;
-    input AlgorithmFn algFn;
+    input EquationFn eqFn = eqId;
+    input AlgorithmFn algFn = algId;
     input EquationFn ieqFn = eqFn;
     input AlgorithmFn ialgFn = algFn;
 
@@ -203,6 +206,14 @@ public
     partial function AlgorithmFn
       input output Algorithm alg;
     end AlgorithmFn;
+
+    function eqId
+      input output Equation eq;
+    end eqId;
+
+    function algId
+      input output Algorithm alg;
+    end algId;
   protected
     list<Equation> eq, ieq;
     list<Algorithm> alg, ialg;
@@ -365,6 +376,69 @@ public
       else false;
     end match;
   end isEmpty;
+
+  function toFlatStream
+    input Sections sections;
+    input Absyn.Path scopeName;
+    input output IOStream.IOStream s;
+  protected
+    Annotation ann;
+    SCode.Mod mod, modLib, modInc, modLibDir, modIncDir;
+  algorithm
+    () := match sections
+      case SECTIONS()
+        algorithm
+          for alg in sections.algorithms loop
+            s := IOStream.append(s, "algorithm\n");
+            s := Statement.toFlatStreamList(alg.statements, "  ", s);
+          end for;
+        then ();
+      case EXTERNAL()
+        algorithm
+          s := IOStream.append(s, "external \"");
+          s := IOStream.append(s, sections.language);
+          s := IOStream.append(s, "\"");
+          if sections.explicit then
+            if not ComponentRef.isEmpty(sections.outputRef) then
+              s := IOStream.append(s, " ");
+              s := IOStream.append(s, ComponentRef.toFlatString(sections.outputRef));
+              s := IOStream.append(s, " =");
+            end if;
+            s := IOStream.append(s, " ");
+            s := IOStream.append(s, sections.name);
+            s := IOStream.append(s, "(");
+            s := IOStream.append(s, stringDelimitList(list(Expression.toFlatString(e) for e in sections.args), ", "));
+            s := IOStream.append(s, ")");
+          end if;
+          if isSome(sections.ann) then
+            SOME(ann) := sections.ann;
+            mod := ann.modification;
+            modLib := SCodeUtil.filterSubMods(mod, function SCodeUtil.filterGivenSubModNames(namesToKeep={"Library"}));
+            modInc := SCodeUtil.filterSubMods(mod, function SCodeUtil.filterGivenSubModNames(namesToKeep={"Include"}));
+            if SCodeUtil.isEmptyMod(modLib) then
+              modLibDir := SCode.NOMOD();
+            else
+              modLibDir := SCodeUtil.filterSubMods(mod, function SCodeUtil.filterGivenSubModNames(namesToKeep={"LibraryDirectory"}));
+              if SCodeUtil.isEmptyMod(modLibDir) then
+                modLibDir := SCode.MOD(SCode.NOT_FINAL(), SCode.NOT_EACH(), {SCode.NAMEMOD("LibraryDirectory", SCode.MOD(SCode.NOT_FINAL(), SCode.NOT_EACH(), {}, SOME(Absyn.STRING("modelica://" + AbsynUtil.pathFirstIdent(scopeName) + "/Resources/Library")), Error.dummyInfo))}, NONE(), Error.dummyInfo);
+              end if;
+            end if;
+            if SCodeUtil.isEmptyMod(modInc) then
+              modIncDir := SCode.NOMOD();
+            else
+              modIncDir := SCodeUtil.filterSubMods(mod, function SCodeUtil.filterGivenSubModNames(namesToKeep={"IncludeDirectory"}));
+              if SCodeUtil.isEmptyMod(modLibDir) then
+                modLibDir := SCode.MOD(SCode.NOT_FINAL(), SCode.NOT_EACH(), {SCode.NAMEMOD("IncludeDirectory", SCode.MOD(SCode.NOT_FINAL(), SCode.NOT_EACH(), {}, SOME(Absyn.STRING("modelica://" + AbsynUtil.pathFirstIdent(scopeName) + "/Resources/Include")), Error.dummyInfo))}, NONE(), Error.dummyInfo);
+              end if;
+            end if;
+            ann.modification := SCodeUtil.mergeSCodeMods(SCodeUtil.mergeSCodeMods(modLib, modLibDir), SCodeUtil.mergeSCodeMods(modInc, modIncDir));
+            s := IOStream.append(s, SCodeDump.printAnnotationStr(SCode.COMMENT(SOME(ann), NONE())));
+          end if;
+          s := IOStream.append(s, ";\n");
+        then ();
+      else ();
+    end match;
+  end toFlatStream;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFSections;

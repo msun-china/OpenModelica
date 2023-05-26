@@ -1,6 +1,7 @@
 // name: StreamConcept_NoMedium_Total.mo
 // keywords: stream instream connector
 // status: correct
+// cflags: -d=-newInst
 //
 // Test model from SiemensPower that tests stream connectors.
 //
@@ -2301,4 +2302,6 @@ end SiemensPower_Components_Valves_Tests_valve_fixeddensity_test;
 //   InStreamEnthalpy.port.p = watersink_ph_StreamConcept1.port.p;
 //   sine.y = watersink_ph_StreamConcept1.p_in;
 // end SiemensPower_Components_Valves_Tests_valve_fixeddensity_test;
+// Warning: Ignoring unknown experiment annotation option: Algorithm = "dassl"
+//
 // endResult

@@ -37,7 +37,6 @@ import Connections = NFConnections;
 
 protected
 import Array;
-import BaseHashSet;
 import Binding = NFBinding;
 import ComplexType = NFComplexType;
 import ComponentRef = NFComponentRef;
@@ -49,9 +48,9 @@ import Error;
 import ErrorTypes;
 import Expression = NFExpression;
 import MetaModelica.Dangerous.listReverseInPlace;
-import NFClass.Class;
+import Class = NFClass;
 import NFClassTree.ClassTree;
-import NFComponent.Component;
+import Component = NFComponent;
 import NFInstNode.InstNode;
 import NFPrefixes.ConnectorType;
 import NFPrefixes.Visibility;
@@ -60,6 +59,7 @@ import Prefixes = NFPrefixes;
 import TypeCheck = NFTypeCheck;
 import Type = NFType;
 import Typing = NFTyping;
+import UnorderedSet;
 import Util;
 import Variable = NFVariable;
 
@@ -88,6 +88,7 @@ algorithm
   csets := ConnectionSets.emptySets(listLength(expandable_conns) + listLength(undeclared_conns));
   csets := addExpandableConnectorsToSets(expandable_conns, csets);
   (undeclared_conns, csets) := List.mapFold(undeclared_conns, addUndeclaredConnectorToSets, csets);
+
   // Extract the sets of connected connectors.
   csets_array := ConnectionSets.extractSets(csets);
 
@@ -117,32 +118,6 @@ algorithm
 end elaborate;
 
 protected
-
-encapsulated package ExpandableSet
-  import BaseHashSet;
-  import Connector = NFConnector;
-  import ComponentRef = NFComponentRef;
-
-  extends BaseHashSet(redeclare type Key = Connector);
-
-  function emptySet
-    input Integer size;
-    output HashSet set;
-  algorithm
-    set := BaseHashSet.emptyHashSetWork(size,
-      (hashConnector, Connector.isNodeNameEqual, Connector.toString));
-  end emptySet;
-
-  function hashConnector
-    input Connector conn;
-    input Integer mod;
-    output Integer res;
-  algorithm
-    res := stringHashDjb2Mod(ComponentRef.firstName(conn.name), mod);
-  end hashConnector;
-
-  annotation(__OpenModelica_Interface="frontend");
-end ExpandableSet;
 
 function sortConnections
   "Sorts the connections into different categories of connectors based on
@@ -211,6 +186,7 @@ function addNestedExpandableConnectorsToSets
 protected
   list<Connector> ecl1, ecl2;
   Option<Connector> oec;
+  list<Connection> conns = {};
 algorithm
   ecl1 := getExpandableConnectorsInConnector(c1);
   ecl2 := getExpandableConnectorsInConnector(c2);
@@ -223,9 +199,11 @@ algorithm
     (ecl2, oec) := List.deleteMemberOnTrue(ec1, ecl2, Connector.isNodeNameEqual);
 
     if isSome(oec) then
-      csets := addConnectionToSets(ec1, Util.getOption(oec), csets);
+      conns := Connection.CONNECTION(ec1, Util.getOption(oec)) :: conns;
     end if;
   end for;
+
+  csets := addExpandableConnectorsToSets(conns, csets);
 end addNestedExpandableConnectorsToSets;
 
 function getExpandableConnectorsInConnector
@@ -317,8 +295,8 @@ algorithm
   node := InstNode.clone(node);
   node := InstNode.rename(ComponentRef.firstName(virtual_cref), node);
   node := InstNode.setParent(ComponentRef.node(ComponentRef.rest(virtual_cref)), node);
+  node := InstNode.componentApply(node, Component.setType, ty);
   virtual_cref := ComponentRef.prefixCref(node, ty, {}, ComponentRef.rest(virtual_cref));
-
   // TODO: This needs more work, the new connector might be a complex connector.
   newConnector := Connector.CONNECTOR(virtual_cref, ty, virtualConnector.face,
     virtualConnector.cty, virtualConnector.source);
@@ -328,21 +306,21 @@ function elaborateExpandableSet
   input list<Connector> set;
   input output list<Variable> vars;
 protected
-  ExpandableSet.HashSet exp_set;
+  UnorderedSet<Connector> exp_set;
   list<Connector> exp_conns = {}, exp_set_lst;
 algorithm
-  exp_set := ExpandableSet.emptySet(Util.nextPrime(listLength(set)));
+  exp_set := UnorderedSet.new(hashConnector, Connector.isNodeNameEqual);
 
   for c in set loop
     if ConnectorType.isExpandable(c.cty) then
       exp_conns := c :: exp_conns;
     elseif ConnectorType.isUndeclared(c.cty) then
-      exp_set := BaseHashSet.add(c, exp_set);
+      UnorderedSet.add(c, exp_set);
       markComponentPresent(ComponentRef.node(Connector.name(c)));
     end if;
   end for;
 
-  exp_set_lst := BaseHashSet.hashSetList(exp_set);
+  exp_set_lst := UnorderedSet.toList(exp_set);
 
   for ec in exp_conns loop
     vars := augmentExpandableConnector(ec, exp_set_lst, vars);
@@ -354,6 +332,7 @@ function markComponentPresent
 protected
   Component comp;
   ConnectorType.Type cty;
+  Class cls;
 algorithm
   comp := InstNode.component(node);
   cty := Component.connectorType(comp);
@@ -362,6 +341,12 @@ algorithm
     cty := ConnectorType.setPresent(cty);
     comp := Component.setConnectorType(cty, comp);
     InstNode.updateComponent(comp, node);
+
+    // Also mark the component's children as present.
+    if Type.isComplex(Component.getType(comp)) then
+      cls := InstNode.getClass(Component.classInstance(comp));
+      ClassTree.applyComponents(Class.classTree(cls), markComponentPresent);
+    end if;
   end if;
 end markComponentPresent;
 
@@ -376,7 +361,6 @@ protected
   ClassTree cls_tree;
   Component comp;
   list<InstNode> nodes = {};
-  Variable var;
   Type ty;
   ComplexType complex_ty;
 algorithm
@@ -391,6 +375,7 @@ algorithm
   end if;
 
   cls_node := InstNode.classScope(exp_node);
+  cls_node := InstNode.clone(cls_node);
   cls := InstNode.getClass(cls_node);
   cls_tree := Class.classTree(cls);
 
@@ -411,14 +396,8 @@ algorithm
       nodes := node :: nodes;
       ty := c.ty;
       elem_name := ComponentRef.prefixCref(node, ty, {}, exp_name);
-      // TODO: This needs more work, the new connector might be a complex connector.
-      var := Variable.VARIABLE(elem_name, ty, NFBinding.EMPTY_BINDING,
-        Visibility.PUBLIC, NFComponent.DEFAULT_ATTR, {},
-        SOME(SCode.COMMENT(NONE(), SOME("virtual variable in expandable connector"))),
-        ElementSource.getInfo(c.source));
-      vars := var :: vars;
+      vars := createVirtualVariables(elem_name, ty, ElementSource.getInfo(c.source), vars);
     else
-      comp_node := ClassTree.lookupElement(InstNode.name(node), cls_tree);
       comp_node := InstNode.resolveInner(comp_node);
 
       if InstNode.isComponent(comp_node) then
@@ -439,10 +418,37 @@ algorithm
   // Create a normal non-expandable complex type for the augmented expandable connector.
   complex_ty := Typing.makeConnectorType(cls_tree, isExpandable = false);
   ty := Type.COMPLEX(cls_node, complex_ty);
+  ty := Type.liftArrayLeftList(ty, Type.arrayDims(InstNode.getType(exp_node)));
   cls := Class.setType(ty, cls);
   InstNode.updateClass(cls, cls_node);
   InstNode.componentApply(exp_node, Component.setType, ty);
 end augmentExpandableConnector;
+
+function createVirtualVariables
+  input ComponentRef connectorName;
+  input Type connectorType;
+  input SourceInfo info;
+  input output list<Variable> vars;
+protected
+  Variable var;
+  array<InstNode> comps;
+  ComponentRef name;
+  Type ty;
+algorithm
+  if Type.isComplex(connectorType) then
+    for comp in Type.complexComponents(connectorType) loop
+      ty := InstNode.getType(comp);
+      name := ComponentRef.prefixCref(comp, ty, {}, connectorName);
+      vars := createVirtualVariables(name, ty, info, vars);
+    end for;
+  else
+    var := Variable.VARIABLE(connectorName, connectorType, NFBinding.EMPTY_BINDING,
+      Visibility.PUBLIC, NFAttributes.DEFAULT_ATTR, {}, {},
+      SOME(SCode.COMMENT(NONE(), SOME("virtual variable in expandable connector"))),
+      info, NFBackendExtension.DUMMY_BACKEND_INFO);
+    vars := var :: vars;
+  end if;
+end createVirtualVariables;
 
 function updateUndeclaredConnection
   input Connection conn;
@@ -470,7 +476,7 @@ algorithm
   (_, _, _, mk) := TypeCheck.matchExpressions(e1, ty1, e2, ty2, allowUnknown = true);
 
   if TypeCheck.isIncompatibleMatch(mk) then
-    Error.addSourceMessageAndFail(Error.INVALID_CONNECTOR_VARIABLE,
+    Error.addSourceMessageAndFail(Error.CONNECT_TYPE_MISMATCH,
       {Expression.toString(e1), Expression.toString(e2)}, Connector.getInfo(c1));
   end if;
 
@@ -496,6 +502,13 @@ algorithm
     var.attributes := Component.getAttributes(InstNode.component(ComponentRef.node(var.name)));
   end if;
 end updatePotentiallyPresentVariable;
+
+function hashConnector
+  input Connector conn;
+  output Integer res;
+algorithm
+  res := stringHashDjb2(ComponentRef.firstName(conn.name));
+end hashConnector;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFExpandableConnectors;

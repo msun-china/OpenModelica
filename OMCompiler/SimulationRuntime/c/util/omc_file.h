@@ -41,59 +41,60 @@ extern "C" {
 #include <sys/types.h>
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
-#include <windows.h>
+#include <winsock2.h>
 #else
 #include <unistd.h>
 #endif
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
-#ifndef MULTIBYTE_TO_WIDECHAR_LENGTH
-#define MULTIBYTE_TO_WIDECHAR_LENGTH(string, unicodeLength) int unicodeLength = MultiByteToWideChar(CP_UTF8, 0, string, -1, NULL, 0)
-#endif
+/**
+ * @brief Convert a multibyte (normal) string to a wide character string.
+ * NOTE: The caller is responsible for deallocating the memory of the returned wchar string.
+ *
+ * @param in_mb_str  multibyte (normal) string to be converted.
+ * @return wchar_t*  A wide character representation of the multibyte string. The caller is responsible for deallocating the memory.
+ */
+wchar_t* omc_multibyte_to_wchar_str(const char* in_mb_str);
 
-#ifndef WIDECHAR_TO_MULTIBYTE_LENGTH
-#define WIDECHAR_TO_MULTIBYTE_LENGTH(unicode, stringLength) int stringLength = WideCharToMultiByte(CP_UTF8, 0, unicode, -1, NULL, 0, NULL, NULL)
-#endif
+/**
+ * @brief Convert a wide character string to multibyte (normal) string.
+ * NOTE: The caller is responsible for deallocating the memory of the returned multibyte string.
+ *
+ * @param in_wc_str  wide character string to be converted.
+ * @return char*  A multibyte string representation of the wide character. The caller is responsible for deallocating the memory.
+ */
+char* omc_wchar_to_multibyte_str(const wchar_t* in_wc_str);
 
-#if defined(_MSC_VER)
-
-#ifndef MULTIBYTE_TO_WIDECHAR_VAR
-#define MULTIBYTE_TO_WIDECHAR_VAR(string, unicodeString, unicodeLength) wchar_t *unicodeString = (wchar_t*)malloc(unicodeLength*sizeof(wchar_t)); MultiByteToWideChar(CP_UTF8, 0, string, -1, unicodeString, unicodeLength)
-#endif
-
-#ifndef WIDECHAR_TO_MULTIBYTE_VAR
-#define WIDECHAR_TO_MULTIBYTE_VAR(unicode, string, stringLength) char *string = (char*)malloc(stringLength*sizeof(char)); WideCharToMultiByte(CP_UTF8, 0, unicode, -1, string, stringLength, NULL, NULL)
-#endif
-
-#ifndef MULTIBYTE_OR_WIDECHAR_VAR_FREE
-#define MULTIBYTE_OR_WIDECHAR_VAR_FREE(unicodeString) if (unicodeString) { free(unicodeString); }
-#endif
-
-#else /* mingw */
-
-#ifndef MULTIBYTE_TO_WIDECHAR_VAR
-#define MULTIBYTE_TO_WIDECHAR_VAR(string, unicodeString, unicodeLength) wchar_t unicodeString[unicodeLength]; MultiByteToWideChar(CP_UTF8, 0, string, -1, unicodeString, unicodeLength)
-#endif
-
-#ifndef WIDECHAR_TO_MULTIBYTE_VAR
-#define WIDECHAR_TO_MULTIBYTE_VAR(unicode, string, stringLength) char string[stringLength]; WideCharToMultiByte(CP_UTF8, 0, unicode, -1, string, stringLength, NULL, NULL)
-#endif
-
-#ifndef MULTIBYTE_OR_WIDECHAR_VAR_FREE
-#define MULTIBYTE_OR_WIDECHAR_VAR_FREE(unicodeString)
-#endif
-
-#endif /* msvc */
-
-#endif /* mingw and msvc */
+#endif // defined(__MINGW32__) || defined(_MSC_VER)
 
 FILE* omc_fopen(const char *filename, const char *mode);
+int omc_fclose(FILE * stream);
+size_t omc_fread(void *buffer, size_t size, size_t count, FILE *stream, int allow_early_eof);
+size_t omc_fwrite(void * buffer, size_t size, size_t count, FILE * stream);
+
 #if defined(__MINGW32__) || defined(_MSC_VER)
-int omc_stat(const char *filename, struct _stat *statbuf);
+typedef struct _stat omc_stat_t;
 #else
-int omc_stat(const char *filename, struct stat *statbuf);
+typedef struct stat omc_stat_t;
 #endif
+int omc_stat(const char *filename, omc_stat_t *statbuf);
+int omc_lstat(const char *filename, omc_stat_t *statbuf);
+
+/**
+ * @brief checks if a file/folder exists on the system.
+ * NOTE: Will return success even for directories, i.e., will not confirm that it is indeed a file.
+ *
+ * @param filename  the filename to check for existence.
+ * @return int  returns 1 if the file/folder exists, 0 otherwise.
+ */
+int omc_file_exists(const char* filename);
+
 int omc_unlink(const char *filename);
+int omc_rename(const char *source, const char *dest);
+
+#if defined(__MINGW32__) || defined(_MSC_VER)
+wchar_t* longabspath(wchar_t* unicodePath);
+#endif
 
 #ifdef __cplusplus
 }

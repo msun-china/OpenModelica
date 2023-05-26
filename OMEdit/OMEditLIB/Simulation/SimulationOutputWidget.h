@@ -47,7 +47,7 @@
 #include <QTcpServer>
 
 class Label;
-class SimulationProcessThread;
+class OutputPlainTextEdit;
 class SimulationOutputHandler;
 class SimulationOutputWidget;
 class SimulationMessage;
@@ -79,6 +79,11 @@ class SimulationOutputWidget : public QWidget
 {
   Q_OBJECT
 public:
+  enum SocketState {
+    NotConnected,
+    Connected,
+    Disconnected
+  };
   SimulationOutputWidget(SimulationOptions simulationOptions, QWidget *pParent = 0);
   ~SimulationOutputWidget();
   SimulationOptions getSimulationOptions() {return mSimulationOptions;}
@@ -86,10 +91,19 @@ public:
   QTabWidget* getGeneratedFilesTabWidget() {return mpGeneratedFilesTabWidget;}
   bool isOutputStructured() {return mIsOutputStructured;}
   SimulationOutputTree* getSimulationOutputTree() {return mpSimulationOutputTree;}
-  QPlainTextEdit* getCompilationOutputTextBox() {return mpCompilationOutputTextBox;}
   QTcpServer* getTcpServer() {return mpTcpServer;}
-  bool isSocketDisconnected() {return mSocketDisconnected;}
-  SimulationProcessThread* getSimulationProcessThread() {return mpSimulationProcessThread;}
+  QProcess* getCompilationProcess() {return mpCompilationProcess;}
+  void setCompilationProcessKilled(bool killed) {mIsCompilationProcessKilled = killed;}
+  bool isCompilationProcessKilled() {return mIsCompilationProcessKilled;}
+  bool isCompilationProcessRunning() {return mIsCompilationProcessRunning;}
+  QProcess* getPostCompilationProcess() {return mpPostCompilationProcess;}
+  void setPostCompilationProcessKilled(bool killed) {mIsPostCompilationProcessKilled = killed;}
+  bool isPostCompilationProcessKilled() {return mIsPostCompilationProcessKilled;}
+  bool isPostCompilationProcessRunning() {return mIsPostCompilationProcessRunning;}
+  QProcess* getSimulationProcess() {return mpSimulationProcess;}
+  void setSimulationProcessKilled(bool killed) {mIsSimulationProcessKilled = killed;}
+  bool isSimulationProcessKilled() {return mIsSimulationProcessKilled;}
+  bool isSimulationProcessRunning() {return mIsSimulationProcessRunning;}
   void addGeneratedFileTab(QString fileName);
   void writeSimulationMessage(SimulationMessage *pSimulationMessage);
   void embeddedServerInitialized();
@@ -103,35 +117,64 @@ private:
   QTabWidget *mpGeneratedFilesTabWidget;
   QList<QString> mGeneratedFilesList;
   QList<QString> mGeneratedAlgLoopFilesList;
+  OutputPlainTextEdit *mpCompilationOutputTextBox;
+  QString mSimulationStandardOutput;
+  QString mSimulationStandardError;
   SimulationOutputHandler *mpSimulationOutputHandler;
   bool mIsOutputStructured;
   QTextBrowser *mpSimulationOutputTextBrowser;
   SimulationOutputTree *mpSimulationOutputTree;
-  QPlainTextEdit *mpCompilationOutputTextBox;
   ArchivedSimulationItem *mpArchivedSimulationItem;
   QTcpServer *mpTcpServer;
-  bool mSocketDisconnected;
-  SimulationProcessThread *mpSimulationProcessThread;
+  QTcpSocket *mpTcpSocket;
+  SocketState mSocketState;
+  QProcess *mpCompilationProcess;
+  bool mIsCompilationProcessKilled;
+  bool mIsCompilationProcessRunning;
+  QProcess *mpPostCompilationProcess;
+  bool mIsPostCompilationProcessKilled;
+  bool mIsPostCompilationProcessRunning;
+  QProcess *mpSimulationProcess;
+  bool mIsSimulationProcessKilled;
+  bool mIsSimulationProcessRunning;
   QDateTime mResultFileLastModifiedDateTime;
 
+  void compileModel();
+  void runPostCompilation();
+  void postCompilationProcessFinishedHelper(int exitCode, QProcess::ExitStatus exitStatus);
+  void runSimulationExecutable();
+  void writeCompilationOutput(QString output, QColor color);
+  void compilationProcessFinishedHelper(int exitCode, QProcess::ExitStatus exitStatus);
   void deleteIntermediateCompilationFiles();
-public slots:
+  void writeSimulationOutput(QString output, StringHandler::SimulationMessageType type, bool textFormat);
+  void simulationProcessFinishedHelper();
+  QString getPathsFromBatFile(QString fileName);
+private slots:
+  void cancelCompilationOrSimulation();
+  void openTransformationalDebugger();
+  void openSimulationLogFile();
   void createSimulationProgressSocket();
   void readSimulationProgress();
   void socketDisconnected();
   void compilationProcessStarted();
-  void writeCompilationOutput(QString output, QColor color);
+  void readCompilationStandardOutput();
+  void readCompilationStandardError();
+  void compilationProcessError(QProcess::ProcessError error);
   void compilationProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
+  void postCompilationProcessStarted();
+  void readPostCompilationStandardOutput();
+  void readPostCompilationStandardError();
+  void postCompilationProcessError(QProcess::ProcessError error);
+  void postCompilationProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
   void simulationProcessStarted();
-  void writeSimulationOutput(QString output, StringHandler::SimulationMessageType type, bool textFormat);
+  void readSimulationStandardOutput();
+  void readSimulationStandardError();
+  void simulationProcessError(QProcess::ProcessError error);
   void simulationProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
-  void cancelCompilationOrSimulation();
-  void openTransformationalDebugger();
-  void openSimulationLogFile();
+public slots:
   void openTransformationBrowser(QUrl url);
-protected:
-  virtual void keyPressEvent(QKeyEvent *event) override;
-  virtual void closeEvent(QCloseEvent *event) override;
+signals:
+  void simulationFinished();
 };
 
 #endif // SIMULATIONOUTPUTWIDGET_H

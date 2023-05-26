@@ -37,8 +37,8 @@
 #include <map>
 #include <list>
 #include <set>
-#include "omc_msvc.h" /* For round() */
-#include "meta_modelica.h"
+#include "util/omc_msvc.h" /* For round() */
+#include "meta/meta_modelica.h"
 
 using namespace std;
 
@@ -61,6 +61,7 @@ public:
   static Rational add(Rational q1, Rational q2);
   static Rational mul(Rational q1, Rational q2);
   static Rational div(Rational q1, Rational q2);
+  static Rational pow(Rational q1, Rational q2);
   static mmc_sint_t gcd(mmc_sint_t a, mmc_sint_t b);
 
 };
@@ -75,7 +76,7 @@ struct UnitRes{
     UNKNOWN_IDENT,
     PARSE_ERROR,
     UNIT_OFFSET_ERROR,
-    UNIT_SCALE_ERROR,
+    UNIT_EXPONENT_NOT_INT,
     UNIT_WRONG_BASE, //Need to be base 10 for exponent prefixes
     UNIT_NOT_FOUND,
     PREFIX_NOT_FOUND,
@@ -93,6 +94,7 @@ struct UnitRes{
   ResVal result;      //Result enum
   unsigned int charNo;  //If error, charcter number in string where the error is
   string message;      //String message. E.g. for UNKNOWN_IDENT, the identifier is given
+  string toString();
 };
 
 class Unit{
@@ -285,9 +287,6 @@ private:
   /** Mapping from unit symbol to unit definitions. Includes both base and derived units. */
   map<string,Unit> _units;
 
-  /* Set to keep track of which derived units have already been visisted in the minimizeDerivedUnits method*/
-  set<int> _derivedUnitsVisited;
-
   /** Parse */
   UnitRes parseExpression(Scanner& scan, Unit& unit);
   UnitRes parseNumerator(Scanner& scan, Unit& unit);
@@ -297,11 +296,6 @@ private:
   UnitRes parseSymbol(Scanner& scan, Unit& unit);
   UnitRes parseRational(Scanner& scan, Rational& q);
 
-  /* MIP */
-  Unit solveMIP(Unit,bool innerCall=false);
-
-  /* Help function to MIP */
-  Unit minimizeDerivedUnits(Unit unit,Unit origUnit,double factor);
   void increaseNthUnitWeight(int indx,double factor);
   void resetNthUnitWeight(int indx,double factor);
   int actualNumDerived(Unit unit);

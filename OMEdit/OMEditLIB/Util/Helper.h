@@ -56,8 +56,10 @@ public:
   static QString organization;
   static QString application;
   static QString OpenModelicaVersion;
+  static QString OpenModelicaUsersGuideVersion;
   static QString OpenModelicaHome;
-  static QString OpenModelicaLibrary;
+  static QString ModelicaPath;
+  static QString userHomeDirectory;
   static QString OMCServerName;
   static QString omFileTypes;
   static QString omEncryptedFileTypes;
@@ -71,12 +73,13 @@ public:
   static QString matFileTypes;
   static QString csvFileTypes;
   static QString omResultFileTypes;
+  static QString omResultFileTypesRegExp;
   static QString exeFileTypes;
   static QString txtFileTypes;
   static QString figaroFileTypes;
   static QString visualizationFileTypes;
-  static QString omsFileTypes;
   static QString subModelFileTypes;
+  static QString omScriptTypes;
   static int treeIndentation;
   static QSize iconSize;
   static int tabWidth;
@@ -89,6 +92,7 @@ public:
   static int headingFontSize;
   static QString ModelicaSimulationOutputFormats;
   static QString clockOptions;
+  static QString internalLevel;
   static QString notificationLevel;
   static QString warningLevel;
   static QString errorLevel;
@@ -100,6 +104,10 @@ public:
   static QString scriptingKind;
   static QString tabbed;
   static QString subWindow;
+  static QString iconViewForSettings;
+  static QString diagramViewForSettings;
+  static QString textViewForSettings;
+  static QString documentationViewForSettings;
   static QString structuredOutput;
   static QString textOutput;
   static QString utf8;
@@ -147,8 +155,13 @@ public:
   static QString reset;
   static QString close;
   static QString error;
+  static QString percentageLabel;
+  static QString chooseTransparency;
+  static QString chooseSpecularity;
+  static QString chooseColor;
   static QString chooseFile;
   static QString chooseFiles;
+  static QString saveFile;
   static QString attributes;
   static QString properties;
   static QString add;
@@ -209,6 +222,7 @@ public:
   static QString resetZoom;
   static QString zoomIn;
   static QString zoomOut;
+  static QString fitToDiagram;
   static QString loading;
   static QString question;
   static QString search;
@@ -247,6 +261,7 @@ public:
   static QString horizontal;
   static QString vertical;
   static QString component;
+  static QString element;
   static QString scaleFactor;
   static QString preserveAspectRatio;
   static QString originX;
@@ -344,10 +359,11 @@ public:
   static QString stepReturn;
   static QString attachToRunningProcess;
   static QString attachToRunningProcessTip;
-  static QString crashReport;
+  static QString reportIssue;
   static QString parsingFailedJson;
   static QString expandAll;
   static QString collapseAll;
+  static QString versionLabel;
   static QString version;
   static QString unlimited;
   static QString simulationOutput;
@@ -371,7 +387,8 @@ public:
   static QString animationRepeatTip;
   static QString simulationParams;
   static QString simulationParamsTip;
-  static QString newModel;
+  static QString newOMSimulatorModel;
+  static QString newOMSimulatorModelTip;
   static QString addSystem;
   static QString addSystemTip;
   static QString addSubModel;
@@ -411,18 +428,21 @@ public:
   static QString priority;
   static QString secs;
   static QString saveContentsInOneFile;
-  static QString OMSSimulateTip;
   static QString dateTime;
   static QString startTime;
   static QString stopTime;
   static QString status;
   static QString speed;
-  static QString instantiateOMSModelTip;
   static QString terminateInstantiation;
   static QString terminateInstantiationTip;
   static QString archivedSimulations;
   static QString systemSimulationInformation;
   static QString translationFlags;
+  static QString send;
+  static QString installLibrary;
+  static QString upgradeInstalledLibraries;
+  static QString updateLibraryIndex;
+  static QString dataReconciliation;
 };
 
 class GUIMessages : public QObject
@@ -433,6 +453,7 @@ public:
     CHECK_MESSAGES_BROWSER,
     SAME_COMPONENT_NAME,
     SAME_COMPONENT_CONNECT,
+    MISMATCHED_CONNECTORS_IN_CONNECT,
     NO_MODELICA_CLASS_OPEN,
     SIMULATION_STARTTIME_LESSTHAN_STOPTIME,
     ENTER_NAME,
@@ -441,7 +462,7 @@ public:
     INSERT_IN_SYSTEM_LIBRARY_NOT_ALLOWED,
     MODEL_ALREADY_EXISTS,
     ITEM_ALREADY_EXISTS,
-    OPENMODELICAHOME_NOT_FOUND,
+    INSTALLATIONDIRECTORY_NOT_FOUND,
     ERROR_OCCURRED,
     ERROR_IN_TEXT,
     REVERT_PREVIOUS_OR_FIX_ERRORS_MANUALLY,
@@ -490,14 +511,18 @@ public:
     TLMCOSIMULATION_ALREADY_RUNNING,
     TERMINAL_COMMAND_NOT_SET,
     UNABLE_FIND_COMPONENT_IN_CONNECTION,
+    UNABLE_FIND_COMPONENT_IN_CONNECTION_NEW,
     UNABLE_FIND_COMPONENT_IN_TRANSITION,
+    UNABLE_FIND_COMPONENT_IN_TRANSITION_NEW,
     UNABLE_FIND_COMPONENT_IN_INITIALSTATE,
+    UNABLE_FIND_COMPONENT_IN_INITIALSTATE_NEW,
     SELECT_SIMULATION_OPTION,
     INVALID_TRANSITION_CONDITION,
     MULTIPLE_DECLARATIONS_COMPONENT,
     GDB_ERROR,
     INVALID_INSTANCE_NAME,
-    ENTER_SCRIPT
+    ENTER_SCRIPT,
+    LIBRARY_INDEX_FILE_NOT_FOUND
   };
 
   static QString getMessage(int type);

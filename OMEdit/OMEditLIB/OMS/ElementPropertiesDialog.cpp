@@ -33,15 +33,9 @@
 
 #include "ElementPropertiesDialog.h"
 #include "Modeling/Commands.h"
-#include "Component/ComponentProperties.h"
+#include "Element/ElementProperties.h"
 
 #include <QMessageBox>
-
-ElementProperties::ElementProperties()
-{
-  mParameterValues.clear();
-  mInputValues.clear();
-}
 
 /*!
  * \class ElementPropertiesDialog
@@ -52,7 +46,7 @@ ElementProperties::ElementProperties()
  * \param pComponent - pointer to Component
  * \param pParent
  */
-ElementPropertiesDialog::ElementPropertiesDialog(Component *pComponent, QWidget *pParent)
+ElementPropertiesDialog::ElementPropertiesDialog(Element *pComponent, QWidget *pParent)
   : QDialog(pParent)
 {
   mpComponent = pComponent;
@@ -60,22 +54,18 @@ ElementPropertiesDialog::ElementPropertiesDialog(Component *pComponent, QWidget 
   setAttribute(Qt::WA_DeleteOnClose);
   setMinimumWidth(400);
   // heading
-  mpHeading = Utilities::getHeadingLabel(QString("%1- %2").arg(Helper::properties, pComponent->getName()));
+  mpHeading = Utilities::getHeadingLabel(QString("%1 - %2").arg(Helper::properties, pComponent->getName()));
   // horizontal line
   mpHorizontalLine = Utilities::getHeadingLine();
   // Create the name label and text box
   mpNameLabel = new Label(Helper::name);
   mpNameTextBox = new QLineEdit(mpComponent->getName());
-  /*! @todo Remove the following line once oms_rename is available for elements.
-   * And then fix the OMSRenameCommand accordingly.
-   */
-  mpNameTextBox->setDisabled(true);
 
-  if(mpComponent->getLibraryTreeItem()->getExternalTLMModelInfo()) {
-      const oms_external_tlm_model_info_t *pExternalTLMModelInfo = mpComponent->getLibraryTreeItem()->getExternalTLMModelInfo();
-      mpStartScriptLabel = new Label(Helper::startScript);
-      mpStartScriptTextBox = new QLineEdit(QString(pExternalTLMModelInfo->startScript));
-      mpStartScriptTextBox->setDisabled(true); //! @todo Enable this to make start script changeable
+  if (mpComponent->getLibraryTreeItem()->getExternalTLMModelInfo()) {
+    const oms_external_tlm_model_info_t *pExternalTLMModelInfo = mpComponent->getLibraryTreeItem()->getExternalTLMModelInfo();
+    mpStartScriptLabel = new Label(Helper::startScript);
+    mpStartScriptTextBox = new QLineEdit(QString(pExternalTLMModelInfo->startScript));
+    mpStartScriptTextBox->setDisabled(true); //! @todo Enable this to make start script changeable
   }
   // tab widget
   mpTabWidget = new QTabWidget;
@@ -176,9 +166,6 @@ ElementPropertiesDialog::ElementPropertiesDialog(Component *pComponent, QWidget 
   pParametersScrollArea->setWidget(pParametersWidget);
   mParameterLabels.clear();
   mParameterLineEdits.clear();
-  LibraryTreeItem *pModelLibraryTreeItem = MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->findLibraryTreeItem(
-                                             StringHandler::getFirstWordBeforeDot(mpComponent->getLibraryTreeItem()->getNameStructure()));
-  bool modelInstantiated = pModelLibraryTreeItem && pModelLibraryTreeItem->isInstantiated();
   bool hasParameter = false;
   if (mpComponent->getLibraryTreeItem()->getOMSElement() && mpComponent->getLibraryTreeItem()->getOMSElement()->connectors) {
     oms_connector_t** pInterfaces = mpComponent->getLibraryTreeItem()->getOMSElement()->connectors;
@@ -190,32 +177,31 @@ ElementPropertiesDialog::ElementPropertiesDialog(Component *pComponent, QWidget 
         QString nameStructure = QString("%1.%2").arg(mpComponent->getLibraryTreeItem()->getNameStructure(), name);
         mParameterLabels.append(pNameLabel);
         QLineEdit *pParameterLineEdit = new QLineEdit;
+        pParameterLineEdit->installEventFilter(this);
         bool status = false;
         if (pInterfaces[i]->type == oms_signal_type_real) {
           QDoubleValidator *pDoubleValidator = new QDoubleValidator(this);
           pParameterLineEdit->setValidator(pDoubleValidator);
           double value;
-          if (modelInstantiated && (status = OMSProxy::instance()->getReal(nameStructure, &value))) {
+          if ((status = OMSProxy::instance()->getReal(nameStructure, &value))) {
             pParameterLineEdit->setText(QString::number(value));
           }
-        } else if (pInterfaces[i]->type == oms_signal_type_integer) {
+        } else if (pInterfaces[i]->type == oms_signal_type_integer || pInterfaces[i]->type == oms_signal_type_enum) {
           QIntValidator *pIntValidator = new QIntValidator(this);
           pParameterLineEdit->setValidator(pIntValidator);
           int value;
-          if (modelInstantiated && (status = OMSProxy::instance()->getInteger(nameStructure, &value))) {
+          if ((status = OMSProxy::instance()->getInteger(nameStructure, &value))) {
             pParameterLineEdit->setText(QString::number(value));
           }
         } else if (pInterfaces[i]->type == oms_signal_type_boolean) {
           QIntValidator *pIntValidator = new QIntValidator(this);
           pParameterLineEdit->setValidator(pIntValidator);
           bool value;
-          if (modelInstantiated && (status = OMSProxy::instance()->getBoolean(nameStructure, &value))) {
+          if ((status = OMSProxy::instance()->getBoolean(nameStructure, &value))) {
             pParameterLineEdit->setText(QString::number(value));
           }
         } else if (pInterfaces[i]->type == oms_signal_type_string) {
           qDebug() << "ElementPropertiesDialog::ElementPropertiesDialog() oms_signal_type_string not implemented yet.";
-        } else if (pInterfaces[i]->type == oms_signal_type_enum) {
-          qDebug() << "ElementPropertiesDialog::ElementPropertiesDialog() oms_signal_type_enum not implemented yet.";
         } else if (pInterfaces[i]->type == oms_signal_type_bus) {
           qDebug() << "ElementPropertiesDialog::ElementPropertiesDialog() oms_signal_type_bus not implemented yet.";
         } else {
@@ -225,7 +211,6 @@ ElementPropertiesDialog::ElementPropertiesDialog(Component *pComponent, QWidget 
           pParameterLineEdit->setPlaceholderText("unknown");
         }
         mParameterLineEdits.append(pParameterLineEdit);
-        mOldElementProperties.mParameterValues.append(pParameterLineEdit->text());
         int layoutIndex = pParametersGridLayout->rowCount();
         int columnIndex = 0;
         pParametersGridLayout->addWidget(mParameterLabels.last(), layoutIndex, columnIndex++);
@@ -260,32 +245,31 @@ ElementPropertiesDialog::ElementPropertiesDialog(Component *pComponent, QWidget 
         pNameLabel->setToolTip(nameStructure);
         mInputLabels.append(pNameLabel);
         QLineEdit *pInputLineEdit = new QLineEdit;
+        pInputLineEdit->installEventFilter(this);
         bool status = false;
         if (pInterfaces[i]->type == oms_signal_type_real) {
           QDoubleValidator *pDoubleValidator = new QDoubleValidator(this);
           pInputLineEdit->setValidator(pDoubleValidator);
           double value;
-          if (modelInstantiated && (status = OMSProxy::instance()->getReal(nameStructure, &value))) {
+          if ((status = OMSProxy::instance()->getReal(nameStructure, &value))) {
             pInputLineEdit->setText(QString::number(value));
           }
-        } else if (pInterfaces[i]->type == oms_signal_type_integer) {
+        } else if (pInterfaces[i]->type == oms_signal_type_integer || pInterfaces[i]->type == oms_signal_type_enum) {
           QIntValidator *pIntValidator = new QIntValidator(this);
           pInputLineEdit->setValidator(pIntValidator);
           int value;
-          if (modelInstantiated && (status = OMSProxy::instance()->getInteger(nameStructure, &value))) {
+          if ((status = OMSProxy::instance()->getInteger(nameStructure, &value))) {
             pInputLineEdit->setText(QString::number(value));
           }
         } else if (pInterfaces[i]->type == oms_signal_type_boolean) {
           QIntValidator *pIntValidator = new QIntValidator(this);
           pInputLineEdit->setValidator(pIntValidator);
           bool value;
-          if (modelInstantiated && (status = OMSProxy::instance()->getBoolean(nameStructure, &value))) {
+          if ((status = OMSProxy::instance()->getBoolean(nameStructure, &value))) {
             pInputLineEdit->setText(QString::number(value));
           }
         } else if (pInterfaces[i]->type == oms_signal_type_string) {
           qDebug() << "ElementPropertiesDialog::ElementPropertiesDialog() oms_signal_type_string not implemented yet.";
-        } else if (pInterfaces[i]->type == oms_signal_type_enum) {
-          qDebug() << "ElementPropertiesDialog::ElementPropertiesDialog() oms_signal_type_enum not implemented yet.";
         } else if (pInterfaces[i]->type == oms_signal_type_bus) {
           qDebug() << "ElementPropertiesDialog::ElementPropertiesDialog() oms_signal_type_bus not implemented yet.";
         } else {
@@ -295,7 +279,6 @@ ElementPropertiesDialog::ElementPropertiesDialog(Component *pComponent, QWidget 
           pInputLineEdit->setPlaceholderText("unknown");
         }
         mInputLineEdits.append(pInputLineEdit);
-        mOldElementProperties.mInputValues.append(pInputLineEdit->text());
         int layoutIndex = pInputsGridLayout->rowCount();
         int columnIndex = 0;
         pInputsGridLayout->addWidget(mInputLabels.last(), layoutIndex, columnIndex++);
@@ -309,7 +292,6 @@ ElementPropertiesDialog::ElementPropertiesDialog(Component *pComponent, QWidget 
   // Create the buttons
   mpOkButton = new QPushButton(Helper::ok);
   mpOkButton->setAutoDefault(true);
-  mpOkButton->setEnabled(modelInstantiated);
   connect(mpOkButton, SIGNAL(clicked()), this, SLOT(updateProperties()));
   mpCancelButton = new QPushButton(Helper::cancel);
   mpCancelButton->setAutoDefault(false);
@@ -345,29 +327,158 @@ void ElementPropertiesDialog::updateProperties()
 {
   // check name
   if (mpNameTextBox->text().isEmpty()) {
-    QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error), GUIMessages::getMessage(
-                            GUIMessages::ENTER_NAME).arg(Helper::item), Helper::ok);
+    QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), GUIMessages::getMessage(GUIMessages::ENTER_NAME).arg(Helper::item), Helper::ok);
     return;
   }
   ModelWidget *pModelWidget = mpComponent->getGraphicsView()->getModelWidget();
-  pModelWidget->beginMacro("Update Element properties");
-  // if the name is same as old then skip OMSRenameCommand.
+  // Update parametes and inputs
+  int parametersIndex = 0;
+  int inputsIndex = 0;
+  if (mpComponent->getLibraryTreeItem()->getOMSElement() && mpComponent->getLibraryTreeItem()->getOMSElement()->connectors) {
+    oms_connector_t** pInterfaces = mpComponent->getLibraryTreeItem()->getOMSElement()->connectors;
+    for (int i = 0 ; pInterfaces[i] ; i++) {
+      QString nameStructure = QString("%1.%2").arg(mpComponent->getLibraryTreeItem()->getNameStructure(), QString(pInterfaces[i]->name));
+      if (pInterfaces[i]->causality == oms_causality_parameter) {
+        QString parameterValue = mParameterLineEdits.at(parametersIndex)->text();
+        parametersIndex++;
+        if (parameterValue.isEmpty()) {
+          // delete start values only
+          OMSProxy::instance()->omsDelete(nameStructure + ":start");
+        } else {
+          if (pInterfaces[i]->type == oms_signal_type_real) {
+            OMSProxy::instance()->setReal(nameStructure, parameterValue.toDouble());
+          } else if (pInterfaces[i]->type == oms_signal_type_integer || pInterfaces[i]->type == oms_signal_type_enum) {
+            OMSProxy::instance()->setInteger(nameStructure, parameterValue.toInt());
+          } else if (pInterfaces[i]->type == oms_signal_type_boolean) {
+            OMSProxy::instance()->setBoolean(nameStructure, parameterValue.toInt());
+          } else if (pInterfaces[i]->type == oms_signal_type_string) {
+            qDebug() << "ElementPropertiesDialog::updateProperties() oms_signal_type_string not implemented yet.";
+          } else if (pInterfaces[i]->type == oms_signal_type_bus) {
+            qDebug() << "ElementPropertiesDialog::updateProperties() oms_signal_type_bus not implemented yet.";
+          } else {
+            qDebug() << "ElementPropertiesDialog::updateProperties() unknown oms_signal_type_enu_t.";
+          }
+        }
+      } else if (pInterfaces[i]->causality == oms_causality_input) {
+        QString inputValue = mInputLineEdits.at(inputsIndex)->text();
+        inputsIndex++;
+        if (inputValue.isEmpty()){
+          // delete start values only
+          OMSProxy::instance()->omsDelete(nameStructure + ":start");
+        } else {
+          if (pInterfaces[i]->type == oms_signal_type_real) {
+            OMSProxy::instance()->setReal(nameStructure, inputValue.toDouble());
+          } else if (pInterfaces[i]->type == oms_signal_type_integer || pInterfaces[i]->type == oms_signal_type_enum) {
+            OMSProxy::instance()->setInteger(nameStructure, inputValue.toInt());
+          } else if (pInterfaces[i]->type == oms_signal_type_boolean) {
+            OMSProxy::instance()->setBoolean(nameStructure, inputValue.toInt());
+          } else if (pInterfaces[i]->type == oms_signal_type_string) {
+            qDebug() << "ElementPropertiesDialog::updateProperties() oms_signal_type_string not implemented yet.";
+          } else if (pInterfaces[i]->type == oms_signal_type_bus) {
+            qDebug() << "ElementPropertiesDialog::updateProperties() oms_signal_type_bus not implemented yet.";
+          } else {
+            qDebug() << "ElementPropertiesDialog::updateProperties() unknown oms_signal_type_enu_t.";
+          }
+        }
+      }
+    }
+  }
+  // if the name is same as old then skip.
   if (mpNameTextBox->text().compare(mpComponent->getName()) != 0) {
-    // push the change on the undo stack
-    pModelWidget->getUndoStack()->push(new OMSRenameCommand(mpComponent->getLibraryTreeItem(), mpNameTextBox->text()));
+    OMSProxy::instance()->rename(mpComponent->getLibraryTreeItem()->getNameStructure(), mpNameTextBox->text());
   }
-  ElementProperties newElementProperties;
-  foreach (QLineEdit *pParameterLineEdit, mParameterLineEdits) {
-    newElementProperties.mParameterValues.append(pParameterLineEdit->text());
-  }
-  foreach (QLineEdit *pInputLineEdit, mInputLineEdits) {
-    newElementProperties.mInputValues.append(pInputLineEdit->text());
-  }
-  // push the change on the undo stack
-  pModelWidget->getUndoStack()->push(new ElementPropertiesCommand(mpComponent, mpNameTextBox->text(),
-                                                                  mOldElementProperties, newElementProperties));
+  bool doSnapShot = !mpComponent->getGraphicsView()->getModelWidget()->getLibraryTreeItem()->isSystemLibrary();
+  pModelWidget->createOMSimulatorUndoCommand(QString("Update Element %1 Parameters").arg(mpNameTextBox->text()), doSnapShot);
   pModelWidget->updateModelText();
-  pModelWidget->endMacro();
   // accept the dialog
   accept();
+}
+
+/*
+ * event filter for mParameterLineEdits and mInputLineEdit
+ * to detect the focus out event, and update
+ * the default start values from modeldesctiption.xml
+ */
+bool ElementPropertiesDialog::eventFilter(QObject *pObject, QEvent *pEvent)
+{
+  QLineEdit *pLineEdit = qobject_cast<QLineEdit*>(pObject);
+
+  if (pLineEdit && pEvent->type() != QEvent::FocusOut) {
+    return QWidget::eventFilter(pObject, pEvent);
+  }
+
+  if (!pLineEdit->text().isEmpty()) {
+    return QWidget::eventFilter(pObject, pEvent);
+  }
+
+  if (!mpComponent->getLibraryTreeItem()->getOMSElement() || !mpComponent->getLibraryTreeItem()->getOMSElement()->connectors) {
+    return QWidget::eventFilter(pObject, pEvent);
+  }
+
+  // search the lineEdit index in parameters
+  int parameterIndex = mParameterLineEdits.indexOf(pLineEdit);
+  if (parameterIndex != -1) {
+    QString parameterLabelText = mParameterLabels.at(parameterIndex)->text();
+    deleteStartValueAndRestoreDefault(parameterLabelText, pLineEdit);
+  }
+
+  // search the lineEdit index in inputs
+  int inputIndex = mInputLineEdits.indexOf(pLineEdit);
+  if (inputIndex != -1) {
+    QString inputLabelText = mInputLabels.at(inputIndex)->text();
+    deleteStartValueAndRestoreDefault(inputLabelText, pLineEdit);
+  }
+
+  return QWidget::eventFilter(pObject, pEvent);
+}
+
+/*
+ * helper function to restore default start values read from modeldescription.xml for fmus
+ * and 0 for other systems
+ */
+void ElementPropertiesDialog::deleteStartValueAndRestoreDefault(const QString name, QLineEdit * pLineEdit)
+{
+  oms_connector_t** pConnectors = mpComponent->getLibraryTreeItem()->getOMSElement()->connectors;
+  int i=0;
+  while (pConnectors[i] && QString(pConnectors[i]->name).compare(name) != 0) {
+    i++;
+  }
+
+  // no element found
+  if (!pConnectors[i]) {
+    return;
+  }
+
+  auto& pConnector = pConnectors[i];
+
+  // only considering parameters and inputs
+  if (oms_causality_parameter != pConnector->causality && oms_causality_input != pConnector->causality) {
+    return;
+  }
+
+  QString nameStructure = QString("%1.%2").arg(mpComponent->getLibraryTreeItem()->getNameStructure(), QString(pConnector->name));
+  OMSProxy::instance()->omsDelete(nameStructure + ":start");
+
+  bool status = false;
+  if (pConnector->type == oms_signal_type_real) {
+    double value;
+    if ((status = OMSProxy::instance()->getReal(nameStructure, &value))) {
+      pLineEdit->setText(QString::number(value));
+    }
+  } else if (pConnector->type == oms_signal_type_integer) {
+    int value;
+    if ((status = OMSProxy::instance()->getInteger(nameStructure, &value))) {
+      pLineEdit->setText(QString::number(value));
+    }
+  } else if (pConnector->type == oms_signal_type_boolean) {
+    bool value;
+    if ((status = OMSProxy::instance()->getBoolean(nameStructure, &value))) {
+      pLineEdit->setText(QString::number(value));
+    }
+  } else {
+    qDebug() << "ElementPropertiesDialog::deleteStartValueAndRestoreDefault() unknown signal type";
+  }
+  if (!status) {
+    pLineEdit->setPlaceholderText("unknown");
+  }
 }

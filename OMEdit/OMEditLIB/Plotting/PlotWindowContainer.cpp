@@ -59,6 +59,7 @@ PlotWindowContainer::PlotWindowContainer(QWidget *pParent)
   setDocumentMode(true);
 #if QT_VERSION >= 0x040800
   setTabsClosable(true);
+  setTabsMovable(true);
 #endif
   if (OptionsDialog::instance()->getPlottingPage()->getPlottingViewMode().compare(Helper::subWindow) == 0) {
     setViewMode(QMdiArea::SubWindowView);
@@ -202,7 +203,7 @@ QMdiSubWindow* PlotWindowContainer::getDiagramSubWindowFromMdi()
  */
 bool PlotWindowContainer::isPlotWindow(QObject *pObject)
 {
-  if (0 != pObject->objectName().compare("animationWindow")
+  if (pObject && 0 != pObject->objectName().compare("animationWindow")
       && 0 != pObject->objectName().compare("diagramWindow")) {
     return true;
   }
@@ -217,7 +218,7 @@ bool PlotWindowContainer::isPlotWindow(QObject *pObject)
  */
 bool PlotWindowContainer::isAnimationWindow(QObject *pObject)
 {
-  if (0 == pObject->objectName().compare("animationWindow")) {
+  if (pObject && 0 == pObject->objectName().compare("animationWindow")) {
     return true;
   }
   return false;
@@ -231,7 +232,7 @@ bool PlotWindowContainer::isAnimationWindow(QObject *pObject)
  */
 bool PlotWindowContainer::isDiagramWindow(QObject *pObject)
 {
-  if (0 == pObject->objectName().compare("diagramWindow")) {
+  if (pObject && 0 == pObject->objectName().compare("diagramWindow")) {
     return true;
   }
   return false;
@@ -272,8 +273,9 @@ void PlotWindowContainer::addPlotWindow(bool maximized)
     pPlotWindow->setTitle("");
     pPlotWindow->setLegendPosition("top");
     pPlotWindow->setAutoScale(OptionsDialog::instance()->getPlottingPage()->getAutoScaleCheckBox()->isChecked());
+    pPlotWindow->setPrefixUnits(OptionsDialog::instance()->getPlottingPage()->getPrefixUnitsCheckbox()->isChecked());
     pPlotWindow->setTimeUnit(MainWindow::instance()->getVariablesWidget()->getSimulationTimeComboBox()->currentText());
-    pPlotWindow->setXLabel(QString("time (%1)").arg(pPlotWindow->getTimeUnit()));
+    pPlotWindow->setXLabel(QString("time"));
     pPlotWindow->installEventFilter(this);
     QMdiSubWindow *pSubWindow = addSubWindow(pPlotWindow);
     PlottingPage *pPlottingPage = OptionsDialog::instance()->getPlottingPage();
@@ -305,6 +307,7 @@ void PlotWindowContainer::addParametricPlotWindow()
     pPlotWindow->setTitle("");
     pPlotWindow->setLegendPosition("top");
     pPlotWindow->setAutoScale(OptionsDialog::instance()->getPlottingPage()->getAutoScaleCheckBox()->isChecked());
+    pPlotWindow->setPrefixUnits(OptionsDialog::instance()->getPlottingPage()->getPrefixUnitsCheckbox()->isChecked());
     pPlotWindow->setTimeUnit(MainWindow::instance()->getVariablesWidget()->getSimulationTimeComboBox()->currentText());
     pPlotWindow->installEventFilter(this);
     QMdiSubWindow *pSubWindow = addSubWindow(pPlotWindow);
@@ -335,6 +338,7 @@ void PlotWindowContainer::addArrayPlotWindow(bool maximized)
     pPlotWindow->setTitle("");
     pPlotWindow->setLegendPosition("top");
     pPlotWindow->setAutoScale(OptionsDialog::instance()->getPlottingPage()->getAutoScaleCheckBox()->isChecked());
+    pPlotWindow->setPrefixUnits(OptionsDialog::instance()->getPlottingPage()->getPrefixUnitsCheckbox()->isChecked());
     QComboBox* unitComboBox = MainWindow::instance()->getVariablesWidget()->getSimulationTimeComboBox();
     if (unitComboBox->currentText() == ""){
         int currentIndex = unitComboBox->findText("s", Qt::MatchExactly);
@@ -343,7 +347,7 @@ void PlotWindowContainer::addArrayPlotWindow(bool maximized)
         }
     }
     pPlotWindow->setTimeUnit(unitComboBox->currentText());
-    pPlotWindow->setXLabel(QString("index"));
+    pPlotWindow->setXLabel(QString("array element index"));
     pPlotWindow->installEventFilter(this);
     QMdiSubWindow *pSubWindow = addSubWindow(pPlotWindow);
     PlottingPage *pPlottingPage = OptionsDialog::instance()->getPlottingPage();
@@ -377,8 +381,9 @@ PlotWindow* PlotWindowContainer::addInteractivePlotWindow(bool maximized, QStrin
     pPlotWindow->setTitle("");
     pPlotWindow->setLegendPosition("top");
     pPlotWindow->setAutoScale(OptionsDialog::instance()->getPlottingPage()->getAutoScaleCheckBox()->isChecked());
+    pPlotWindow->setPrefixUnits(OptionsDialog::instance()->getPlottingPage()->getPrefixUnitsCheckbox()->isChecked());
     pPlotWindow->setTimeUnit(MainWindow::instance()->getVariablesWidget()->getSimulationTimeComboBox()->currentText());
-    pPlotWindow->setXLabel(QString("time (%1)").arg(pPlotWindow->getTimeUnit()));
+    pPlotWindow->setXLabel(QString("time"));
     pPlotWindow->installEventFilter(this);
     QMdiSubWindow *pSubWindow = addSubWindow(pPlotWindow);
     PlottingPage *pPlottingPage = OptionsDialog::instance()->getPlottingPage();
@@ -413,6 +418,7 @@ void PlotWindowContainer::addArrayParametricPlotWindow()
     pPlotWindow->setTitle("");
     pPlotWindow->setLegendPosition("top");
     pPlotWindow->setAutoScale(OptionsDialog::instance()->getPlottingPage()->getAutoScaleCheckBox()->isChecked());
+    pPlotWindow->setPrefixUnits(OptionsDialog::instance()->getPlottingPage()->getPrefixUnitsCheckbox()->isChecked());
     QComboBox* unitComboBox = MainWindow::instance()->getVariablesWidget()->getSimulationTimeComboBox();
     if (unitComboBox->currentText() == ""){
         int currentIndex = unitComboBox->findText("s", Qt::MatchExactly);
@@ -454,6 +460,7 @@ void PlotWindowContainer::addAnimationWindow(bool maximized)
     pAnimationWindow->setWindowState(Qt::WindowMaximized);
   }
 #else
+  Q_UNUSED(maximized);
   assert(0);
 #endif
 }
@@ -468,8 +475,8 @@ void PlotWindowContainer::addDiagramWindow(ModelWidget *pModelWidget, bool maxim
 {
   if (!mpDiagramWindow) {
     mpDiagramWindow = new DiagramWindow(this);
-    mpDiagramWindow->drawDiagram(pModelWidget ? pModelWidget : MainWindow::instance()->getModelWidgetContainer()->getCurrentModelWidget());
   }
+  mpDiagramWindow->showVisualizationDiagram(pModelWidget ? pModelWidget : MainWindow::instance()->getModelWidgetContainer()->getCurrentModelWidget());
   QMdiSubWindow *pSubWindow = getDiagramSubWindowFromMdi();
   if (!pSubWindow) {
     pSubWindow = addSubWindow(mpDiagramWindow);
@@ -525,43 +532,68 @@ void PlotWindowContainer::exportVariables()
 {
   PlotWindow *pPlotWindow = getCurrentWindow();
   if (!pPlotWindow) {
-    QMessageBox::information(this, QString(Helper::applicationName).append(" - ").append(Helper::information),
-                             tr("No plot window is active for exporting variables."), Helper::ok);
+    QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::information), tr("No plot window is active for exporting variables."), Helper::ok);
+    return;
+  }
+  if (pPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC || pPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC) {
+    QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::information), tr("Cannot export parametric plot."), Helper::ok);
     return;
   }
   if (pPlotWindow->getPlot()->getPlotCurvesList().isEmpty()) {
-    QMessageBox::information(this, QString(Helper::applicationName).append(" - ").append(Helper::information),
-                             tr("No variables are selected for exporting."), Helper::ok);
+    QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::information), tr("No variables are selected for exporting."), Helper::ok);
     return;
   }
-  QString name = QString("exportedVariables");
-  QString fileName = StringHandler::getSaveFileName(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::exportVariables), NULL,
-                                                    "CSV Files (*.csv)", NULL, "csv", &name);
+
+  QString filePath = "";
+  QwtArray<double> timeVector;
+  QStringList headers;
+  headers << "\"time\"";
+  int i = 0;
+  foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
+    if (pPlotCurve) {
+      if (i == 0) { // first iteration
+        filePath = pPlotCurve->getAbsoluteFilePath();
+      }
+      if (timeVector.size() < pPlotCurve->mXAxisVector.size()) {
+        timeVector = pPlotCurve->mXAxisVector;
+      }
+      if (filePath.compare(pPlotCurve->getAbsoluteFilePath()) != 0) {
+        QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::information), tr("Not possible to export variables from different result files."), Helper::ok);
+        return;
+      }
+      headers << QString("\"%1\"").arg(pPlotCurve->getYVariable());
+    }
+    ++i;
+  }
+
+  QString name = QStringLiteral("exportedVariables");
+  QString fileName = StringHandler::getSaveFileName(this, QString("%1 - %2").arg(Helper::applicationName, Helper::exportVariables), NULL, "CSV Files (*.csv)", NULL, "csv", &name);
   if (fileName.isEmpty()) { // if user press ESC
     return;
   }
-  QString contents;
-  QStringList headers;
-  int dataPoints = 0;
-  headers << "\"time\"";
-  foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
-    headers << "\"" + pPlotCurve->getName() + "\"";
-    dataPoints = pPlotCurve->mXAxisVector.size();
-  }
+
   // write the csv header
+  QString contents;
   contents.append(headers.join(",")).append("\n");
   // write csv data
-  for (int i = 0 ; i < dataPoints ; ++i) {
+  for (int i = 0 ; i < timeVector.size() ; ++i) {
     QStringList data;
     // write time data
-    data << QString::number(pPlotWindow->getPlot()->getPlotCurvesList().at(0)->mXAxisVector.at(i));
-    for (int j = 0; j < headers.size() - 1; ++j) {
-      PlotCurve *pPlotCurve = pPlotWindow->getPlot()->getPlotCurvesList().at(j);
-      OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(pPlotCurve->getDisplayUnit(), pPlotCurve->getUnit());
+    data << StringHandler::number(timeVector.at(i));
+    foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
+      double value;
+      if (pPlotCurve && pPlotCurve->mYAxisVector.size() > i) { // parameters have just start and stop points in the dataset
+        value = pPlotCurve->mYAxisVector.at(i);
+      } else if (pPlotCurve && pPlotCurve->mYAxisVector.size() > 0) { // Set last value to have constant values for parameters
+        value = pPlotCurve->mYAxisVector.last();
+      } else { // otherwise set value to 0.0 but perhaps we should never reach there.
+        value = 0.0;
+      }
+      OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(pPlotCurve->getYDisplayUnit(), pPlotCurve->getYUnit());
       if (convertUnit.unitsCompatible) {
-        data << StringHandler::number(Utilities::convertUnit(pPlotCurve->mYAxisVector.at(i), convertUnit.offset, convertUnit.scaleFactor));
+        data << StringHandler::number(Utilities::convertUnit(value, convertUnit.offset, convertUnit.scaleFactor));
       } else {
-        data << StringHandler::number(pPlotCurve->mYAxisVector.at(i));
+        data << StringHandler::number(value);
       }
     }
     contents.append(data.join(",")).append("\n");
@@ -589,7 +621,7 @@ void PlotWindowContainer::updatePlotWindows(QString variable)
           if (pPlotWindow->getAutoScaleButton()->isChecked()) {
             pPlotWindow->fitInView();
           } else {
-            pPlotWindow->getPlot()->replot();
+            pPlotWindow->updatePlot();
           }
         }
       }

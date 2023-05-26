@@ -2,7 +2,8 @@
 // keywords: iZeroCrosssing, EventHandling, Algorithm
 // status: correct
 // teardown_command: rm -rf ZeroCrossAlg* output.log *.conv.cpp
-// 
+// cflags: -d=-newInst
+//
 //  Simulate model containing ZeroCrossing in for loop algorithm
 //
 loadFile("./ZeroCross.mo");

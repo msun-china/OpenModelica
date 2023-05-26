@@ -79,12 +79,11 @@ import SCode;
 import StackOverflow;
 import System;
 import Types;
+import UnorderedMap;
 import Util;
 import VarTransform;
 import Vectorization;
 import ZeroCrossings;
-
-protected type Functiontuple = tuple<Option<DAE.FunctionTree>,list<DAE.InlineType>>;
 
 public function lower "This function translates a DAE, which is the result from instantiating a
   class, into a more precise form, called BackendDAE.BackendDAE defined in this module.
@@ -131,26 +130,32 @@ algorithm
   (DAE.DAE(elems), functionTree, timeEvents) := processBuiltinExpressions(lst, functionTree);
   (varlst, globalKnownVarLst, extvarlst, eqns, reqns, ieqns, constrs, clsAttrs, extObjCls, aliaseqns, _) :=
     lower2(listReverse(elems), functionTree, HashTableExpToExp.emptyHashTable());
-  vars := BackendVariable.listVar(varlst);
+
   globalKnownVars := BackendVariable.listVar(globalKnownVarLst);
   localKnownVars := BackendVariable.emptyVars();
   extVars := BackendVariable.listVar(extvarlst);
   aliasVars := BackendVariable.emptyVars();
   if Flags.isSet(Flags.VECTORIZE) then
     (varlst,eqns) := Vectorization.collectForLoops(varlst,eqns);
-    vars := BackendVariable.listVar(varlst);
   end if;
+  vars := BackendVariable.listVar(varlst);
+
   // handle alias equations
   (vars, globalKnownVars, extVars, aliasVars, eqns, reqns, ieqns) := handleAliasEquations(aliaseqns, vars, globalKnownVars, extVars, aliasVars, eqns, reqns, ieqns);
-  (ieqns, eqns, extAliasVars, extVars) := getExternalObjectAlias(ieqns, eqns, extVars);
+  (ieqns, eqns, reqns, extAliasVars, globalKnownVars, extVars) := getExternalObjectAlias(ieqns, eqns, reqns, globalKnownVars, extVars);
   aliasVars := BackendVariable.addVariables(extAliasVars,aliasVars);
 
-  vars_1 := detectImplicitDiscrete(vars, globalKnownVars, eqns);
+  (globalKnownVarLst, eqns, reqns, ieqns) := patchRecordBindings(varlst, extvarlst, globalKnownVarLst, eqns, reqns, ieqns);
+
+  vars_1 := detectImplicitDiscrete(vars, globalKnownVars, eqns); // ieqns don't need to be searched because they can't contain when equations
   eqnarr := BackendEquation.listEquation(eqns);
   reqnarr := BackendEquation.listEquation(reqns);
   ieqnarr := BackendEquation.listEquation(ieqns);
   einfo := BackendDAE.EVENT_INFO(timeEvents, ZeroCrossings.new(), DoubleEnded.fromList({}), ZeroCrossings.new(), 0);
-  symjacs := {(NONE(), ({}, {}, ({}, {}), -1), {}), (NONE(), ({}, {}, ({}, {}), -1), {}), (NONE(), ({}, {}, ({}, {}), -1), {}), (NONE(), ({}, {}, ({}, {}), -1), {})};
+  symjacs := {(NONE(), ({}, {}, ({}, {}), -1), {}, ({}, {}, ({}, {}), -1)),
+              (NONE(), ({}, {}, ({}, {}), -1), {}, ({}, {}, ({}, {}), -1)),
+              (NONE(), ({}, {}, ({}, {}), -1), {}, ({}, {}, ({}, {}), -1)),
+              (NONE(), ({}, {}, ({}, {}), -1), {}, ({}, {}, ({}, {}), -1))};
   syst := BackendDAEUtil.createEqSystem(vars_1, eqnarr, {}, BackendDAE.UNKNOWN_PARTITION(), reqnarr);
   outBackendDAE := BackendDAE.DAE(syst::{},
                                   BackendDAE.SHARED(globalKnownVars,
@@ -170,6 +175,7 @@ algorithm
                                                     symjacs,inExtraInfo,
                                                     BackendDAEUtil.emptyPartitionsInfo(),
                                                     BackendDAE.emptyDAEModeData,
+                                                    NONE(),
                                                     NONE()
                                                     ));
   BackendDAEUtil.checkBackendDAEWithErrorMsg(outBackendDAE);
@@ -189,15 +195,334 @@ algorithm
   fail();
 end lower;
 
+protected type Functiontuple = tuple<Option<DAE.FunctionTree>,list<DAE.InlineType>>;
+
+protected type ArrayBindingList = list<tuple<list<Integer>,DAE.Exp>>;
+
+function printArrayBindingList
+  input ArrayBindingList arrayBindingList;
+  output String str = "";
+protected
+  list<Integer> subscriptLst;
+  DAE.Exp bindingExp;
+algorithm
+  for tpl in arrayBindingList loop
+    (subscriptLst, bindingExp) := tpl;
+    str := str + "[";
+    for subscript in subscriptLst loop
+      str := str + intString(subscript) + " ";
+    end for;
+    str := str + "]";
+    str := str + " : " + ExpressionDump.dumpExpStr(bindingExp, 0);
+  end for;
+end printArrayBindingList;
+
+public function patchRecordBindings
+  "Propagate record bindings from attributes to their parent record types in all crefs of all equations O(n) (?)
+  For ticket #9036."
+  input list<BackendDAE.Var> varlst;
+  input list<BackendDAE.Var> extvarlst;
+  input output list<BackendDAE.Var> globalKnownVarLst;
+  input output list<BackendDAE.Equation> eqns;
+  input output list<BackendDAE.Equation> reqns;
+  input output list<BackendDAE.Equation> ieqns;
+protected
+  UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+  UnorderedMap<DAE.ComponentRef, ArrayBindingList> arrayMap;
+  Boolean debug = false;
+algorithm
+  // 1. Collect all possible record types from equations and globalKnownVars
+  // (the frontend does not keep correct types at the variables so they have to be grabbed from eqns beforehand
+  // I don't like it but thats how it is).
+  map := UnorderedMap.new<DAE.Type>(ComponentReference.hashComponentRef, ComponentReference.crefEqual);
+  collectRecordTypesVarLst(map, globalKnownVarLst);
+  eqns  := List.map(eqns, function collectRecordTypesEqn(map = map));
+  reqns := List.map(reqns, function collectRecordTypesEqn(map = map));
+  ieqns := List.map(ieqns, function collectRecordTypesEqn(map = map));
+
+  // 2. Collect bindings from variables and update in types
+  arrayMap := UnorderedMap.new<ArrayBindingList>(ComponentReference.hashComponentRef, ComponentReference.crefEqual);
+
+  _ := List.map(varlst, function collectRecordElementBindings(map = map, arrayMap = arrayMap));
+  _ := List.map(globalKnownVarLst, function collectRecordElementBindings(map = map, arrayMap = arrayMap));
+  _ := List.map(extvarlst, function collectRecordElementBindings(map = map, arrayMap = arrayMap));
+
+  map := collapseArrayBindings(arrayMap, map);
+
+  if (debug) then
+    print("patchRecordBindings arrayMap:\n");
+    print(UnorderedMap.toString(arrayMap, ComponentReference.printComponentRefStr, printArrayBindingList) + "\n");
+    print("\npatchRecordBindings map\n");
+    print(UnorderedMap.toString(map, ComponentReference.printComponentRefStr, Types.printTypeStr) + "\n\n");
+  end if;
+
+  // 3. Replace the types in equations and globalKnownVars
+  globalKnownVarLst := updateRecordTypesVarLst(map, globalKnownVarLst);
+  eqns  := List.map(eqns, function updateRecordTypesEqn(map = map));
+  reqns := List.map(reqns, function updateRecordTypesEqn(map = map));
+  ieqns := List.map(ieqns, function updateRecordTypesEqn(map = map));
+end patchRecordBindings;
+
+protected function collectRecordElementBindings
+  input BackendDAE.Var var;
+  input UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+  input UnorderedMap<DAE.ComponentRef, ArrayBindingList> arrayMap;
+protected
+  DAE.ComponentRef rec_cref;
+  Boolean is_rec;
+algorithm
+  (rec_cref, is_rec) := ComponentReference.crefGetFirstRec(var.varName);
+  () := match var.bindExp
+    local
+      DAE.Exp binding;
+      DAE.Type ty;
+
+      DAE.Exp arrayBinding;
+      DAE.ComponentRef arrayCref;
+      ArrayBindingList arrayBindingExpList;
+      list<DAE.Subscript> subscriptLst;
+      list<Integer> intSubLst;
+
+    case SOME(binding) guard(is_rec and UnorderedMap.contains(rec_cref, map) and Expression.isConst(binding)) algorithm
+
+      if ComponentReference.isArrayElement(var.varName) then
+        arrayCref := ComponentReference.crefStripSubsExceptModelSubs(var.varName);
+        arrayBindingExpList := UnorderedMap.getOrDefault(arrayCref, arrayMap, {});
+
+        subscriptLst := ComponentReference.crefSubs(var.varName);
+        intSubLst := list(match subscript
+          local
+            Integer i;
+          case DAE.INDEX(DAE.ICONST(i)) then i;
+          else algorithm
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because index not integer."});
+          then fail();
+          end match for subscript in subscriptLst);
+        UnorderedMap.add(arrayCref, (intSubLst, binding)::arrayBindingExpList, arrayMap);
+      else
+
+        ty := match UnorderedMap.getSafe(rec_cref, map, sourceInfo())
+          case ty as DAE.T_COMPLEX() algorithm
+            ty.varLst := list(updateConstantRecordElementBinding(v, binding, ComponentReference.crefLastIdent(var.varName)) for v in ty.varLst);
+          then ty;
+          else algorithm
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because the type is not T_COMPLEX."});
+          then fail();
+        end match;
+        UnorderedMap.add(rec_cref, ty, map);
+      end if;
+    then ();
+    else ();
+  end match;
+end collectRecordElementBindings;
+
+function updateConstantRecordElementBinding
+  input output DAE.Var var;
+  input DAE.Exp binding;
+  input String name;
+protected
+  DAE.Const const;
+algorithm
+  if DAEUtil.isConstVar(var) and var.name == name then
+    const := if Expression.isConst(binding) then DAE.C_CONST() else DAE.C_VAR();
+    var.binding := DAE.EQBOUND(binding, NONE(), const, DAE.BINDING_FROM_DEFAULT_VALUE());
+  end if;
+end updateConstantRecordElementBinding;
+
+protected function collectRecordTypesVarLst
+  input UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+  input list<BackendDAE.Var> varLst;
+algorithm
+  for var in varLst loop
+    collectRecordTypesVar(map, var);
+  end for;
+end collectRecordTypesVarLst;
+
+protected function collectRecordTypesVar
+  "Collect record types from variable binding.
+   Add record tpye to map."
+  input UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+  input BackendDAE.Var var;
+algorithm
+  () := match var.bindExp
+    local
+      DAE.Exp exp;
+    case SOME(exp) algorithm
+      _ := Expression.traverseExpTopDown(exp, collectRecordTypesExp, map);
+      then();
+    else();
+  end match;
+end collectRecordTypesVar;
+
+protected function collectRecordTypesEqn
+  input output BackendDAE.Equation eqn;
+  input UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+algorithm
+  (eqn, _) := BackendEquation.traverseExpsOfEquation(eqn, function Expression.traverseExpTopDown(func=collectRecordTypesExp), map);
+end collectRecordTypesEqn;
+
+protected function collectRecordTypesExp
+  "Collect all crefs with record type and at least one constant record component.
+   Add them to map."
+  input output DAE.Exp exp;
+  output Boolean cont;
+  input output UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+algorithm
+  cont := match exp
+    local
+      DAE.ComponentRef cref;
+    case DAE.CREF(componentRef = cref) guard(Types.isRecord(exp.ty) and Types.recordHasConstVar(exp.ty)) algorithm
+      UnorderedMap.add(cref, exp.ty, map);
+    then false;
+    else true;
+  end match;
+end collectRecordTypesExp;
+
+protected function updateRecordTypesEqn
+  input output BackendDAE.Equation eqn;
+  input UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+algorithm
+  (eqn, _) := BackendEquation.traverseExpsOfEquation(eqn, function Expression.traverseExpTopDown(func=updateRecordTypesExp), map);
+end updateRecordTypesEqn;
+
+protected function updateRecordTypesExp
+  input output DAE.Exp exp;
+  output Boolean cont;
+  input output UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+algorithm
+  (exp, cont) := match exp
+    local
+      DAE.ComponentRef cref;
+    case DAE.CREF(componentRef = cref) guard(UnorderedMap.contains(cref, map)) algorithm
+      exp.ty := UnorderedMap.getSafe(cref, map, sourceInfo());
+    then (exp, false);
+    else (exp, true);
+  end match;
+end updateRecordTypesExp;
+
+protected function compareArrayBindingExp
+  input tuple<list<Integer>,DAE.Exp> inElement1;
+  input tuple<list<Integer>,DAE.Exp> inElement2;
+  output Boolean inRes=false "True if left element is smaller or equal";
+protected
+  list<Integer> indiceLstElem1, indiceLstElem2;
+  list<Integer> rest_e2;
+  Integer e2;
+algorithm
+  (indiceLstElem1, _) := inElement1;
+  (indiceLstElem2, _) := inElement2;
+
+  if listLength(indiceLstElem1) <> listLength(indiceLstElem2) then
+    Error.addInternalError(getInstanceName() + " failed because lists have different lengths.", sourceInfo());
+    fail();
+  end if;
+
+  rest_e2 := indiceLstElem2;
+  for e1 in indiceLstElem1 loop
+    e2 :: rest_e2 := rest_e2;
+    if e1 < e2 then
+      inRes := true;
+      return;
+    elseif e1 > e2 then
+      inRes := false;
+      return;
+    end if;
+  end for;
+
+  // Lists are equal
+  inRes := true;
+  return;
+end compareArrayBindingExp;
+
+protected function collapseArrayBindings
+  input UnorderedMap<DAE.ComponentRef, ArrayBindingList> arrayMap;
+  input output UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+protected
+  DAE.ComponentRef cref;
+  DAE.ComponentRef rec_cref;
+  ArrayBindingList arrayBindingExpList;
+  list<Integer> subscriptLst;
+  DAE.Exp binding;
+  DAE.Exp scalarBinding;
+  list<DAE.Exp> expLst;
+  DAE.Type ty;
+  list<DAE.Dimension> dims;
+  Integer firstDim;
+algorithm
+  for pair in UnorderedMap.toList(arrayMap) loop
+    (cref, arrayBindingExpList) := pair;
+    arrayBindingExpList := List.sort(arrayBindingExpList, compareArrayBindingExp);
+
+    expLst := {};
+    for scalBind in arrayBindingExpList loop
+      (subscriptLst, scalarBinding) := scalBind;
+      expLst := scalarBinding :: expLst;
+    end for;
+
+    binding := match listLength(subscriptLst)
+      local
+        list<list<DAE.Exp>> matLst;
+      case 1 then DAE.ARRAY(ComponentReference.crefTypeFull(cref), true, expLst);
+      case 2 algorithm
+        dims := Types.getDimensions(ComponentReference.crefLastType(cref));
+        firstDim := match List.first(dims)
+          case DAE.DIM_INTEGER(firstDim) then firstDim;
+        end match;
+        try
+          matLst := List.splitEqualParts(expLst, firstDim);
+        else
+          Error.addInternalError(getInstanceName() + " failed to reshape matrix.", sourceInfo());
+          fail();
+        end try;
+      then DAE.MATRIX(ComponentReference.crefTypeFull(cref), firstDim, matLst);
+      else algorithm
+        Error.addInternalError(getInstanceName() + "failed. Array of dimension greater 2 not yet supported. Open a ticket about it.", sourceInfo());
+        then fail();
+    end match;
+
+    // Update binding in map
+    (rec_cref, true) := ComponentReference.crefGetFirstRec(cref);
+    ty := match UnorderedMap.getSafe(rec_cref, map, sourceInfo())
+      case ty as DAE.T_COMPLEX() algorithm
+        ty.varLst := list(updateConstantRecordElementBinding(v, binding, ComponentReference.crefLastIdent(cref)) for v in ty.varLst);
+      then ty;
+      else algorithm
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because the type is not T_COMPLEX."});
+      then fail();
+    end match;
+    UnorderedMap.add(rec_cref, ty, map);
+  end for;
+end collapseArrayBindings;
+
+protected function updateRecordTypesVarLst
+  input UnorderedMap<DAE.ComponentRef, DAE.Type> map;
+  input output list<BackendDAE.Var> varLst;
+algorithm
+  varLst := list(match var.bindExp
+      local
+        DAE.Exp exp;
+      case SOME(exp) algorithm
+        (exp, _) := Expression.traverseExpTopDown(exp, updateRecordTypesExp, map);
+        var.bindExp := SOME(exp);
+        then(var);
+      else(var);
+    end match
+  for var in varLst);
+end updateRecordTypesVarLst;
+
 protected function getExternalObjectAlias "Checks equations if there is an alias equation for external objects.
 If yes, assign alias var, replace equations, remove alias equation.
 author: waurich TUD 2016-10"
   input list<BackendDAE.Equation> inInitEqs;
   input list<BackendDAE.Equation> inEqs;
+  input list<BackendDAE.Equation> inRemEqs;
+  input BackendDAE.Variables globalVarsIn;
   input BackendDAE.Variables extVars;
   output list<BackendDAE.Equation> oInitEqs;
   output list<BackendDAE.Equation> oEqs;
+  output list<BackendDAE.Equation> oRemEqs;
   output BackendDAE.Variables extAliasVars;
+  output BackendDAE.Variables globalVarsOut;
   output BackendDAE.Variables extVarsOut;
 protected
   list<DAE.ComponentRef> extCrefs;
@@ -211,6 +536,7 @@ algorithm
   // get alias equations for external objects
   (oEqs,aliasEqs) := List.fold1(inEqs,getExternalObjectAlias2,extCrefs,({},{}));
   (oInitEqs,aliasEqs) := List.fold1(inInitEqs,getExternalObjectAlias2,extCrefs,({},aliasEqs));
+  (oRemEqs,aliasEqs) := List.fold1(inRemEqs,getExternalObjectAlias2,extCrefs,({},aliasEqs));
 
   if (not listEmpty(aliasEqs)) then
     Error.addCompilerWarning("Alias equations of external objects are not Modelica compliant as in:\n    "+stringDelimitList(List.map(aliasEqs,BackendDump.equationString),"\n    ")+"\n");
@@ -223,13 +549,45 @@ algorithm
 
   //remove alias from extVarArray
   extVarsOut := BackendVariable.deleteVars(extAliasVars,extVars);
+  extVarsOut := removeExtAliasBinding(extVarsOut,repl);
 
   //replace in equations
   (oEqs,_) := BackendVarTransform.replaceEquations(oEqs,repl,NONE());
   (oInitEqs,_) := BackendVarTransform.replaceEquations(oInitEqs,repl,NONE());
+  (oRemEqs,_) := BackendVarTransform.replaceEquations(oRemEqs,repl,NONE());
+  (globalVarsOut, _) := BackendVariable.traverseBackendDAEVarsWithUpdate(globalVarsIn, BackendVarTransform.replaceVarTraverser, repl);
+
   oEqs := listReverse(oEqs);
   oInitEqs := listReverse(oInitEqs);
+  oRemEqs := listReverse(oRemEqs);
 end getExternalObjectAlias;
+
+
+protected function removeExtAliasBinding "Removes the binding of an external variable if the binding cref ist already detected as an alias variable.
+author: Waurich TUD 2020-05"
+  input BackendDAE.Variables extVarsIn;
+  input BackendVarTransform.VariableReplacements repl;
+  output BackendDAE.Variables extVarsOut;
+protected
+  list<BackendDAE.Var> varLst,extVarLst;
+  DAE.ComponentRef cref;
+algorithm
+  varLst := BackendVariable.varList(extVarsIn);
+  extVarLst := {};
+  for var in varLst loop
+    var := match var
+      case BackendDAE.VAR(bindExp = SOME(DAE.CREF(componentRef=cref)))
+      algorithm
+        if BackendVarTransform.hasReplacement(repl,cref) then
+    var.bindExp := NONE();
+  end if;
+        then var;
+      else var;
+    end match;
+    extVarLst := var::extVarLst;
+  end for;
+  extVarsOut := BackendVariable.listVar(extVarLst);
+end removeExtAliasBinding;
 
 protected function getExternalObjectAlias3 "Gets the alias var and sim var for the given alias equation and adds a replacement rule
 author: waurich TUD 2016-10"
@@ -433,6 +791,13 @@ algorithm
         then
           ();
 
+      // for equation
+      case DAE.INITIAL_FOR_EQUATION()
+        algorithm
+          (outEqns, outREqns, outIEqns) := lowerEqn(el, inFunctions, outEqns, outREqns, outIEqns, true);
+        then
+          ();
+
       // initial array equations
       case DAE.INITIAL_ARRAY_EQUATION()
         algorithm
@@ -457,8 +822,8 @@ algorithm
             outREqns := listAppend(List.map1(reqns, BackendEquation.setEquationAttributes, eq_attrs), outREqns);
           else
             (eqns, reqns) := lowerWhenEqn(el, inFunctions, {}, {});
-            outEqns := listAppend(outEqns, eqns);
-            outREqns := listAppend(outREqns, reqns);
+            outEqns := listAppend(outEqns, eqns) annotation(__OpenModelica_DisableListAppendWarning=true);
+            outREqns := listAppend(outREqns, reqns) annotation(__OpenModelica_DisableListAppendWarning=true);
           end if;
         then
           ();
@@ -565,7 +930,7 @@ algorithm
       else
         algorithm
           true := Flags.isSet(Flags.FAILTRACE);
-          Debug.traceln("- BackendDAECreate.lower2 failed on: " + DAEDump.dumpElementsStr({el}));
+          Debug.traceln(getInstanceName() + " failed on: " + DAEDump.dumpElementsStr({el}));
         then
           fail();
     end match;
@@ -594,51 +959,58 @@ protected
   HashTableExpToIndex.HashTable ht;
 algorithm
   ht := HashTableExpToIndex.emptyHashTable();
-  (outDAE, outTree, (_, (_, _, _, outTimeEvents))) := DAEUtil.traverseDAE(inDAE, functionTree, Expression.traverseSubexpressionsHelper, (transformBuiltinExpression, (ht, 0, 0, {})));
+  (outDAE, outTree, (_, (_, _, _, _, outTimeEvents))) := DAEUtil.traverseDAE(inDAE, functionTree, Expression.traverseSubexpressionsHelper, (transformBuiltinExpression, (ht, 0, 0, 0, {})));
 end processBuiltinExpressions;
 
 protected function transformBuiltinExpression "author: lochel
   Helper for transformBuiltinExpressions"
   input DAE.Exp inExp;
-  input tuple<HashTableExpToIndex.HashTable, Integer /*iDelay*/, Integer /*iSample*/, list<BackendDAE.TimeEvent>> inTuple;
+  input tuple<HashTableExpToIndex.HashTable, Integer /*iDelay*/, Integer /*iSample*/,  Integer /*iSpatial*/, list<BackendDAE.TimeEvent>> inTuple;
   output DAE.Exp outExp;
-  output tuple<HashTableExpToIndex.HashTable, Integer /*iDelay*/, Integer /*iSample*/, list<BackendDAE.TimeEvent>> outTuple;
+  output tuple<HashTableExpToIndex.HashTable, Integer /*iDelay*/, Integer /*iSample*/,  Integer /*iSpatial*/, list<BackendDAE.TimeEvent>> outTuple;
 algorithm
-  (outExp,outTuple) := matchcontinue (inExp, inTuple)
+  (outExp,outTuple) := match (inExp, inTuple)
     local
       DAE.Exp start, interval;
       list<DAE.Exp> es;
       HashTableExpToIndex.HashTable ht;
-      Integer iDelay, iSample, i;
+      Integer iDelay, iSample, iSpatial, i;
       list<BackendDAE.TimeEvent> timeEvents;
       DAE.CallAttributes attr;
 
     // delay [already in ht]
-    case (DAE.CALL(Absyn.IDENT("delay"), es, attr), (ht, _, _, _)) equation
-      i = BaseHashTable.get(inExp, ht);
-    then (DAE.CALL(Absyn.IDENT("delay"), DAE.ICONST(i)::es, attr), inTuple);
+    case (DAE.CALL(Absyn.IDENT("delay"), es, attr), (ht, _, _, _, _)) guard(BaseHashTable.hasKey(inExp, ht))
+    then (DAE.CALL(Absyn.IDENT("delay"), DAE.ICONST(BaseHashTable.get(inExp, ht))::es, attr), inTuple);
 
     // delay [not yet in ht]
-    case (DAE.CALL(Absyn.IDENT("delay"), es, attr), (ht, iDelay, iSample, timeEvents)) equation
-      ht = BaseHashTable.add((inExp, iDelay+1), ht);
-    then (DAE.CALL(Absyn.IDENT("delay"), DAE.ICONST(iDelay)::es, attr), (ht, iDelay+1, iSample, timeEvents));
+    case (DAE.CALL(Absyn.IDENT("delay"), es, attr), (ht, iDelay, iSample, iSpatial, timeEvents)) algorithm
+      ht := BaseHashTable.add((inExp, iDelay+1), ht);
+    then (DAE.CALL(Absyn.IDENT("delay"), DAE.ICONST(iDelay)::es, attr), (ht, iDelay+1, iSample, iSpatial, timeEvents));
+
+    // spatialDistribution [already in ht]
+    case (DAE.CALL(Absyn.IDENT("spatialDistribution"), es, attr), (ht, _, _, _, _)) guard(BaseHashTable.hasKey(inExp, ht))
+    then (DAE.CALL(Absyn.IDENT("spatialDistribution"), DAE.ICONST(BaseHashTable.get(inExp, ht))::es, attr), inTuple);
+
+    // spatialDistribution [not yet in ht]
+    case (DAE.CALL(Absyn.IDENT("spatialDistribution"), es, attr), (ht, iDelay, iSample, iSpatial, timeEvents)) algorithm
+      ht := BaseHashTable.add((inExp, iSpatial+1), ht);
+    then (DAE.CALL(Absyn.IDENT("spatialDistribution"), DAE.ICONST(iSpatial)::es, attr), (ht, iDelay, iSample, iSpatial+1, timeEvents));
 
     // sample [already in ht]
-    case (DAE.CALL(Absyn.IDENT("sample"), es as {_, interval}, attr), (ht, _, _, _))
-    guard (not Types.isClockOrSubTypeClock(Expression.typeof(interval))) equation
-      i = BaseHashTable.get(inExp, ht);
-    then (DAE.CALL(Absyn.IDENT("sample"), DAE.ICONST(i)::es, attr), inTuple);
+    case (DAE.CALL(Absyn.IDENT("sample"), es as {_, interval}, attr), (ht, _, _, _, _))
+      guard (not Types.isClockOrSubTypeClock(Expression.typeof(interval)) and BaseHashTable.hasKey(inExp, ht)) equation
+    then (DAE.CALL(Absyn.IDENT("sample"), DAE.ICONST(BaseHashTable.get(inExp, ht))::es, attr), inTuple);
 
     // sample [not yet in ht]
-    case (DAE.CALL(Absyn.IDENT("sample"), es as {start, interval}, attr), (ht, iDelay, iSample, timeEvents))
-    guard (not Types.isClockOrSubTypeClock(Expression.typeof(interval))) equation
-      iSample = iSample+1;
-      timeEvents = listAppend(timeEvents, {BackendDAE.SAMPLE_TIME_EVENT(iSample, start, interval)});
-      ht = BaseHashTable.add((inExp, iSample), ht);
-    then (DAE.CALL(Absyn.IDENT("sample"), DAE.ICONST(iSample)::es, attr), (ht, iDelay, iSample, timeEvents));
+    case (DAE.CALL(Absyn.IDENT("sample"), es as {start, interval}, attr), (ht, iDelay, iSample, iSpatial, timeEvents))
+    guard (not Types.isClockOrSubTypeClock(Expression.typeof(interval))) algorithm
+      iSample := iSample+1;
+      timeEvents := List.appendElt(BackendDAE.SAMPLE_TIME_EVENT(iSample, start, interval), timeEvents);
+      ht := BaseHashTable.add((inExp, iSample), ht);
+    then (DAE.CALL(Absyn.IDENT("sample"), DAE.ICONST(iSample)::es, attr), (ht, iDelay, iSample, iSpatial, timeEvents));
 
     else (inExp,inTuple);
-  end matchcontinue;
+  end match;
 end transformBuiltinExpression;
 
 /*
@@ -800,7 +1172,7 @@ algorithm
       DAE.ElementSource source;
       Option<DAE.VariableAttributes> dae_var_attr;
       Option<BackendDAE.TearingSelect> ts;
-      DAE.Exp hideResult;
+      Option<DAE.Exp> hideResult;
       Option<SCode.Comment> comment;
       DAE.Type t;
       DAE.VarVisibility protection;
@@ -826,9 +1198,9 @@ algorithm
         dae_var_attr = DAEUtil.setProtectedAttr(dae_var_attr, b);
         dae_var_attr = setMinMaxFromEnumeration(t, dae_var_attr);
         ts = BackendDAEUtil.setTearingSelectAttribute(comment);
-        hideResult = BackendDAEUtil.setHideResultAttribute(comment, b, name);
+        hideResult = BackendDAEUtil.setHideResultAttribute(comment, name);
       then
-        (BackendDAE.VAR(name, kind_1, dir, prl, tp, NONE(), NONE(), dims, source, dae_var_attr, ts, hideResult, comment, ct, DAEUtil.toDAEInnerOuter(io), false));
+        (BackendDAE.VAR(name, kind_1, dir, prl, tp, NONE(), NONE(), dims, source, dae_var_attr, ts, hideResult, comment, ct, DAEUtil.toDAEInnerOuter(io), false, false));
   end match;
 end lowerDynamicVar;
 
@@ -856,7 +1228,7 @@ algorithm
       DAE.ElementSource source;
       Option<DAE.VariableAttributes> dae_var_attr;
       Option<BackendDAE.TearingSelect> ts;
-      DAE.Exp hideResult;
+      Option<DAE.Exp> hideResult;
       Option<SCode.Comment> comment;
       DAE.Type t;
       DAE.VarVisibility protection;
@@ -891,9 +1263,9 @@ algorithm
         eqLst = buildAssertAlgorithms({},source,assrtEqIn);
         // building an algorithm of the assert
         ts = NONE();
-        hideResult = BackendDAEUtil.setHideResultAttribute(comment, b, name);
+        hideResult = BackendDAEUtil.setHideResultAttribute(comment, name);
       then
-        (BackendDAE.VAR(name, kind_1, dir, prl, tp, bind, NONE(), dims, source, dae_var_attr, ts, hideResult, comment, ct, DAEUtil.toDAEInnerOuter(io), false), iInlineHT, eqLst);
+        (BackendDAE.VAR(name, kind_1, dir, prl, tp, bind, NONE(), dims, source, dae_var_attr, ts, hideResult, comment, ct, DAEUtil.toDAEInnerOuter(io), false, false), iInlineHT, eqLst);
 
     else
       equation
@@ -903,6 +1275,43 @@ algorithm
   end matchcontinue;
 end lowerKnownVar;
 
+public function lowerKnownVarSingle
+  "author: kabdelhak
+  lowers a single known variable (used for function bodies)"
+  input DAE.Element element;
+  output Option<BackendDAE.Var> var_opt;
+algorithm
+  var_opt := match element
+    local
+      DAE.Element elem;
+      Boolean visibility;
+      BackendDAE.Var var;
+    case elem as DAE.VAR() guard(DAEUtil.isParamOrConstVarKind(elem.kind))
+      algorithm
+        visibility := DAEUtil.boolVarVisibility(elem.protection);
+        var := BackendDAE.VAR(
+          varName               = elem.componentRef,
+          varKind               = lowerKnownVarkind(elem.kind, elem.componentRef, elem.direction, elem.connectorType, elem.protection),
+          varDirection          = elem.direction,
+          varParallelism        = elem.parallelism,
+          varType               = lowerType(elem.ty),
+          bindExp               = elem.binding,
+          tplExp                = NONE(),
+          arryDim               = element.dims,
+          source                = element.source,
+          values                = setMinMaxFromEnumeration(elem.ty, DAEUtil.setProtectedAttr(elem.variableAttributesOption, visibility)),
+          tearingSelectOption   = NONE(),
+          hideResult            = BackendDAEUtil.setHideResultAttribute(element.comment, elem.componentRef),
+          comment               = element.comment,
+          connectorType         = element.connectorType,
+          innerOuter            = DAEUtil.toDAEInnerOuter(element.innerOuter),
+          unreplaceable         = false,
+          initNonlinear         = false
+        );
+    then SOME(var);
+    else NONE();
+  end match;
+end lowerKnownVarSingle;
 
 protected function buildAssertAlgorithms "builds BackendDAE.ALGORITHM out of the given assert statements
 author:Waurich TUD 2013-10"
@@ -1109,7 +1518,12 @@ algorithm
     else
       algorithm
         /* Consider toplevel inputs as known unless they are protected. Ticket #5591 */
-        false := DAEUtil.topLevelInput(inComponentRef, inVarDirection, inConnectorType, protection);
+        /* Consider all inputs known with flag --nonStdExposeLocalIOs > 0 unless they are protected */
+        if Flags.getConfigInt(Flags.EXPOSE_LOCAL_IOS) == 0 then
+          false := DAEUtil.topLevelInput(inComponentRef, inVarDirection, inConnectorType, protection);
+        else
+          false := DAEUtil.varDirectionEqual(inVarDirection, DAE.INPUT()) and not DAEUtil.boolVarVisibility(protection);
+        end if;
       then
         match (inVarKind, inType)
           case (DAE.VARIABLE(), DAE.T_BOOL()) then BackendDAE.DISCRETE();
@@ -1137,7 +1551,11 @@ algorithm
     case DAE.CONST() then BackendDAE.CONST();
     case DAE.VARIABLE()
       equation
-        true = DAEUtil.topLevelInput(componentRef, varDirection, connectorType, visibility);
+        if Flags.getConfigInt(Flags.EXPOSE_LOCAL_IOS) == 0 then
+          true = DAEUtil.topLevelInput(componentRef, varDirection, connectorType, visibility);
+        else
+          true = DAEUtil.varDirectionEqual(varDirection, DAE.INPUT()) and not DAEUtil.boolVarVisibility(visibility);
+        end if;
       then
         BackendDAE.VARIABLE();
     // adrpo: topLevelInput might fail!
@@ -1195,7 +1613,7 @@ algorithm
       DAE.ElementSource source;
       Option<DAE.VariableAttributes> dae_var_attr;
       Option<BackendDAE.TearingSelect> ts;
-      DAE.Exp hideResult;
+      Option<DAE.Exp> hideResult;
       Option<SCode.Comment> comment;
       DAE.Type t;
       Absyn.InnerOuter io;
@@ -1215,9 +1633,9 @@ algorithm
         kind_1 = lowerExtObjVarkind(t);
         tp = lowerType(t);
         ts = NONE();
-        hideResult = DAE.BCONST(false);
+        hideResult = NONE();
       then
-        BackendDAE.VAR(name, kind_1, dir, prl, tp, bind, NONE(), dims, source, dae_var_attr, ts, hideResult, comment, ct, DAEUtil.toDAEInnerOuter(io), false);
+        BackendDAE.VAR(name, kind_1, dir, prl, tp, bind, NONE(), dims, source, dae_var_attr, ts, hideResult, comment, ct, DAEUtil.toDAEInnerOuter(io), false, false);
   end match;
 end lowerExtObjVar;
 
@@ -1391,6 +1809,16 @@ algorithm
         (inEquations,inREquations,eqns);
 
     case DAE.FOR_EQUATION(iter = s, range = e1, equations = eqnslst)
+      equation
+        // create one backend for-equation for each equation element in the loop
+        (eqns, reqns, ieqns) = lowerEqns(eqnslst, functionTree, {}, {}, {}, inInitialization);
+        eqns = listAppend(List.map2(eqns, lowerForEquation, s, e1), inEquations);
+        reqns = listAppend(List.map2(reqns, lowerForEquation, s, e1), inREquations);
+        ieqns = listAppend(List.map2(ieqns, lowerForEquation, s, e1), inIEquations);
+      then
+        (eqns, reqns, ieqns);
+
+    case DAE.INITIAL_FOR_EQUATION(iter = s, range = e1, equations = eqnslst)
       equation
         // create one backend for-equation for each equation element in the loop
         (eqns, reqns, ieqns) = lowerEqns(eqnslst, functionTree, {}, {}, {}, inInitialization);
@@ -1915,9 +2343,9 @@ algorithm
                   varDirection = DAE.BIDIR(), varParallelism = DAE.NON_PARALLEL(),
                   varType = DAE.T_CLOCK_DEFAULT, bindExp = NONE(), tplExp = NONE(),
                   arryDim = {}, source = DAE.emptyElementSource,
-                  values = NONE(), tearingSelectOption = SOME(BackendDAE.DEFAULT()), hideResult = DAE.BCONST(false),
+                  values = NONE(), tearingSelectOption = SOME(BackendDAE.DEFAULT()), hideResult = NONE(),
                   comment = NONE(), connectorType = DAE.NON_CONNECTOR(),
-                  innerOuter = DAE.NOT_INNER_OUTER(), unreplaceable = true ) :: inVars;
+                  innerOuter = DAE.NOT_INNER_OUTER(), unreplaceable = true, initNonlinear = false) :: inVars;
   outEqs := BackendDAE.EQUATION( exp = DAE.CREF(componentRef = cr, ty = DAE.T_CLOCK_DEFAULT),
                                 scalar = e,  source = DAE.emptyElementSource,
                                 attr = BackendDAE.EQ_ATTR_DEFAULT_DYNAMIC ) :: inEqs;
@@ -3342,9 +3770,9 @@ algorithm
     case (v, _, {}, _) then v;
     case (v, globalKnownVars, ((DAE.STMT_ASSIGN(exp1 = DAE.CREF(componentRef = cr)))::xs), true)
       equation
-        ((var::_), _) = BackendVariable.getVar(cr, v);
-        var = BackendVariable.setVarKind(var, BackendDAE.DISCRETE());
-        v_1 = BackendVariable.addVar(var, v);
+        (vars, _) = BackendVariable.getVar(cr, v);
+        vars = List.map(vars, function BackendVariable.setVarKind(inVarKind=BackendDAE.DISCRETE()));
+        v_1 = BackendVariable.addVars(vars, v);
         v_2 = detectImplicitDiscreteAlgsStatemens(v_1, globalKnownVars, xs, true);
       then
         v_2;

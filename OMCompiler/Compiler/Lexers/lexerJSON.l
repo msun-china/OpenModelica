@@ -3,7 +3,6 @@
 /* grammar according to json.org */
 protected
 import Error;
-import StringUtil;
 public
 %}
 
@@ -40,7 +39,7 @@ null return NULL;
 "," return COMMA;
 ":" return COLON;
 
-[ \t\n]+ /* whitespace */;
+[ \t\n\r]+ /* whitespace */;
 
 %%
 

@@ -44,10 +44,7 @@
 #include "Plotting/DiagramWindow.h"
 #include "Simulation/SimulationDialog.h"
 #include "Simulation/SimulationOutputWidget.h"
-#include "Simulation/SimulationProcessThread.h"
 #include "TransformationalDebugger/TransformationsWidget.h"
-
-#include <qjson/parser.h>
 
 #include <QObject>
 
@@ -59,6 +56,7 @@ namespace VariableItemData {
     FILENAME,
     NAME,
     DISPLAYNAME,
+    TYPE,
     VALUE,
     UNIT,
     DISPLAYUNIT,
@@ -69,7 +67,8 @@ namespace VariableItemData {
     USES,
     INITIAL_USES,
     DEFINED_IN,
-    INFOFILE
+    INFOFILE,
+    EXISTINRESULTFILE
   };
 }
 
@@ -78,48 +77,21 @@ namespace VariableItemData {
  * \brief Contains the information about the result variable.
  */
 /*!
- * \param variableItemData - a list of items.\n
- * 0 -> filePath\n
- * 1 -> fileName\n
- * 2 -> name\n
- * 3 -> displayName\n
- * 4 -> value\n
- * 5 -> unit\n
- * 6 -> displayUnit\n
- * 7 -> displayUnits (QStringList)\n
- * 8 -> description\n
- * 9 -> tooltip\n
- * 10 -> isMainArray
+ * \brief VariablesTreeItem::VariablesTreeItem
+ * \param variableItemData see VariableItemData::VariableItemData
+ * \param pParent
+ * \param isRootItem
  */
 VariablesTreeItem::VariablesTreeItem(const QVector<QVariant> &variableItemData, VariablesTreeItem *pParent, bool isRootItem)
 {
   mpParentVariablesTreeItem = pParent;
   mIsRootItem = isRootItem;
-  mFilePath = variableItemData[VariableItemData::FILEPATH].toString();
-  mFileName = variableItemData[VariableItemData::FILENAME].toString();
-  mVariableName = variableItemData[VariableItemData::NAME].toString();
-  mDisplayVariableName = variableItemData[VariableItemData::DISPLAYNAME].toString();
-  mValue = variableItemData[VariableItemData::VALUE].toString();
+  setVariableItemData(variableItemData);
   mValueChanged = false;
-  mUnit = variableItemData[VariableItemData::UNIT].toString();
-  mDisplayUnit = variableItemData[VariableItemData::DISPLAYUNIT].toString();
-  mPreviousUnit = variableItemData[VariableItemData::DISPLAYUNIT].toString();
-  mDisplayUnits = variableItemData[VariableItemData::DISPLAYUNITS].toStringList();
-  mDescription = variableItemData[VariableItemData::DESCRIPTION].toString();
-  mToolTip = variableItemData[VariableItemData::TOOLTIP].toString();
   mChecked = false;
   mEditable = false;
   mVariability = "";
-  mIsMainArray = variableItemData[VariableItemData::ISMAINARRAY].toBool();
   mActive = false;
-  mUses = variableItemData[VariableItemData::USES].toStringList();
-  mInitialUses = variableItemData[VariableItemData::INITIAL_USES].toStringList();
-
-  foreach(QVariant var, variableItemData[VariableItemData::DEFINED_IN].toList())
-  {
-     mDefinedIn << var.value<IntStringPair>();
-  }
-  mInfoFileName = variableItemData[VariableItemData::INFOFILE].toString();
 }
 
 VariablesTreeItem::~VariablesTreeItem()
@@ -128,9 +100,68 @@ VariablesTreeItem::~VariablesTreeItem()
   mChildren.clear();
 }
 
+/*!
+ * \brief VariablesTreeItem::setVariableItemData
+ * Sets the values using the variable item data vector.
+ * \param variableItemData
+ */
+void VariablesTreeItem::setVariableItemData(const QVector<QVariant> &variableItemData)
+{
+  mFilePath = variableItemData[VariableItemData::FILEPATH].toString();
+  mFileName = variableItemData[VariableItemData::FILENAME].toString();
+  mVariableName = variableItemData[VariableItemData::NAME].toString();
+  mDisplayVariableName = variableItemData[VariableItemData::DISPLAYNAME].toString();
+  mType = variableItemData[VariableItemData::TYPE].toString();
+  mValue = variableItemData[VariableItemData::VALUE].toString();
+  mUnit = variableItemData[VariableItemData::UNIT].toString();
+  mDisplayUnit = variableItemData[VariableItemData::DISPLAYUNIT].toString();
+  mPreviousUnit = variableItemData[VariableItemData::DISPLAYUNIT].toString();
+  mDisplayUnits = variableItemData[VariableItemData::DISPLAYUNITS].toStringList();
+  mDescription = variableItemData[VariableItemData::DESCRIPTION].toString();
+  mToolTip = variableItemData[VariableItemData::TOOLTIP].toString();
+  mIsMainArray = variableItemData[VariableItemData::ISMAINARRAY].toBool();
+  mUses = variableItemData[VariableItemData::USES].toStringList();
+  mInitialUses = variableItemData[VariableItemData::INITIAL_USES].toStringList();
+  foreach(QVariant var, variableItemData[VariableItemData::DEFINED_IN].toList()) {
+     mDefinedIn << var.value<IntStringPair>();
+  }
+  mInfoFileName = variableItemData[VariableItemData::INFOFILE].toString();
+  mExistInResultFile = variableItemData[VariableItemData::EXISTINRESULTFILE].toBool();
+}
+
+/*!
+ * \brief VariablesTreeItem::getPlotVariable
+ * Returns the plot variable name.
+ * \return
+ */
 QString VariablesTreeItem::getPlotVariable()
 {
   return QString(mVariableName).remove(0, mFileName.length() + 1);
+}
+
+/*!
+ * \brief VariablesTreeItem::isString
+ * Returns true if variable type is String.
+ * \return
+ */
+bool VariablesTreeItem::isString() const
+{
+  return mType.compare(QStringLiteral("String")) == 0;
+}
+
+/*!
+ * \brief VariablesTreeItem::isMainArrayProtected
+ * Checks if the array variable is protected.\n
+ * For protected arrays we need to check the first index to see if it is protected or not.
+ * \return
+ */
+bool VariablesTreeItem::isMainArrayProtected() const
+{
+  if (mChildren.size() > 0) {
+    return mChildren.at(0)->getExistInResultFile();
+  } else {
+    return false;
+  }
 }
 
 /*!
@@ -141,7 +172,7 @@ void VariablesTreeItem::setActive()
 {
   VariablesTreeItem *pRootVariablesTreeItem;
   pRootVariablesTreeItem = MainWindow::instance()->getVariablesWidget()->getVariablesTreeModel()->getRootVariablesTreeItem();
-  for (int i = 0 ; i < pRootVariablesTreeItem->getChildren().size() ; i++) {
+  for (int i = 0 ; i < pRootVariablesTreeItem->mChildren.size() ; i++) {
     VariablesTreeItem *pVariablesTreeItem = pRootVariablesTreeItem->child(i);
     if (pVariablesTreeItem) {
       if (pVariablesTreeItem != this) {
@@ -151,7 +182,7 @@ void VariablesTreeItem::setActive()
   }
   // set VariablesTreeView to active.
   mActive = true;
-  MainWindow::instance()->getVariablesWidget()->initializeVisualization(mSimulationOptions);
+  MainWindow::instance()->getVariablesWidget()->initializeVisualization();
 }
 
 QIcon VariablesTreeItem::getVariableTreeItemIcon(QString name) const
@@ -216,9 +247,9 @@ bool VariablesTreeItem::setData(int column, const QVariant &value, int role)
     }
     return true;
   } else if (column == 3 && role == Qt::EditRole) {
-    if (mDisplayUnit.compare(value.toString()) != 0) {
+    if (mDisplayUnit.compare(Utilities::convertSymbolToUnit(value.toString())) != 0) {
       mPreviousUnit = mDisplayUnit;
-      mDisplayUnit = value.toString();
+      mDisplayUnit = Utilities::convertSymbolToUnit(value.toString());
     }
     return true;
   }
@@ -237,7 +268,11 @@ QVariant VariablesTreeItem::data(int column, int role) const
         case Qt::ToolTipRole:
           return mToolTip;
         case Qt::CheckStateRole:
-          if ((mChildren.size() == 0 && parent()->parent()) || mIsMainArray) {  // do not show checkbox for top level items without children.
+          /* Show checkbox for,
+           * nodes without children i.e., leaf nodes and exist in the result file
+           * nodes that are array
+           */
+          if (parent()->parent() && ((mChildren.size() == 0 && mExistInResultFile) || (mIsMainArray && isMainArrayProtected()))) {
             return isChecked() ? Qt::Checked : Qt::Unchecked;
            } else {
             return QVariant();
@@ -274,7 +309,7 @@ QVariant VariablesTreeItem::data(int column, int role) const
       switch (role) {
         case Qt::DisplayRole:
         case Qt::ToolTipRole:
-          return mUnit;
+          return Utilities::convertUnitToSymbol(mUnit);
         default:
           return QVariant();
       }
@@ -282,7 +317,7 @@ QVariant VariablesTreeItem::data(int column, int role) const
       switch (role) {
         case Qt::DisplayRole:
         case Qt::ToolTipRole:
-          return mDisplayUnit;
+          return Utilities::convertUnitToSymbol(mDisplayUnit);
         default:
           return QVariant();
       }
@@ -352,8 +387,8 @@ VariablesTreeModel::VariablesTreeModel(VariablesTreeView *pVariablesTreeView)
 {
   mpVariablesTreeView = pVariablesTreeView;
   QVector<QVariant> headers;
-  headers << "" << "" << Helper::variables << Helper::variables << tr("Value") << tr("Unit") << tr("Display Unit") <<
-             QStringList() << Helper::description << "" << false << QVariantList() << QVariantList() << QVariantList() << "dummy.json";
+  headers << "" << "" << Helper::variables << Helper::variables << "" << tr("Value") << tr("Unit") << tr("Display Unit") <<
+             QStringList() << Helper::description << "" << false << QVariantList() << QVariantList() << QVariantList() << "dummy.json" << false;
   mpRootVariablesTreeItem = new VariablesTreeItem(headers, 0, true);
   mpActiveVariablesTreeItem = 0;
 }
@@ -376,7 +411,7 @@ int VariablesTreeModel::rowCount(const QModelIndex &parent) const
     pParentVariablesTreeItem = mpRootVariablesTreeItem;
   else
     pParentVariablesTreeItem = static_cast<VariablesTreeItem*>(parent.internalPointer());
-  return pParentVariablesTreeItem->getChildren().size();
+  return pParentVariablesTreeItem->mChildren.size();
 }
 
 QVariant VariablesTreeModel::headerData(int section, Qt::Orientation orientation, int role) const
@@ -437,7 +472,7 @@ bool VariablesTreeModel::setData(const QModelIndex &index, const QVariant &value
   if (index.column() == 0 && role == Qt::CheckStateRole) {
     if (!signalsBlocked()) {
       PlottingPage *pPlottingPage = OptionsDialog::instance()->getPlottingPage();
-      emit itemChecked(index, pPlottingPage->getCurveThickness(), pPlottingPage->getCurvePattern());
+      emit itemChecked(index, pPlottingPage->getCurveThickness(), pPlottingPage->getCurvePattern(), QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier));
     }
   } else if (index.column() == 1) { // value
     if (!signalsBlocked()) {
@@ -447,11 +482,11 @@ bool VariablesTreeModel::setData(const QModelIndex &index, const QVariant &value
       }
     }
   } else if (index.column() == 3) { // display unit
-    if (!signalsBlocked() && displayUnit.compare(value.toString()) != 0) {
+    if (!signalsBlocked() && displayUnit.compare(Utilities::convertSymbolToUnit(value.toString())) != 0) {
       emit unitChanged(index);
     }
   }
-  emit dataChanged(index, index);
+  updateVariablesTreeItem(pVariablesTreeItem);
   return result;
 }
 
@@ -467,15 +502,20 @@ QVariant VariablesTreeModel::data(const QModelIndex &index, int role) const
 Qt::ItemFlags VariablesTreeModel::flags(const QModelIndex &index) const
 {
   if (!index.isValid()) {
-    return 0;
+    return Qt::ItemFlags();
   }
 
   Qt::ItemFlags flags = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
   VariablesTreeItem *pVariablesTreeItem = static_cast<VariablesTreeItem*>(index.internalPointer());
-  if (((index.column() == 0 && pVariablesTreeItem && pVariablesTreeItem->getChildren().size() == 0) || pVariablesTreeItem->isMainArray())
-          && pVariablesTreeItem->parent() != mpRootVariablesTreeItem) {
+  if ((index.column() == 0 && pVariablesTreeItem && pVariablesTreeItem->parent() != mpRootVariablesTreeItem)
+      && ((pVariablesTreeItem->mChildren.size() == 0 && pVariablesTreeItem->getExistInResultFile())
+          || (pVariablesTreeItem->isMainArray() && pVariablesTreeItem->isMainArrayProtected()))) {
     flags |= Qt::ItemIsUserCheckable;
-  } else if (index.column() == 1 && pVariablesTreeItem && pVariablesTreeItem->getChildren().size() == 0 && pVariablesTreeItem->isEditable()) {
+    // Disable string type since is not stored in the result file and we can't plot them
+    if (pVariablesTreeItem->isString()) {
+      flags &= ~Qt::ItemIsEnabled;
+    }
+  } else if (index.column() == 1 && pVariablesTreeItem && pVariablesTreeItem->mChildren.size() == 0 && pVariablesTreeItem->isEditable()) {
     flags |= Qt::ItemIsEditable;
   } else if (index.column() == 3) {
     flags |= Qt::ItemIsEditable;
@@ -484,17 +524,49 @@ Qt::ItemFlags VariablesTreeModel::flags(const QModelIndex &index) const
   return flags;
 }
 
-VariablesTreeItem* VariablesTreeModel::findVariablesTreeItem(const QString &name, VariablesTreeItem *root) const
+VariablesTreeItem* VariablesTreeModel::findVariablesTreeItem(const QString &name, VariablesTreeItem *pVariablesTreeItem, Qt::CaseSensitivity caseSensitivity) const
 {
-  if (root->getVariableName() == name) {
-    return root;
+  if (pVariablesTreeItem->getVariableName().compare(name, caseSensitivity) == 0) {
+    return pVariablesTreeItem;
   }
-  for (int i = root->getChildren().size(); --i >= 0; ) {
-    if (VariablesTreeItem *item = findVariablesTreeItem(name, root->getChildren().at(i))) {
+  for (int i = pVariablesTreeItem->mChildren.size(); --i >= 0; ) {
+    if (VariablesTreeItem *item = findVariablesTreeItem(name, pVariablesTreeItem->mChildren.at(i), caseSensitivity)) {
       return item;
     }
   }
   return 0;
+}
+
+/*!
+ * \brief VariablesTreeModel::findVariablesTreeItemOneLevel
+ * Finds the VariablesTreeItem based on the name and case sensitivity only in the children of pVariablesTreeItem
+ * \param name
+ * \param pVariablesTreeItem
+ * \param caseSensitivity
+ * \return
+ */
+VariablesTreeItem* VariablesTreeModel::findVariablesTreeItemOneLevel(const QString &name, VariablesTreeItem *pVariablesTreeItem, Qt::CaseSensitivity caseSensitivity) const
+{
+  if (!pVariablesTreeItem) {
+    pVariablesTreeItem = mpRootVariablesTreeItem;
+  }
+  for (int i = pVariablesTreeItem->mChildren.size(); --i >= 0; ) {
+    if (pVariablesTreeItem->mChildren.at(i)->getVariableName().compare(name, caseSensitivity) == 0) {
+      return pVariablesTreeItem->mChildren.at(i);
+    }
+  }
+  return 0;
+}
+
+/*!
+ * \brief VariablesTreeModel::updateVariablesTreeItem
+ * Triggers a view update for the VariablesTreeItem in the Variables Browser.
+ * \param pVariablesTreeItem
+ */
+void VariablesTreeModel::updateVariablesTreeItem(VariablesTreeItem *pVariablesTreeItem)
+{
+  QModelIndex index = variablesTreeItemIndex(pVariablesTreeItem);
+  emit dataChanged(index, index);
 }
 
 QModelIndex VariablesTreeModel::variablesTreeItemIndex(const VariablesTreeItem *pVariablesTreeItem) const
@@ -502,30 +574,19 @@ QModelIndex VariablesTreeModel::variablesTreeItemIndex(const VariablesTreeItem *
   return variablesTreeItemIndexHelper(pVariablesTreeItem, mpRootVariablesTreeItem, QModelIndex());
 }
 
-QModelIndex VariablesTreeModel::variablesTreeItemIndexHelper(const VariablesTreeItem *pVariablesTreeItem,
-                                                             const VariablesTreeItem *pParentVariablesTreeItem,
-                                                             const QModelIndex &parentIndex) const
-{
-  if (pVariablesTreeItem == pParentVariablesTreeItem)
-    return parentIndex;
-  for (int i = pParentVariablesTreeItem->getChildren().size(); --i >= 0; ) {
-    const VariablesTreeItem *childItem = pParentVariablesTreeItem->getChildren().at(i);
-    QModelIndex childIndex = index(i, 0, parentIndex);
-    QModelIndex index = variablesTreeItemIndexHelper(pVariablesTreeItem, childItem, childIndex);
-    if (index.isValid())
-      return index;
-  }
-  return QModelIndex();
-}
-
 /*!
  * \brief VariablesTreeModel::parseInitXml
  * Parses the model_init.xml file and returns the scalar variables information.
  * \param xmlReader
- * \return
+ * \param simulationOptions
+ * \param variablesList
  */
-void VariablesTreeModel::parseInitXml(QXmlStreamReader &xmlReader)
+void VariablesTreeModel::parseInitXml(QXmlStreamReader &xmlReader, SimulationOptions simulationOptions, QStringList* variablesList)
 {
+  // if the variables list is empty then add the xml scalar variables to the list
+  bool addVariablesToList = variablesList->isEmpty();
+  bool protectedVariables = simulationOptions.getProtectedVariables();
+  bool ignoreHideResult = simulationOptions.getIgnoreHideResult();
   /* We'll parse the XML until we reach end of it.*/
   while (!xmlReader.atEnd() && !xmlReader.hasError()) {
     /* Read next element.*/
@@ -539,11 +600,64 @@ void VariablesTreeModel::parseInitXml(QXmlStreamReader &xmlReader)
       /* If it's named ScalarVariable, we'll dig the information from there.*/
       if (xmlReader.name() == "ScalarVariable") {
         QHash<QString, QString> scalarVariable = parseScalarVariable(xmlReader);
-        mScalarVariablesHash.insert(scalarVariable.value("name"),scalarVariable);
+        bool hideResultIsTrue = scalarVariable.value("hideResult").compare(QStringLiteral("true")) == 0;
+        // we need the following flag becasuse hideResult value can be empty.
+        bool hideResultIsFalse = scalarVariable.value("hideResult").compare(QStringLiteral("false")) == 0;
+        bool isProtected = scalarVariable.value("isProtected").compare(QStringLiteral("true")) == 0;
+        /* Skip variables,
+         *   1. If ignoreHideResult is not set and hideResult is true.
+         *   2. If emit protected flag is false and variable is protected.
+         *      If hideResult is false for protected variable then we show it.
+         */
+        if ((ignoreHideResult || !hideResultIsTrue)
+            && (protectedVariables || (!isProtected || (!ignoreHideResult && hideResultIsFalse)))) {
+          mScalarVariablesHash.insert(scalarVariable.value("name"),scalarVariable);
+          if (addVariablesToList) {
+            variablesList->append(scalarVariable.value("name"));
+          }
+        }
       }
     }
   }
   xmlReader.clear();
+}
+
+/*!
+ * \brief VariablesTreeModel::removeVariableTreeItem
+ * Removes the VariablesTreeItem.
+ * \param variable
+ * \return
+ */
+bool VariablesTreeModel::removeVariableTreeItem(QString variable)
+{
+  VariablesTreeItem *pVariablesTreeItem = findVariablesTreeItem(variable, mpRootVariablesTreeItem);
+  if (pVariablesTreeItem) {
+    // if we are going to remove an active VariablesTreeItem then we should disable the visualization controls.
+    if (pVariablesTreeItem->isActive()) {
+      mpVariablesTreeView->getVariablesWidget()->enableVisualizationControls(false);
+      mpVariablesTreeView->getVariablesWidget()->rewindVisualization();
+      mpVariablesTreeView->getVariablesWidget()->closeResultFile();
+    }
+    beginRemoveRows(variablesTreeItemIndex(pVariablesTreeItem->parent()), 0, pVariablesTreeItem->mChildren.size());
+    pVariablesTreeItem->removeChildren();
+    VariablesTreeItem *pParentVariablesTreeItem = pVariablesTreeItem->parent();
+    pParentVariablesTreeItem->removeChild(pVariablesTreeItem);
+
+    if (pVariablesTreeItem->getSimulationOptions().isInteractiveSimulation()) {
+      // remove the right interactive simulation output widget
+      SimulationOutputWidget *pSimulationOutputWidget = MessagesWidget::instance()->getSimulationOutputWidget(pVariablesTreeItem->getFileName());
+      if (pSimulationOutputWidget) {
+        MainWindow::instance()->getSimulationDialog()->removeSimulationOutputWidget(pSimulationOutputWidget);
+      }
+    }
+    if (pVariablesTreeItem) {
+      delete pVariablesTreeItem;
+    }
+    endRemoveRows();
+    mpVariablesTreeView->getVariablesWidget()->findVariables();
+    return true;
+  }
+  return false;
 }
 
 /*!
@@ -553,8 +667,9 @@ void VariablesTreeModel::parseInitXml(QXmlStreamReader &xmlReader)
  * \param filePath
  * \param variablesList
  * \param simulationOptions
+ * \return
  */
-void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath, QStringList variablesList, SimulationOptions simulationOptions)
+bool VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath, QStringList variablesList, SimulationOptions simulationOptions)
 {
   QString toolTip;
   if (simulationOptions.isInteractiveSimulation()) {
@@ -564,16 +679,25 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
   }
   QRegExp resultTypeRegExp("(\\.mat|\\.plt|\\.csv|_res.mat|_res.plt|_res.csv)");
   QString text = QString(fileName).remove(resultTypeRegExp);
-  QModelIndex index = variablesTreeItemIndex(mpRootVariablesTreeItem);
-  QVector<QVariant> Variabledata;
-  Variabledata << filePath << fileName << fileName << text << "" << "" << "" << QStringList() << "" << toolTip << false << QVariantList() << QVariantList() << QVariantList() << "dummy.json";
+  QVector<QVariant> variabledata;
+  variabledata << filePath << fileName << fileName << text << "" << "" << "" << "" << QStringList() << "" << toolTip << false << QVariantList() << QVariantList() << QVariantList() << "dummy.json" << false;
 
-  VariablesTreeItem *pTopVariablesTreeItem = new VariablesTreeItem(Variabledata, mpRootVariablesTreeItem, true);
-  pTopVariablesTreeItem->setSimulationOptions(simulationOptions);
-  int row = rowCount();
-  beginInsertRows(index, row, row);
-  mpRootVariablesTreeItem->insertChild(row, pTopVariablesTreeItem);
-  endInsertRows();
+  bool existingTopVariableTreeItem;
+  VariablesTreeItem *pTopVariablesTreeItem = findVariablesTreeItemOneLevel(variabledata.at(VariableItemData::NAME).toString(), mpRootVariablesTreeItem);
+  if (pTopVariablesTreeItem) {
+    pTopVariablesTreeItem->setVariableItemData(variabledata);
+    pTopVariablesTreeItem->setSimulationOptions(simulationOptions);
+    existingTopVariableTreeItem = true;
+  } else {
+    pTopVariablesTreeItem = new VariablesTreeItem(variabledata, mpRootVariablesTreeItem, true);
+    pTopVariablesTreeItem->setSimulationOptions(simulationOptions);
+    int row = rowCount();
+    QModelIndex index = variablesTreeItemIndex(mpRootVariablesTreeItem);
+    beginInsertRows(index, row, row);
+    mpRootVariablesTreeItem->insertChild(row, pTopVariablesTreeItem);
+    endInsertRows();
+    existingTopVariableTreeItem = false;
+  }
   // set the newly inserted VariablesTreeItem active
   mpActiveVariablesTreeItem = pTopVariablesTreeItem;
   if (simulationOptions.isValid() && !simulationOptions.isInteractiveSimulation()) {
@@ -589,58 +713,28 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
     initFileName = QString("%1_init.xml").arg(text);
     infoFileName = QString("%1_info.json").arg(text);
   }
-  QFile initFile(QString(filePath).append(QDir::separator()).append(initFileName));
+  bool readingVariablesFromInitFile = false;
+  QFile initFile(QString("%1%2%3").arg(filePath, QDir::separator(), initFileName));
   if (initFile.exists()) {
     if (initFile.open(QIODevice::ReadOnly)) {
       QXmlStreamReader initXmlReader(&initFile);
-      parseInitXml(initXmlReader);
+      readingVariablesFromInitFile = variablesList.isEmpty();
+      parseInitXml(initXmlReader, simulationOptions, &variablesList);
       initFile.close();
     } else {
-      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica,
-                                                            GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(initFile.fileName())
+      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(initFile.fileName())
                                                             .arg(initFile.errorString()), Helper::scriptingKind, Helper::errorLevel));
     }
   }
-  QFile infoFile(QString(filePath).append(QDir::separator()).append(infoFileName));
 
   QMap<QString,QSet<QString>> usedInitialVars;
   QMap<QString,QSet<QString>> usedVars;
   QMap<QString,QList<IntStringPair>> definedIn;
 
-  if (infoFile.exists()) {
-    if (MainWindow::instance()->isDebug()) {
-      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, "Opening json file " + infoFile.fileName(), Helper::scriptingKind, Helper::errorLevel));
-      if (infoFile.open(QIODevice::ReadOnly)) {
-        MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, "Reading json file " + infoFile.fileName(), Helper::scriptingKind, Helper::errorLevel));
-        MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, "Json file contents are " + infoFile.readAll(), Helper::scriptingKind, Helper::errorLevel));
-        infoFile.close();
-      } else {
-        MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, "Unable to open the json file for reading " + infoFile.fileName(), Helper::scriptingKind, Helper::errorLevel));
-      }
-    }
-    QJson::Parser parser;
-    bool ok;
-    QVariantMap result;
-    if (MainWindow::instance()->isDebug()) {
-      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, "Parsing json file " + infoFile.fileName(), Helper::scriptingKind, Helper::errorLevel));
-    }
-    result = parser.parse(&infoFile, &ok).toMap();
-    if (!ok) {
-      if (MainWindow::instance()->isDebug()) {
-        MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, "Failed to parse json file " + infoFile.fileName(), Helper::scriptingKind, Helper::errorLevel));
-      }
-      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(infoFile.fileName())
-                                                            .arg(parser.errorString()), Helper::scriptingKind, Helper::errorLevel));
-      MainWindow::instance()->printStandardOutAndErrorFilesMessages();
-      return;
-    } else {
-      if (MainWindow::instance()->isDebug()) {
-        MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, "Parsed json file " + infoFile.fileName(), Helper::scriptingKind, Helper::errorLevel));
-      }
-    }
-    QVariantMap vars = result["variables"].toMap();
+  JsonDocument jsonDocument;
+  if (jsonDocument.parse(QString("%1%2%3").arg(filePath, QDir::separator(), infoFileName))) {
+    QVariantMap result = jsonDocument.result.toMap();
     QVariantList eqs = result["equations"].toList();
-
     for (int i=0; i<eqs.size(); i++) {
       QVariantMap veq = eqs[i].toMap();
       bool isInitial = (veq.find("section") != veq.end() && veq["section"] == QString("initial"));
@@ -652,7 +746,6 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
             definedIn[v1] = QList<IntStringPair>();
           }
           definedIn[v1] << IntStringPair(veq["eqIndex"].toInt(), veq.find("section") != veq.end() ? veq["section"].toString() : QString("unknown"));
-          QString v1_1 = QString("%1.%2").arg(fileName ,v1);
           if (veq.find("uses") != veq.end()) {
             QStringList uses = Utilities::variantListToStringList(veq["uses"].toList());
             foreach (QString v2, uses) {
@@ -666,8 +759,10 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
         }
       }
     }
+  } else {
+    MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, jsonDocument.errorString, Helper::scriptingKind, Helper::errorLevel));
+    MainWindow::instance()->printStandardOutAndErrorFilesMessages();
   }
-
   /* open the .mat file */
   ModelicaMatReader matReader;
   matReader.file = 0;
@@ -675,14 +770,29 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
   if (fileName.endsWith(".mat")) {
     //Read in mat file
     if (0 != (msg[0] = omc_new_matlab4_reader(QString(filePath + "/" + fileName).toUtf8().constData(), &matReader))) {
-      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica,
-                                                            GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(filePath + "/" + fileName)
+      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(filePath + "/" + fileName)
                                                             .arg(QString(msg[0])), Helper::scriptingKind, Helper::errorLevel));
     }
   }
-
+  // create hash based VariableNode
+  VariableNode *pTopVariableNode = new VariableNode(variabledata);
   // remove time from variables list
   variablesList.removeOne("time");
+  /* Fixes issue #7551
+   * Add the $cpuTime variable to the list if cpu time flag is set.
+   * We read the variables from model_init.xml file that doesn't contain $cpuTime variable but is present in model_res.mat file.
+   */
+  if (simulationOptions.isValid() && simulationOptions.getCPUTime()) {
+    variablesList.append("$cpuTime");
+  }
+  /* Issue #7632 Variables Browser show non-existing variable
+   * Show the non-existing variables as we want to use them for resimulation e.g., string variables.
+   * But don't make them checkable so user can't plot them.
+   */
+  QStringList variableListFromResultFile;
+  if (readingVariablesFromInitFile) {
+    variableListFromResultFile = MainWindow::instance()->getOMCProxy()->readSimulationResultVars(QString("%1%2%3").arg(filePath, QDir::separator(), fileName));
+  }
   QStringList variables;
   foreach (QString plotVariable, variablesList) {
     QString parentVariable = "";
@@ -698,24 +808,26 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
       variables = StringHandler::makeVariablePartsWithInd(plotVariable);
     }
     int count = 1;
-    VariablesTreeItem *pParentVariablesTreeItem = 0;
+    VariableNode *pParentVariableNode = 0;
     foreach (QString variable, variables) {
       if (count == 1) { /* first loop iteration */
-        pParentVariablesTreeItem = pTopVariablesTreeItem;
+        pParentVariableNode = pTopVariableNode;
       }
       QString findVariable;
-      /* if last item of derivative */
-      if ((variables.size() == count) && (plotVariable.startsWith("der("))) {
+      // if last item of derivative or 2nd last item of derivative array
+      if ((plotVariable.startsWith("der(")) && ((variables.size() == count) || ((variables.size() - 1 == count) && (variables.at(variables.size() - 1).startsWith("["))))) {
         if (parentVariable.isEmpty()) {
           findVariable = QString("%1.%2").arg(fileName ,StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "der("));
         } else {
-          findVariable = QString("%1.%2").arg(fileName ,StringHandler::joinDerivativeAndPreviousVariable(plotVariable, parentVariable, "der("));
+          findVariable = QString("%1.%2").arg(fileName ,StringHandler::joinDerivativeAndPreviousVariable(plotVariable, parentVariable + "." + variable, "der("));
         }
-      } else if ((variables.size() == count) && (plotVariable.startsWith("previous("))) { /* if last item of previous */
+      }
+      // if last item of previous or 2nd last item of previous array
+      else if ((plotVariable.startsWith("previous(")) && ((variables.size() == count) || ((variables.size() - 1 == count) && (variables.at(variables.size() - 1).startsWith("["))))) {
         if (parentVariable.isEmpty()) {
           findVariable = QString("%1.%2").arg(fileName ,StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "previous("));
         } else {
-          findVariable = QString("%1.%2").arg(fileName ,StringHandler::joinDerivativeAndPreviousVariable(plotVariable, parentVariable, "previous("));
+          findVariable = QString("%1.%2").arg(fileName ,StringHandler::joinDerivativeAndPreviousVariable(plotVariable, parentVariable + "." + variable, "previous("));
         }
       } else {
         if (parentVariable.isEmpty()) {
@@ -724,76 +836,100 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
           findVariable = QString("%1.%2.%3").arg(fileName, parentVariable, variable);
         }
       }
-      if ((pParentVariablesTreeItem = findVariablesTreeItem(findVariable, pParentVariablesTreeItem)) != NULL) {
-        QString addVar = "";
-        /* if last item of derivative */
-        if ((variables.size() == count) && (plotVariable.startsWith("der("))) {
-          addVar = StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "der(");
-        } else if ((variables.size() == count) && (plotVariable.startsWith("previous("))) { /* if last item of previous */
-          addVar = StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "previous(");
-        } else {
-          addVar = variable;
+      // if its the last item then don't try to find the item as we will always fail to find it
+      if (variables.size() != count) {
+        pParentVariableNode = VariableNode::findVariableNode(findVariable, pParentVariableNode);
+        if (pParentVariableNode) {
+          QString addVar = variable;
+          if (count == 1) {
+            parentVariable = addVar;
+          } else {
+            parentVariable += "." + addVar;
+          }
+          count++;
+          continue;
         }
-        if (count == 1) {
-          parentVariable = addVar;
-        } else {
-          parentVariable += "." + addVar;
-        }
-        count++;
-        continue;
       }
       /* If pParentVariablesTreeItem is 0 and it is first loop iteration then use pTopVariablesTreeItem as parent.
        * If loop iteration is not first and pParentVariablesTreeItem is 0 then find the parent item.
        */
-      if (!pParentVariablesTreeItem && count > 1) {
-        pParentVariablesTreeItem = findVariablesTreeItem(fileName + "." + parentVariable, pTopVariablesTreeItem);
-      } else {
-        pParentVariablesTreeItem = pTopVariablesTreeItem;
+      if (!pParentVariableNode && count > 1) {
+        pParentVariableNode = VariableNode::findVariableNode(fileName + "." + parentVariable, pTopVariableNode);
       }
-      QModelIndex index = variablesTreeItemIndex(pParentVariablesTreeItem);
+      // Just make sure parent is not NULL
+      if (!pParentVariableNode) {
+        pParentVariableNode = pTopVariableNode;
+      }
+      // data
       QVector<QVariant> variableData;
-      /* if last item of derivative */
-      if ((variables.size() == count) && (plotVariable.startsWith("der("))) {
-        variableData << filePath << fileName << fileName + "." + plotVariable << StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "der(");
-      } else if ((variables.size() == count) && (plotVariable.startsWith("previous("))) { /* if last item of previous */
-        variableData << filePath << fileName << fileName + "." + plotVariable << StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "previous(");
-      } else if (variables.size() == count && QRegExp("\\[\\d+\\]").exactMatch(variable)) { /* if last item of array derivative*/
+      // if last item of array
+      if (variables.size() == count && QRegExp("\\[\\d+\\]").exactMatch(variable)) {
         variableData << filePath << fileName << fileName + "." + plotVariable << variable;
+      }
+      // if 2nd last item of derivative array
+      else if ((plotVariable.startsWith("der(")) && ((variables.size() - 1 == count) && (variables.at(variables.size() - 1).startsWith("[")))) {
+        QString derivatieArrayVar = variable;
+        if (!parentVariable.isEmpty()) {
+          derivatieArrayVar = parentVariable + "." + variable;
+        }
+        derivatieArrayVar = QString("%1.%2").arg(fileName ,StringHandler::joinDerivativeAndPreviousVariable(plotVariable, derivatieArrayVar, "der("));
+        variableData << filePath << fileName << derivatieArrayVar << StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "der(");
+      }
+      // if last item of derivative
+      else if ((plotVariable.startsWith("der(")) && (variables.size() == count)) {
+        variableData << filePath << fileName << fileName + "." + plotVariable << StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "der(");
+      }
+      // if 2nd last item of previous array
+      else if ((plotVariable.startsWith("previous(")) && ((variables.size() == count) || ((variables.size() - 1 == count) && (variables.at(variables.size() - 1).startsWith("["))))) {
+        QString previousArrayVar = variable;
+        if (!parentVariable.isEmpty()) {
+          previousArrayVar = parentVariable + "." + variable;
+        }
+        previousArrayVar = QString("%1.%2").arg(fileName ,StringHandler::joinDerivativeAndPreviousVariable(plotVariable, previousArrayVar, "previous("));
+        variableData << filePath << fileName << previousArrayVar << StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "previous(");
+      }
+      // if last item of previous
+      else if ((plotVariable.startsWith("previous(")) && ((variables.size() == count) || ((variables.size() - 1 == count) && (variables.at(variables.size() - 1).startsWith("["))))) {
+        variableData << filePath << fileName << fileName + "." + plotVariable << StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "previous(");
       } else {
-        variableData << filePath << fileName << pParentVariablesTreeItem->getVariableName() + "." + variable << variable;
+        variableData << filePath << fileName << pParentVariableNode->mVariableNodeData.at(VariableItemData::NAME).toString() + "." + variable << variable;
       }
 
       /* find the variable in the xml file */
-      QString variableToFind = variableData[2].toString();
+      QString variableToFind = variableData.at(VariableItemData::NAME).toString();
       variableToFind.remove(QRegExp(pTopVariablesTreeItem->getVariableName() + "."));
       /* get the variable information i.e value, unit, displayunit, description */
-      QString value, variability, unit, displayUnit, description;
+      QString type, value, variability, unit, displayUnit, description;
       bool changeAble = false;
-      getVariableInformation(&matReader, variableToFind, &value, &changeAble, &variability, &unit, &displayUnit, &description);
-      variableData << StringHandler::unparse(QString("\"").append(value).append("\""));
+      getVariableInformation(&matReader, variableToFind, &type, &value, &changeAble, &variability, &unit, &displayUnit, &description);
+      /* set the variable type and value */
+      variableData << type <<  StringHandler::unparse(QString("\"").append(value).append("\""));
       /* set the variable unit */
       variableData << StringHandler::unparse(QString("\"").append(unit).append("\""));
+      unit = variableData.at(VariableItemData::UNIT).toString();
       /* set the variable displayUnit */
       variableData << StringHandler::unparse(QString("\"").append(displayUnit).append("\""));
       /* set the variable displayUnits */
-      if (!variableData[5].toString().isEmpty()) {
+      if ((variableData.at(VariableItemData::TYPE).toString().compare(QStringLiteral("String")) != 0) && !unit.isEmpty()) {
         QStringList displayUnits, displayUnitOptions;
-        displayUnits << variableData[5].toString();
-        if (!variableData[6].toString().isEmpty()) {
-          displayUnitOptions << variableData[6].toString();
+        displayUnits << unit;
+        if (!variableData.at(VariableItemData::DISPLAYUNIT).toString().isEmpty()) {
+          displayUnitOptions << variableData.at(VariableItemData::DISPLAYUNIT).toString();
           /* convert value to displayUnit */
-          OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(variableData[5].toString(), variableData[6].toString());
+          OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(unit, variableData.at(VariableItemData::DISPLAYUNIT).toString());
           if (convertUnit.unitsCompatible) {
             bool ok = true;
-            qreal realValue = variableData[4].toDouble(&ok);
+            qreal realValue = variableData.at(VariableItemData::VALUE).toDouble(&ok);
             if (ok) {
               realValue = Utilities::convertUnit(realValue, convertUnit.offset, convertUnit.scaleFactor);
-              variableData[4] = StringHandler::number(realValue);
+              variableData[VariableItemData::VALUE] = StringHandler::number(realValue);
             }
           }
         } else { /* use unit as displayUnit */
-          variableData[6] = variableData[5];
+          variableData[VariableItemData::DISPLAYUNIT] = unit;
         }
+        Utilities::addDefaultDisplayUnit(unit, displayUnitOptions);
+        displayUnitOptions.removeDuplicates();
         displayUnits << displayUnitOptions;
         variableData << displayUnits;
       } else {
@@ -816,14 +952,14 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
       QString findVariableNoFileName = findVariable.right(findVariable.size()-fileName.size()-1);
 
       if (usedVars.find(findVariableNoFileName) != usedVars.end()) {
-        QStringList lst = QStringList(usedVars[findVariableNoFileName].toList());
+        QStringList lst = QStringList(usedVars[findVariableNoFileName].values());
         lst << findVariableNoFileName;
         variableData << lst;
       } else {
         variableData << QStringList(findVariableNoFileName);
       }
       if (usedInitialVars.find(findVariableNoFileName) != usedInitialVars.end()) {
-        QStringList lst = QStringList(usedInitialVars[findVariableNoFileName].toList());
+        QStringList lst = QStringList(usedInitialVars[findVariableNoFileName].values());
         lst << findVariableNoFileName;
         variableData << lst;
       } else {
@@ -839,92 +975,56 @@ void VariablesTreeModel::insertVariablesItems(QString fileName, QString filePath
       }
       variableData << variantDefinedIn;
       variableData << infoFileName;
-
-      VariablesTreeItem *pVariablesTreeItem = new VariablesTreeItem(variableData, pParentVariablesTreeItem);
-      pVariablesTreeItem->setEditable(changeAble);
-      pVariablesTreeItem->setVariability(variability);
-      int row = rowCount(index);
-      beginInsertRows(index, row, row);
-      pParentVariablesTreeItem->insertChild(row, pVariablesTreeItem);
-      endInsertRows();
-      QString addVar = "";
-      /* if last item of derivative */
-      if ((variables.size() == count) && (plotVariable.startsWith("der("))) {
-        addVar = StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "der(");
-      } else if ((variables.size() == count) && (plotVariable.startsWith("previous("))) { /* if last item of previous */
-        addVar = StringHandler::joinDerivativeAndPreviousVariable(plotVariable, variable, "previous(");
-      } else {
-        addVar = variable;
+      bool variableExistsInResultFile = true;
+      if (readingVariablesFromInitFile && !variableListFromResultFile.contains(variableToFind)) {
+        variableExistsInResultFile = false;
       }
+      variableData << variableExistsInResultFile;
+
+      VariableNode *pVariableNode = new VariableNode(variableData);
+      pVariableNode->mEditable = changeAble;
+      pVariableNode->mVariability = variability;
+      pParentVariableNode->mChildren.insert(variableData.at(VariableItemData::NAME).toString(), pVariableNode);
+      pParentVariableNode = pVariableNode;
+
       if (count == 1) {
-        parentVariable = addVar;
+        parentVariable = variable;
       } else {
-        parentVariable += "." + addVar;
+        parentVariable += "." + variable;
       }
       count++;
     }
   }
-  /* close the .mat file */
-  if (fileName.endsWith(".mat")) {
-    if (matReader.file) {
-      omc_free_matlab4_reader(&matReader);
-    }
+  // remove VariablesTreeItems only when result already exists
+  if (existingTopVariableTreeItem) {
+    filterVariableTreeItem(pTopVariableNode, pTopVariablesTreeItem);
   }
-  mpVariablesTreeView->collapseAll();
-  QModelIndex idx = variablesTreeItemIndex(pTopVariablesTreeItem);
-  idx = mpVariablesTreeView->getVariablesWidget()->getVariableTreeProxyModel()->mapFromSource(idx);
-  mpVariablesTreeView->expand(idx);
+  // insert variables to VariablesTreeModel
+  insertVariablesItems(pTopVariableNode, pTopVariablesTreeItem);
+  // Delete VariableNode
+  delete pTopVariableNode;
+  /* close the .mat file */
+  if (fileName.endsWith(".mat") && matReader.file) {
+    omc_free_matlab4_reader(&matReader);
+  }
   /* Ticket #3016.
    * If you only have one model the message "You must select a class to re-simulate" is annoying.
    * A default behavior of selecting the (single) model would be good.
    * The following line selects the result tree top level item.
    */
+  QModelIndex idx = variablesTreeItemIndex(pTopVariablesTreeItem);
+  idx = mpVariablesTreeView->getVariablesWidget()->getVariableTreeProxyModel()->mapFromSource(idx);
+  mpVariablesTreeView->expand(idx);
   mpVariablesTreeView->setCurrentIndex(idx);
+  mpVariablesTreeView->setFocus(Qt::ActiveWindowFocusReason);
   MainWindow::instance()->enableReSimulationToolbar(MainWindow::instance()->getVariablesDockWidget()->isVisible());
-}
 
-/*!
- * \brief VariablesTreeModel::removeVariableTreeItem
- * Removes the VariablesTreeItem.
- * \param variable
- * \return
- */
-bool VariablesTreeModel::removeVariableTreeItem(QString variable)
-{
-  VariablesTreeItem *pVariablesTreeItem = findVariablesTreeItem(variable, mpRootVariablesTreeItem);
-  if (pVariablesTreeItem) {
-    // if we are going to remove an active VariablesTreeItem then we should disable the visualization controls.
-    if (pVariablesTreeItem->isActive()) {
-      mpVariablesTreeView->getVariablesWidget()->enableVisualizationControls(false);
-      mpVariablesTreeView->getVariablesWidget()->rewindVisualization();
-    }
-    beginRemoveRows(variablesTreeItemIndex(pVariablesTreeItem), 0, pVariablesTreeItem->getChildren().size());
-    pVariablesTreeItem->removeChildren();
-    VariablesTreeItem *pParentVariablesTreeItem = pVariablesTreeItem->parent();
-    pParentVariablesTreeItem->removeChild(pVariablesTreeItem);
-
-    if (pVariablesTreeItem->getSimulationOptions().isInteractiveSimulation()) {
-      for (const auto& p : MainWindow::instance()->getSimulationDialog()->getSimulationOutputWidgetsList()) {
-        // remove the right interactive output widget
-        if (p->getSimulationOptions().getClassName() == pVariablesTreeItem->getFileName()) {
-          MainWindow::instance()->getSimulationDialog()->removeSimulationOutputWidget(p);
-          break;
-        }
-      }
-    }
-    if (pVariablesTreeItem) {
-      delete pVariablesTreeItem;
-    }
-    endRemoveRows();
-    mpVariablesTreeView->getVariablesWidget()->findVariables();
-    return true;
-  }
-  return false;
+  return existingTopVariableTreeItem;
 }
 
 void VariablesTreeModel::unCheckVariables(VariablesTreeItem *pVariablesTreeItem)
 {
-  QList<VariablesTreeItem*> items = pVariablesTreeItem->getChildren();
+  QList<VariablesTreeItem*> items = pVariablesTreeItem->mChildren;
   for (int i = 0 ; i < items.size() ; i++) {
     items[i]->setData(0, Qt::Unchecked, Qt::CheckStateRole);
     unCheckVariables(items[i]);
@@ -933,7 +1033,7 @@ void VariablesTreeModel::unCheckVariables(VariablesTreeItem *pVariablesTreeItem)
 
 void VariablesTreeModel::plotAllVariables(VariablesTreeItem *pVariablesTreeItem, PlotWindow *pPlotWindow)
 {
-  QList<VariablesTreeItem*> variablesTreeItems = pVariablesTreeItem->getChildren();
+  QList<VariablesTreeItem*> variablesTreeItems = pVariablesTreeItem->mChildren;
   if (variablesTreeItems.size() == 0) {
     QModelIndex index = variablesTreeItemIndex(pVariablesTreeItem);
     OMPlot::PlotCurve *pPlotCurve = 0;
@@ -944,10 +1044,98 @@ void VariablesTreeModel::plotAllVariables(VariablesTreeItem *pVariablesTreeItem,
       }
     }
     setData(index, Qt::Checked, Qt::CheckStateRole);
-    mpVariablesTreeView->getVariablesWidget()->plotVariables(index, pPlotWindow->getCurveWidth(), pPlotWindow->getCurveStyle(), pPlotCurve);
+    mpVariablesTreeView->getVariablesWidget()->plotVariables(index, pPlotWindow->getCurveWidth(), pPlotWindow->getCurveStyle(), false, pPlotCurve);
   } else {
     for (int i = 0 ; i < variablesTreeItems.size() ; i++) {
       plotAllVariables(variablesTreeItems[i], pPlotWindow);
+    }
+  }
+}
+
+/*!
+ * \brief VariablesTreeModel::variablesTreeItemIndexHelper
+ * Helper function for VariablesTreeModel::variablesTreeItem()
+ * \param pVariablesTreeItem
+ * \param pParentVariablesTreeItem
+ * \param parentIndex
+ * \return
+ */
+QModelIndex VariablesTreeModel::variablesTreeItemIndexHelper(const VariablesTreeItem *pVariablesTreeItem, const VariablesTreeItem *pParentVariablesTreeItem,
+                                                             const QModelIndex &parentIndex) const
+{
+  if (pVariablesTreeItem == pParentVariablesTreeItem) {
+    return parentIndex;
+  }
+  for (int i = pParentVariablesTreeItem->mChildren.size(); --i >= 0; ) {
+    const VariablesTreeItem *childItem = pParentVariablesTreeItem->mChildren.at(i);
+    QModelIndex childIndex = index(i, 0, parentIndex);
+    QModelIndex index = variablesTreeItemIndexHelper(pVariablesTreeItem, childItem, childIndex);
+    if (index.isValid()) {
+      return index;
+    }
+  }
+  return QModelIndex();
+}
+
+void VariablesTreeModel::filterVariableTreeItem(VariableNode *pParentVariableNode, VariablesTreeItem *pParentVariablesTreeItem)
+{
+  foreach (VariablesTreeItem *pVariablesTreeItem, pParentVariablesTreeItem->mChildren) {
+    VariableNode *pVariableNode = pParentVariableNode->mChildren.value(pVariablesTreeItem->getVariableName(), 0);
+    // if we fail to find the variable node then remove that pVariablesTreeItem
+    if (!pVariableNode) {
+      QModelIndex index = variablesTreeItemIndex(pParentVariablesTreeItem);
+      int row = pVariablesTreeItem->row();
+      beginRemoveRows(index, row, row);
+      pParentVariablesTreeItem->removeChild(pVariablesTreeItem);
+      delete pVariablesTreeItem;
+      endRemoveRows();
+    } else {
+      filterVariableTreeItem(pVariableNode, pVariablesTreeItem);
+    }
+  }
+}
+
+/*!
+ * \brief VariablesTreeModel::insertVariablesItems
+ * Creates VariablesTreeItem using VariableNode and adds them to the VariablesTreeView.
+ * \param pParentVariableNode
+ * \param pParentVariablesTreeItem
+ */
+void VariablesTreeModel::insertVariablesItems(VariableNode *pParentVariableNode, VariablesTreeItem *pParentVariablesTreeItem)
+{
+  if (pParentVariableNode && !pParentVariableNode->mChildren.isEmpty()) {
+    QHash<QString, VariableNode*>::const_iterator iterator = pParentVariableNode->mChildren.constBegin();
+    QVector<VariableNode*> variableNodes;
+    while (iterator != pParentVariableNode->mChildren.constEnd()) {
+      VariableNode *pVariableNode = iterator.value();
+      VariablesTreeItem *pVariablesTreeItem = findVariablesTreeItemOneLevel(pVariableNode->mVariableNodeData.at(VariableItemData::NAME).toString(), pParentVariablesTreeItem);
+      // if we find the exisitng VariablesTreeItem then we update it otherwise we add it to variableNodes vector
+      if (pVariablesTreeItem) {
+        pVariablesTreeItem->setVariableItemData(pVariableNode->mVariableNodeData);
+        pVariablesTreeItem->setEditable(pVariableNode->mEditable);
+        pVariablesTreeItem->setVariability(pVariableNode->mVariability);
+      } else {
+        variableNodes.append(pVariableNode);
+      }
+      ++iterator;
+    }
+    // Insert the new variableNodes.
+    if (!variableNodes.isEmpty()) {
+      QModelIndex index = variablesTreeItemIndex(pParentVariablesTreeItem);
+      int row = rowCount(index);
+      beginInsertRows(index, row, row + variableNodes.size() - 1);
+      foreach (VariableNode *pVariableNode, variableNodes) {
+        VariablesTreeItem *pVariablesTreeItem = new VariablesTreeItem(pVariableNode->mVariableNodeData, pParentVariablesTreeItem);
+        pVariablesTreeItem->setEditable(pVariableNode->mEditable);
+        pVariablesTreeItem->setVariability(pVariableNode->mVariability);
+        pParentVariablesTreeItem->insertChild(row++, pVariablesTreeItem);
+      }
+      endInsertRows();
+    }
+
+    foreach (VariablesTreeItem *pVariablesTreeItem, pParentVariablesTreeItem->mChildren) {
+      VariableNode *pVariableNode = pParentVariableNode->mChildren.value(pVariablesTreeItem->getVariableName());
+      insertVariablesItems(pVariableNode, pVariablesTreeItem);
     }
   }
 }
@@ -973,10 +1161,13 @@ QHash<QString, QString> VariablesTreeModel::parseScalarVariable(QXmlStreamReader
   scalarVariable["description"] = attributes.value("description").toString();
   scalarVariable["isValueChangeable"] = attributes.value("isValueChangeable").toString();
   scalarVariable["variability"] = attributes.value("variability").toString();
+  scalarVariable["hideResult"] = attributes.value("hideResult").toString();
+  scalarVariable["isProtected"] = attributes.value("isProtected").toString();
   /* Read the next element i.e Real, Integer, Boolean etc. */
   xmlReader.readNext();
   while (!(xmlReader.tokenType() == QXmlStreamReader::EndElement && xmlReader.name() == "ScalarVariable")) {
     if (xmlReader.tokenType() == QXmlStreamReader::StartElement) {
+      scalarVariable["type"] = xmlReader.name().toString();
       QXmlStreamAttributes attributes = xmlReader.attributes();
       scalarVariable["start"] = attributes.value("start").toString();
       scalarVariable["unit"] = attributes.value("unit").toString();
@@ -992,6 +1183,7 @@ QHash<QString, QString> VariablesTreeModel::parseScalarVariable(QXmlStreamReader
  * Returns the variable information like value, unit, displayunit and description.
  * \param pMatReader
  * \param variableToFind
+ * \param type
  * \param value
  * \param changeAble
  * \param variability
@@ -999,31 +1191,29 @@ QHash<QString, QString> VariablesTreeModel::parseScalarVariable(QXmlStreamReader
  * \param displayUnit
  * \param description
  */
-void VariablesTreeModel::getVariableInformation(ModelicaMatReader *pMatReader, QString variableToFind, QString *value, bool *changeAble,
+void VariablesTreeModel::getVariableInformation(ModelicaMatReader *pMatReader, QString variableToFind, QString *type, QString *value, bool *changeAble,
                                                 QString *variability, QString *unit, QString *displayUnit, QString *description)
 {
   QHash<QString, QString> hash = mScalarVariablesHash.value(variableToFind);
-  if (hash["name"].compare(variableToFind) == 0) {
-    *changeAble = (hash["isValueChangeable"].compare("true") == 0) ? true : false;
-    *variability = hash["variability"];
+  if (hash.value("name").compare(variableToFind) == 0) {
+    *type = hash.value("type");
+    *changeAble = (hash.value("isValueChangeable").compare(QStringLiteral("true")) == 0) ? true : false;
+    *variability = hash.value("variability");
     if (*changeAble) {
-      *value = hash["start"];
-    } else { /* if the variable is not a tunable parameter then read the final value of the variable. Only mat result files are supported. */
+      *value = hash.value("start");
+    } else { /* Read the final value of the variable. Only mat result files are supported. */
       if ((pMatReader->file != NULL) && strcmp(pMatReader->fileName, "")) {
         *value = "";
-        ModelicaMatVariable_t *var;
-        if (0 == (var = omc_matlab4_find_var(pMatReader, variableToFind.toUtf8().constData()))) {
-          qDebug() << QString("%1 not found in %2").arg(variableToFind).arg(pMatReader->fileName);
-        }
+        ModelicaMatVariable_t *var = omc_matlab4_find_var(pMatReader, variableToFind.toUtf8().constData());
         double res;
         if (var && !omc_matlab4_val(&res, pMatReader, var, omc_matlab4_stopTime(pMatReader))) {
           *value = QString::number(res);
         }
       }
     }
-    *unit = hash["unit"];
-    *displayUnit = hash["displayUnit"];
-    *description = hash["description"];
+    *unit = hash.value("unit");
+    *displayUnit = hash.value("displayUnit");
+    *description = hash.value("description");
   }
 }
 
@@ -1064,7 +1254,7 @@ void VariablesTreeModel::openTransformationsBrowser()
     QString fileName = list[0].toString();
     int equationIndex = list[1].toInt();
     if (QFileInfo(fileName).exists()) {
-      TransformationsWidget *pTransformationsWidget = MainWindow::instance()->showTransformationsWidget(fileName);
+      TransformationsWidget *pTransformationsWidget = MainWindow::instance()->showTransformationsWidget(fileName, false);
       QTreeWidgetItem *pTreeWidgetItem = pTransformationsWidget->findEquationTreeItem(equationIndex);
       if (pTreeWidgetItem) {
         pTransformationsWidget->getEquationsTreeWidget()->clearSelection();
@@ -1188,7 +1378,7 @@ void VariablesTreeView::mouseReleaseEvent(QMouseEvent *event)
     if (visualRect(index).contains(event->pos())) {
       index = mpVariablesWidget->getVariableTreeProxyModel()->mapToSource(index);
       VariablesTreeItem *pVariablesTreeItem = static_cast<VariablesTreeItem*>(index.internalPointer());
-      if (pVariablesTreeItem && pVariablesTreeItem) {
+      if (pVariablesTreeItem && !pVariablesTreeItem->isString()) {
         if (pVariablesTreeItem->isChecked()) {
           mpVariablesWidget->getVariablesTreeModel()->setData(index, Qt::Unchecked, Qt::CheckStateRole);
         } else {
@@ -1330,7 +1520,7 @@ VariablesWidget::VariablesWidget(QWidget *pParent)
   connect(mpTreeSearchFilters->getCollapseAllButton(), SIGNAL(clicked()), mpVariablesTreeView, SLOT(collapseAll()));
   connect(mpVariablesTreeModel, SIGNAL(rowsInserted(QModelIndex,int,int)), mpVariableTreeProxyModel, SLOT(invalidate()));
   connect(mpVariablesTreeModel, SIGNAL(rowsRemoved(QModelIndex,int,int)), mpVariableTreeProxyModel, SLOT(invalidate()));
-  connect(mpVariablesTreeModel, SIGNAL(itemChecked(QModelIndex,qreal,int)), SLOT(plotVariables(QModelIndex,qreal,int)));
+  connect(mpVariablesTreeModel, SIGNAL(itemChecked(QModelIndex,qreal,int,bool)), SLOT(plotVariables(QModelIndex,qreal,int,bool)));
   connect(mpVariablesTreeModel, SIGNAL(unitChanged(QModelIndex)), SLOT(unitChanged(QModelIndex)));
   connect(mpVariablesTreeModel, SIGNAL(valueEntered(QModelIndex)), SLOT(valueEntered(QModelIndex)));
   connect(mpVariablesTreeView, SIGNAL(customContextMenuRequested(QPoint)), SLOT(showContextMenu(QPoint)));
@@ -1363,30 +1553,27 @@ void VariablesWidget::enableVisualizationControls(bool enable)
  */
 void VariablesWidget::insertVariablesItemsToTree(QString fileName, QString filePath, QStringList variablesList, SimulationOptions simulationOptions)
 {
-  /* Remove the simulation result if we already had it in tree */
-  bool variableItemDeleted = false;
-  variableItemDeleted = mpVariablesTreeModel->removeVariableTreeItem(fileName);
-
+  MainWindow::instance()->showProgressBar();
+  MainWindow::instance()->getStatusBar()->showMessage(tr("Loading simulation result variables"));
+  // In order to improve the response time of insertVariablesItems function we should disbale sorting and clear the filter.
   mpVariablesTreeView->setSortingEnabled(false);
-  /* In order to improve the response time of insertVariablesItems function we should clear the filter and collapse all the items. */
   mpVariableTreeProxyModel->setFilterRegExp(QRegExp(""));
-  mpVariablesTreeView->collapseAll();
-  /* add the plot variables */
-  mpVariablesTreeModel->insertVariablesItems(fileName, filePath, variablesList, simulationOptions);
-
-  /* re-check previously checked variables */
+  // insert the plot variables
+  bool updateVariables = mpVariablesTreeModel->insertVariablesItems(fileName, filePath, variablesList, simulationOptions);
+  // handle interactive re-simulation
   if (simulationOptions.isInteractiveSimulation() && simulationOptions.isReSimulate()) {
     interactiveReSimulation(simulationOptions.getClassName());
   }
-
-  /* update the plot variables tree */
-  if (variableItemDeleted) {
+  // update the plot variables tree
+  if (updateVariables) {
     variablesUpdated();
   }
   mpVariablesTreeView->setSortingEnabled(true);
   mpVariablesTreeView->sortByColumn(0, Qt::AscendingOrder);
-  /* since we cleared the filter above so we need to apply it back. */
+  // since we cleared the filter above so we need to apply it back.
   findVariables();
+  MainWindow::instance()->getStatusBar()->clearMessage();
+  MainWindow::instance()->hideProgressBar();
 }
 
 /*!
@@ -1408,7 +1595,7 @@ void VariablesWidget::variablesUpdated()
             bool state = mpVariablesTreeModel->blockSignals(true);
             QModelIndex index = mpVariablesTreeModel->variablesTreeItemIndex(pVariableTreeItem);
             mpVariablesTreeModel->setData(index, Qt::Checked, Qt::CheckStateRole);
-            plotVariables(index, pPlotCurve->getCurveWidth(), pPlotCurve->getCurveStyle(), pPlotCurve, pPlotWindow);
+            plotVariables(index, pPlotCurve->getCurveWidth(), pPlotCurve->getCurveStyle(), false, pPlotCurve, pPlotWindow);
             mpVariablesTreeModel->blockSignals(state);
           } else {
             pPlotWindow->getPlot()->removeCurve(pPlotCurve);
@@ -1425,21 +1612,20 @@ void VariablesWidget::variablesUpdated()
             bool state = mpVariablesTreeModel->blockSignals(true);
             QModelIndex xIndex = mpVariablesTreeModel->variablesTreeItemIndex(pXVariableTreeItem);
             mpVariablesTreeModel->setData(xIndex, Qt::Checked, Qt::CheckStateRole);
-            plotVariables(xIndex, pPlotCurve->getCurveWidth(), pPlotCurve->getCurveStyle(), pPlotCurve, pPlotWindow);
+            plotVariables(xIndex, pPlotCurve->getCurveWidth(), pPlotCurve->getCurveStyle(), true, pPlotCurve, pPlotWindow);
             QModelIndex yIndex = mpVariablesTreeModel->variablesTreeItemIndex(pYVariableTreeItem);
             mpVariablesTreeModel->setData(yIndex, Qt::Checked, Qt::CheckStateRole);
-            plotVariables(yIndex, pPlotCurve->getCurveWidth(), pPlotCurve->getCurveStyle(), pPlotCurve, pPlotWindow);
+            plotVariables(yIndex, pPlotCurve->getCurveWidth(), pPlotCurve->getCurveStyle(), false, pPlotCurve, pPlotWindow);
             mpVariablesTreeModel->blockSignals(state);
           } else {
             pPlotWindow->getPlot()->removeCurve(pPlotCurve);
-            pPlotCurve->detach();
           }
         }
       }
       if (pPlotWindow->getAutoScaleButton()->isChecked()) {
         pPlotWindow->fitInView();
       } else {
-        pPlotWindow->getPlot()->replot();
+        pPlotWindow->updatePlot();
       }
     }
   }
@@ -1498,7 +1684,11 @@ void VariablesWidget::updateVariablesTreeHelper(QMdiSubWindow *pSubWindow)
           mpVariablesTreeModel->setData(mpVariablesTreeModel->variablesTreeItemIndex(pVariablesTreeItem), Qt::Checked, Qt::CheckStateRole);
         }
         // if a simulation was left running, make a replot
-        pPlotWindow->getPlot()->replot();
+        if (pPlotWindow->getAutoScaleButton()->isChecked()) {
+          pPlotWindow->fitInView();
+        } else {
+          pPlotWindow->updatePlot();
+        }
       }
     }
     mpVariablesTreeModel->blockSignals(state);
@@ -1519,7 +1709,7 @@ void VariablesWidget::interactiveReSimulation(QString modelName)
       bool state = mpVariablesTreeModel->blockSignals(true);
       QModelIndex index = mpVariablesTreeModel->variablesTreeItemIndex(pVariableTreeItem);
       mpVariablesTreeModel->setData(index, Qt::Checked, Qt::CheckStateRole);
-      plotVariables(index, 1, 1);
+      plotVariables(index, 1, 1, false);
       mpVariablesTreeModel->blockSignals(state);
     }
   }
@@ -1536,7 +1726,7 @@ void VariablesWidget::interactiveReSimulation(QString modelName)
 void VariablesWidget::readVariablesAndUpdateXML(VariablesTreeItem *pVariablesTreeItem, QString outputFileName,
                                                 QHash<QString, QHash<QString, QString> > *variables)
 {
-  for (int i = 0 ; i < pVariablesTreeItem->getChildren().size() ; i++) {
+  for (int i = 0 ; i < pVariablesTreeItem->mChildren.size() ; i++) {
     VariablesTreeItem *pChildVariablesTreeItem = pVariablesTreeItem->child(i);
     if (pChildVariablesTreeItem->isEditable() && pChildVariablesTreeItem->isValueChanged()) {
       //QString value = pChildVariablesTreeItem->data(1, Qt::DisplayRole).toString();
@@ -1604,8 +1794,7 @@ void VariablesWidget::reSimulate(bool showSetup)
   SimulationOptions simulationOptions = pVariablesTreeItem->getSimulationOptions();
   if (simulationOptions.isValid()) {
     if (simulationOptions.isInteractiveSimulation()) {
-      QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::information),
-                               tr("You cannot re-simulate an interactive simulation."), Helper::ok);
+      QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::information), tr("You cannot re-simulate an interactive simulation."), Helper::ok);
     } else {
       simulationOptions.setReSimulate(true);
       updateInitXmlFile(simulationOptions);
@@ -1631,16 +1820,14 @@ void VariablesWidget::updateInitXmlFile(SimulationOptions simulationOptions)
   if (initFile.open(QIODevice::ReadOnly)) {
     if (initXmlDocument.setContent(&initFile)) {
       VariablesTreeItem *pTopVariableTreeItem;
-      pTopVariableTreeItem = mpVariablesTreeModel->findVariablesTreeItem(simulationOptions.getFullResultFileName(),
-                                                                         mpVariablesTreeModel->getRootVariablesTreeItem());
+      pTopVariableTreeItem = mpVariablesTreeModel->findVariablesTreeItem(simulationOptions.getFullResultFileName(), mpVariablesTreeModel->getRootVariablesTreeItem());
       if (pTopVariableTreeItem) {
         QHash<QString, QHash<QString, QString> > variables;
         readVariablesAndUpdateXML(pTopVariableTreeItem, simulationOptions.getFullResultFileName(), &variables);
         findVariableAndUpdateValue(initXmlDocument, variables);
       }
     } else {
-      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica,
-                                                            tr("Unable to set the content of QDomDocument from file %1")
+      MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, tr("Unable to set the content of QDomDocument from file %1")
                                                             .arg(initFile.fileName()), Helper::scriptingKind, Helper::errorLevel));
     }
     initFile.close();
@@ -1651,26 +1838,26 @@ void VariablesWidget::updateInitXmlFile(SimulationOptions simulationOptions)
     textStream << initXmlDocument.toString();
     initFile.close();
   } else {
-    MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica,
-                                                          GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(initFile.fileName())
+    MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(initFile.fileName())
                                                           .arg(initFile.errorString()), Helper::scriptingKind, Helper::errorLevel));
   }
 }
 
 /*!
  * \brief VariablesWidget::initializeVisualization
- * Initializes the TimeManager with SimulationOptions for Visualization.
- * \param simulationOptions
+ * Initializes the TimeManager for Visualization.
  */
-void VariablesWidget::initializeVisualization(SimulationOptions simulationOptions)
+void VariablesWidget::initializeVisualization()
 {
   // close any result file before opening a new one
   closeResultFile();
   // Open the file for reading
-  openResultFile();
+  double startTime = 0.0;
+  double stopTime = 0.0;
+  openResultFile(startTime, stopTime);
   // Initialize the time manager
-  mpTimeManager->setStartTime(simulationOptions.getStartTime().toDouble());
-  mpTimeManager->setEndTime(simulationOptions.getStopTime().toDouble());
+  mpTimeManager->setStartTime(startTime);
+  mpTimeManager->setEndTime(stopTime);
   mpTimeManager->setVisTime(mpTimeManager->getStartTime());
   mpTimeManager->setPause(true);
   // reset the visualization controls
@@ -1689,10 +1876,14 @@ void VariablesWidget::initializeVisualization(SimulationOptions simulationOption
 double VariablesWidget::readVariableValue(QString variable, double time)
 {
   double value = 0.0;
+  bool found = false;
+
   if (mModelicaMatReader.file) {
     ModelicaMatVariable_t* var = omc_matlab4_find_var(&mModelicaMatReader, variable.toUtf8().constData());
     if (var) {
       omc_matlab4_val(&value, &mModelicaMatReader, var, time);
+      found = true;
+    } else {
     }
   } else if (mpCSVData) {
     double *timeDataSet = read_csv_dataset(mpCSVData, "time");
@@ -1702,6 +1893,7 @@ double VariablesWidget::readVariableValue(QString variable, double time)
           double *varDataSet = read_csv_dataset(mpCSVData, variable.toUtf8().constData());
           if (varDataSet) {
             value = varDataSet[i];
+            found = true;
             break;
           }
         }
@@ -1722,17 +1914,32 @@ double VariablesWidget::readVariableValue(QString variable, double time)
         QStringList values = currentLine.split(",");
         if (QString::number(time).compare(values[0]) == 0) {
           value = values[1].toDouble();
+          found = true;
           break;
         }
       }
     }
     textStream.seek(0);
   }
+
+  if (!found) {
+    MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, "No result for variable " + variable + " in result file.", Helper::simulationKind, Helper::warningLevel));
+  }
+
   return value;
 }
 
-void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickness, int curveStyle, PlotCurve *pPlotCurve,
-                                    PlotWindow *pPlotWindow)
+/*!
+ * \brief VariablesWidget::plotVariables
+ * Plot/unplot the checked/unchecked index.
+ * \param index
+ * \param curveThickness
+ * \param curveStyle
+ * \param shiftKey
+ * \param pPlotCurve
+ * \param pPlotWindow
+ */
+void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickness, int curveStyle, bool shiftKey, PlotCurve *pPlotCurve, PlotWindow *pPlotWindow)
 {
   if (index.column() > 0) {
     return;
@@ -1749,43 +1956,24 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
     // if the variable is not an array and
     // pPlotWindow is 0 or the plot's type is PLOTARRAY or PLOTARRAYPARAMETRIC
     // then create a new plot window.
-    if (!pVariablesTreeItem->isMainArray() &&
-            (!pPlotWindow || pPlotWindow->getPlotType()==PlotWindow::PLOTARRAY
-             || pPlotWindow->getPlotType()== PlotWindow::PLOTARRAYPARAMETRIC))
-    {
-        MainWindow::instance()->getPlotWindowContainer()->addPlotWindow();
-        bool state = MainWindow::instance()->getPlotWindowContainer()->blockSignals(true);
-        bool state2 = mpVariablesTreeModel->blockSignals(true);
-        mpVariablesTreeModel->setData(index, Qt::Checked, Qt::CheckStateRole);
-        mpVariablesTreeModel->blockSignals(state2);
-        MainWindow::instance()->getPlotWindowContainer()->blockSignals(state);
-        pPlotWindow = MainWindow::instance()->getPlotWindowContainer()->getCurrentWindow();
+    if (!pVariablesTreeItem->isMainArray() && (!pPlotWindow || pPlotWindow->getPlotType() == PlotWindow::PLOTARRAY || pPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC)) {
+      bool checkedState = pVariablesTreeItem->isChecked();
+      MainWindow::instance()->getPlotWindowContainer()->addPlotWindow();
+      pPlotWindow = MainWindow::instance()->getPlotWindowContainer()->getCurrentWindow();
+      checkVariable(index, checkedState);
     }
     // if the variable is an array and
     // pPlotWindow is 0 or the plot's type is PLOT or PLOTPARAMETRIC
     // then create a new plot window.
-    else if (pVariablesTreeItem->isMainArray() &&
-               (!pPlotWindow || pPlotWindow->getPlotType()==PlotWindow::PLOT ||
-                pPlotWindow->getPlotType()==PlotWindow::PLOTPARAMETRIC))
-    {
-        MainWindow::instance()->getPlotWindowContainer()->addArrayPlotWindow();
-        bool state = MainWindow::instance()->getPlotWindowContainer()->blockSignals(true);
-        bool state2 = mpVariablesTreeModel->blockSignals(true);
-        mpVariablesTreeModel->setData(index, Qt::Checked, Qt::CheckStateRole);
-        mpVariablesTreeModel->blockSignals(state2);
-        MainWindow::instance()->getPlotWindowContainer()->blockSignals(state);
-        pPlotWindow = MainWindow::instance()->getPlotWindowContainer()->getCurrentWindow();
+    else if (pVariablesTreeItem->isMainArray() && (!pPlotWindow || pPlotWindow->getPlotType() == PlotWindow::PLOT || pPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC)) {
+      bool checkedState = pVariablesTreeItem->isChecked();
+      MainWindow::instance()->getPlotWindowContainer()->addArrayPlotWindow();
+      pPlotWindow = MainWindow::instance()->getPlotWindowContainer()->getCurrentWindow();
+      checkVariable(index, checkedState);
     }
-
-
-
     // if still pPlotWindow is 0 then return.
     if (!pPlotWindow) {
-      bool state = mpVariablesTreeModel->blockSignals(true);
-      mpVariablesTreeModel->setData(index, Qt::Unchecked, Qt::CheckStateRole);
-      mpVariablesTreeModel->blockSignals(state);
-      QMessageBox::information(this, QString(Helper::applicationName).append(" - ").append(Helper::information),
-                               tr("No plot window is active for plotting. Please select a plot window or open a new."), Helper::ok);
+      unCheckVariableAndErrorMessage(index, tr("No plot window is active for plotting. Please select a plot window or open a new."));
       return;
     }
     // if plottype is PLOT or PLOTARRAY then
@@ -1797,22 +1985,28 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
           pVariablesTreeRootItem = pVariablesTreeItem->rootParent();
         }
         if (pVariablesTreeRootItem->getSimulationOptions().isInteractiveSimulation()) {
-          QMessageBox::information(this, QString(Helper::applicationName).append(" - ").append(Helper::information),
-                                   tr("Can not be attached to a plot window."), Helper::ok);
+          QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::information), tr("Cannot be attached to a plot window."), Helper::ok);
           pVariablesTreeItem->setChecked(false);
           return;
         }
-        pPlotWindow->initializeFile(QString(pVariablesTreeItem->getFilePath()).append("/").append(pVariablesTreeItem->getFileName()));
+        pPlotWindow->initializeFile(QString("%1/%2").arg(pVariablesTreeItem->getFilePath(), pVariablesTreeItem->getFileName()));
         pPlotWindow->setCurveWidth(curveThickness);
         pPlotWindow->setCurveStyle(curveStyle);
         pPlotWindow->setVariablesList(QStringList(pVariablesTreeItem->getPlotVariable()));
-        pPlotWindow->setUnit(pVariablesTreeItem->getUnit());
-        pPlotWindow->setDisplayUnit(pVariablesTreeItem->getDisplayUnit());
-        if (pPlotWindow->getPlotType() == PlotWindow::PLOT)
-            pPlotWindow->plot(pPlotCurve);
-        else/* ie. (pPlotWindow->getPlotType() == PlotWindow::PLOTARRAY)*/{
+        pPlotWindow->setYUnit(Utilities::convertUnitToSymbol(pVariablesTreeItem->getUnit()));
+        pPlotWindow->setYDisplayUnit(Utilities::convertUnitToSymbol(pVariablesTreeItem->getDisplayUnit()));
+        if (pPlotWindow->getPlotType() == PlotWindow::PLOT) {
+          pPlotWindow->plot(pPlotCurve);
+          /* Ticket:5839
+           * Check the toggle sign of the curve and apply it in case of update.
+           */
+          if (pPlotCurve && pPlotCurve->getToggleSign()) {
+            pPlotCurve->setToggleSign(false);
+            pPlotWindow->toggleSign(pPlotCurve, true);
+          }
+        } else {/* ie. (pPlotWindow->getPlotType() == PlotWindow::PLOTARRAY)*/
           double timePercent = mpTimeTextBox->text().toDouble();
-          pPlotWindow->plotArray(timePercent,pPlotCurve);
+          pPlotWindow->plotArray(timePercent, pPlotCurve);
         }
         /* Ticket:4231
          * Only update the variables browser value and unit when updating some curve not when checking/unchecking variable.
@@ -1821,26 +2015,23 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
           /* Ticket:2250
            * Update the value of Variables Browser display unit according to the display unit of already plotted curve.
            */
-          pVariablesTreeItem->setData(3, pPlotCurve->getDisplayUnit(), Qt::EditRole);
+          pVariablesTreeItem->setData(3, pPlotCurve->getYDisplayUnit(), Qt::EditRole);
           QString value = pVariablesTreeItem->getValue(pVariablesTreeItem->getPreviousUnit(), pVariablesTreeItem->getDisplayUnit()).toString();
           pVariablesTreeItem->setData(1, value, Qt::EditRole);
         }
         if (!pPlotCurve) {
           pPlotCurve = pPlotWindow->getPlot()->getPlotCurvesList().last();
         }
-        if (pPlotCurve && pVariablesTreeItem->getUnit().compare(pVariablesTreeItem->getDisplayUnit()) != 0) {
-          OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(pVariablesTreeItem->getUnit(),
-                                                                                                 pVariablesTreeItem->getDisplayUnit());
+        if (pPlotCurve && !pVariablesTreeItem->isString() && pVariablesTreeItem->getUnit().compare(pVariablesTreeItem->getDisplayUnit()) != 0) {
+          OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(pVariablesTreeItem->getUnit(), pVariablesTreeItem->getDisplayUnit());
           if (convertUnit.unitsCompatible) {
             for (int i = 0 ; i < pPlotCurve->mYAxisVector.size() ; i++) {
               pPlotCurve->updateYAxisValue(i, Utilities::convertUnit(pPlotCurve->mYAxisVector.at(i), convertUnit.offset, convertUnit.scaleFactor));
             }
             pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
-            pPlotWindow->getPlot()->replot();
           } else {
-            pPlotCurve->setDisplayUnit(pVariablesTreeItem->getUnit());
+            pPlotCurve->setYDisplayUnit(Utilities::convertUnitToSymbol(pVariablesTreeItem->getDisplayUnit()));
           }
-          pPlotCurve->setTitleLocal();
         }
         // update the time values if time unit is different then s
         if (pPlotWindow->getTimeUnit().compare("s") != 0) {
@@ -1850,16 +2041,12 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
               pPlotCurve->updateXAxisValue(i, Utilities::convertUnit(pPlotCurve->mXAxisVector.at(i), convertUnit.offset, convertUnit.scaleFactor));
             }
             pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
-            pPlotWindow->getPlot()->replot();
           }
         }
         if (pPlotWindow->getAutoScaleButton()->isChecked()) {
           pPlotWindow->fitInView();
         } else {
-          pPlotWindow->getPlot()->replot();
-          if (pPlotWindow->getPlot()->getPlotZoomer()->zoomStack().size() == 1) {
-            pPlotWindow->getPlot()->getPlotZoomer()->setZoomBase(false);
-          }
+          pPlotWindow->updatePlot();
         }
       } else if (!pVariablesTreeItem->isChecked()) {  // if user unchecks the variable then remove it from the plot
         foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
@@ -1870,13 +2057,13 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
             if (pPlotWindow->getAutoScaleButton()->isChecked()) {
               pPlotWindow->fitInView();
             } else {
-              pPlotWindow->getPlot()->replot();
+              pPlotWindow->updatePlot();
             }
             break;
           }
         }
       }
-    } else if (pPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC || pPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC) {  // if plottype is PLOTPARAMETRIC or PLOTARRAYPARAMETRIC then
+    } else if (pPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC || pPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC) { // if plottype is PLOTPARAMETRIC or PLOTARRAYPARAMETRIC then
       // check the item checkstate
       if (pVariablesTreeItem->isChecked()) {
         VariablesTreeItem *pVariablesTreeRootItem = pVariablesTreeItem;
@@ -1884,139 +2071,168 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
           pVariablesTreeRootItem = pVariablesTreeItem->rootParent();
         }
         if (pVariablesTreeRootItem->getSimulationOptions().isInteractiveSimulation()) {
-          QMessageBox::information(this, QString(Helper::applicationName).append(" - ").append(Helper::information),
-                                   tr("Can not be attached to a parametric plot window."), Helper::ok);
+          QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::information), tr("Cannot be attached to a parametric plot window."), Helper::ok);
           pVariablesTreeItem->setChecked(false);
           return;
         }
-        // if mPlotParametricVariables is empty just add one QStringlist with 1 varibale to it
-        if (mPlotParametricVariables.isEmpty()) {
-          mPlotParametricVariables.append(QStringList() << pVariablesTreeItem->getPlotVariable() << pVariablesTreeItem->getUnit());
-          mFileName = pVariablesTreeItem->getFileName();
-        } else {  // if mPlotParametricVariables is not empty then add one string to its last element
-          if (mPlotParametricVariables.last().size() < 4) {
-            if (mFileName.compare(pVariablesTreeItem->getFileName()) != 0) {
-              bool state = mpVariablesTreeModel->blockSignals(true);
-              mpVariablesTreeModel->setData(index, Qt::Unchecked, Qt::CheckStateRole);
-              QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error),
-                                    GUIMessages::getMessage(GUIMessages::PLOT_PARAMETRIC_DIFF_FILES), Helper::ok);
-              mpVariablesTreeModel->blockSignals(state);
+
+        if (shiftKey) {
+          if (!mPlotParametricCurves.isEmpty()) {
+            PlotParametricCurve plotParametricCurve = mPlotParametricCurves.last();
+            if (plotParametricCurve.yVariables.isEmpty()) {
+              unCheckVariableAndErrorMessage(index, tr("Cannot select two consecutive x-axis variables. <b>%1</b> is already selected as x-axis variable.")
+                                             .arg(plotParametricCurve.xVariable.variableName));
               return;
             }
-            mPlotParametricVariables.last().append(QStringList() << pVariablesTreeItem->getPlotVariable() << pVariablesTreeItem->getUnit());
-            pPlotWindow->initializeFile(QString(pVariablesTreeItem->getFilePath()).append("/").append(pVariablesTreeItem->getFileName()));
+          }
+          PlotParametricCurve plotParametricCurve;
+          plotParametricCurve.xVariable.fileName = pVariablesTreeItem->getFileName();
+          plotParametricCurve.xVariable.variableName = pVariablesTreeItem->getPlotVariable();
+          plotParametricCurve.xVariable.unit = pVariablesTreeItem->getUnit();
+          plotParametricCurve.xVariable.displayUnit = pVariablesTreeItem->getDisplayUnit();
+          plotParametricCurve.xVariable.isString = pVariablesTreeItem->isString();
+          mPlotParametricCurves.append(plotParametricCurve);
+        } else {
+          if (mPlotParametricCurves.isEmpty()) {
+            unCheckVariableAndErrorMessage(index, tr("Select the x-axis variable first. Press and hold the shift key and then check the variable."));
+            return;
+          } else {
+            if (mPlotParametricCurves.last().xVariable.fileName.compare(pVariablesTreeItem->getFileName()) != 0) {
+              unCheckVariableAndErrorMessage(index, GUIMessages::getMessage(GUIMessages::PLOT_PARAMETRIC_DIFF_FILES));
+              return;
+            }
+            PlotParametricCurve plotParametricCurve = mPlotParametricCurves.takeLast();
+            PlotParametricVariable plotParametricVariable;
+            plotParametricVariable.fileName = pVariablesTreeItem->getFileName();
+            plotParametricVariable.variableName = pVariablesTreeItem->getPlotVariable();
+            plotParametricVariable.unit = pVariablesTreeItem->getUnit();
+            plotParametricVariable.displayUnit = pVariablesTreeItem->getDisplayUnit();
+            plotParametricVariable.isString = pVariablesTreeItem->isString();
+            plotParametricCurve.yVariables.append(plotParametricVariable);
+            // Put the updated PlotParametricCurve to mPlotParametricCurves vector
+            mPlotParametricCurves.append(plotParametricCurve);
+
+            pPlotWindow->initializeFile(QString("%1/%2").arg(pVariablesTreeItem->getFilePath(), pVariablesTreeItem->getFileName()));
             pPlotWindow->setCurveWidth(curveThickness);
             pPlotWindow->setCurveStyle(curveStyle);
-            pPlotWindow->setVariablesList(QStringList() << mPlotParametricVariables.last().at(0) << mPlotParametricVariables.last().at(2));
-            if (pPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC)
-                pPlotWindow->plotParametric(pPlotCurve);
-            else /* ie. (pPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC)*/{
+            pPlotWindow->setVariablesList(QStringList() << plotParametricCurve.xVariable.variableName << plotParametricVariable.variableName);
+            pPlotWindow->setXUnit(Utilities::convertUnitToSymbol(plotParametricCurve.xVariable.unit));
+            pPlotWindow->setXDisplayUnit(Utilities::convertUnitToSymbol(plotParametricCurve.xVariable.displayUnit));
+            pPlotWindow->setYUnit(Utilities::convertUnitToSymbol(plotParametricVariable.unit));
+            pPlotWindow->setYDisplayUnit(Utilities::convertUnitToSymbol(plotParametricVariable.displayUnit));
+            if (pPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC) {
+              pPlotWindow->plotParametric(pPlotCurve);
+              /* Ticket:5839
+               * Check the toggle sign of the curve and apply it in case of update.
+               */
+              if (pPlotCurve && pPlotCurve->getToggleSign()) {
+                pPlotCurve->setToggleSign(false);
+                pPlotWindow->toggleSign(pPlotCurve, true);
+              }
+            } else { /* ie. (pPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC)*/
               double timePercent = mpTimeTextBox->text().toDouble();
-              pPlotWindow->plotArrayParametric(timePercent,pPlotCurve);
+              pPlotWindow->plotArrayParametric(timePercent, pPlotCurve);
             }
-
-            if (pPlotWindow->getPlot()->getPlotCurvesList().size() > 1) {
-              pPlotWindow->setXLabel("");
-              pPlotWindow->setYLabel("");
-            } else {
-              QString xVariable = mPlotParametricVariables.last().at(0);
-              QString xUnit = mPlotParametricVariables.last().at(1);
-              QString yVariable = mPlotParametricVariables.last().at(2);
-              QString yUnit = mPlotParametricVariables.last().at(3);
-              if (xUnit.isEmpty()) {
-                pPlotWindow->setXLabel(xVariable);
+            if (!pPlotCurve) {
+              pPlotCurve = pPlotWindow->getPlot()->getPlotCurvesList().last();
+            }
+            // convert x value
+            if (pPlotCurve && !plotParametricCurve.xVariable.isString && plotParametricCurve.xVariable.unit.compare(plotParametricCurve.xVariable.displayUnit) != 0) {
+              OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(plotParametricCurve.xVariable.unit, plotParametricCurve.xVariable.displayUnit);
+              if (convertUnit.unitsCompatible) {
+                for (int i = 0 ; i < pPlotCurve->mXAxisVector.size() ; i++) {
+                  pPlotCurve->updateXAxisValue(i, Utilities::convertUnit(pPlotCurve->mXAxisVector.at(i), convertUnit.offset, convertUnit.scaleFactor));
+                }
+                pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
               } else {
-                pPlotWindow->setXLabel(xVariable + " (" + xUnit + ")");
-              }
-
-              if (yUnit.isEmpty()) {
-                pPlotWindow->setYLabel(yVariable);
-              } else {
-                pPlotWindow->setYLabel(yVariable + " (" + yUnit + ")");
+                pPlotCurve->setXDisplayUnit(Utilities::convertUnitToSymbol(plotParametricCurve.xVariable.displayUnit));
               }
             }
+            // convert y value
+            if (pPlotCurve && !plotParametricVariable.isString && plotParametricVariable.unit.compare(plotParametricVariable.displayUnit) != 0) {
+              OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(plotParametricVariable.unit, plotParametricVariable.displayUnit);
+              if (convertUnit.unitsCompatible) {
+                for (int i = 0 ; i < pPlotCurve->mYAxisVector.size() ; i++) {
+                  pPlotCurve->updateYAxisValue(i, Utilities::convertUnit(pPlotCurve->mYAxisVector.at(i), convertUnit.offset, convertUnit.scaleFactor));
+                }
+                pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+              } else {
+                pPlotCurve->setYDisplayUnit(Utilities::convertUnitToSymbol(plotParametricVariable.displayUnit));
+              }
+            }
+
             if (pPlotWindow->getAutoScaleButton()->isChecked()) {
               pPlotWindow->fitInView();
             } else {
-              pPlotWindow->getPlot()->replot();
-              if (pPlotWindow->getPlot()->getPlotZoomer()->zoomStack().size() == 1) {
-                pPlotWindow->getPlot()->getPlotZoomer()->setZoomBase(false);
-              }
+              pPlotWindow->updatePlot();
             }
-          } else {
-            mPlotParametricVariables.append(QStringList() << pVariablesTreeItem->getPlotVariable() << pVariablesTreeItem->getUnit());
-            mFileName = pVariablesTreeItem->getFileName();
           }
         }
       } else if (!pVariablesTreeItem->isChecked()) {  // if user unchecks the variable then remove it from the plot
-        // remove the variable from mPlotParametricVariables list
-        foreach (QStringList list, mPlotParametricVariables) {
-          if (list.contains(pVariablesTreeItem->getPlotVariable())) {
-            // if list has only one variable then clear the list and return;
-            if (list.size() < 4) {
-              mPlotParametricVariables.removeOne(list);
-              break;
-            } else {  // if list has more than two variables then remove both and remove the curve
-              QString itemTitle = QString(pVariablesTreeItem->getFileName()).append(".").append(list.at(2)).append(" vs ").append(list.at(0));
-              foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
-                QString curveTitle = pPlotCurve->getNameStructure();
-                if ((curveTitle.compare(itemTitle) == 0) && (pVariablesTreeItem->getFileName().compare(pPlotCurve->getFileName()) == 0)) {
-                  bool state = mpVariablesTreeModel->blockSignals(true);
-                  // uncheck the x variable
-                  QString xVariable = QString(pPlotCurve->getFileName()).append(".").append(pPlotCurve->getXVariable());
-                  VariablesTreeItem *pVariablesTreeItem;
-                  pVariablesTreeItem = mpVariablesTreeModel->findVariablesTreeItem(xVariable, mpVariablesTreeModel->getRootVariablesTreeItem());
-                  if (pVariablesTreeItem) {
-                    mpVariablesTreeModel->setData(mpVariablesTreeModel->variablesTreeItemIndex(pVariablesTreeItem), Qt::Unchecked, Qt::CheckStateRole);
-                  }
-                  // uncheck the y variable
-                  QString yVariable = QString(pPlotCurve->getFileName()).append(".").append(pPlotCurve->getYVariable());
-                  pVariablesTreeItem = mpVariablesTreeModel->findVariablesTreeItem(yVariable, mpVariablesTreeModel->getRootVariablesTreeItem());
-                  if (pVariablesTreeItem) {
-                    mpVariablesTreeModel->setData(mpVariablesTreeModel->variablesTreeItemIndex(pVariablesTreeItem), Qt::Unchecked, Qt::CheckStateRole);
-                  }
-                  mpVariablesTreeModel->blockSignals(state);
-                  pPlotWindow->getPlot()->removeCurve(pPlotCurve);
-                  pPlotCurve->detach();
-                  if (pPlotWindow->getAutoScaleButton()->isChecked()) {
-                    pPlotWindow->fitInView();
-                  } else {
-                    pPlotWindow->getPlot()->replot();
-                  }
-                }
-              }
-              mPlotParametricVariables.removeOne(list);
-              if (pPlotWindow->getPlot()->getPlotCurvesList().size() == 1) {
-                if (mPlotParametricVariables.last().size() > 3) {
-                  QString xVariable = mPlotParametricVariables.last().at(0);
-                  QString xUnit = mPlotParametricVariables.last().at(1);
-                  QString yVariable = mPlotParametricVariables.last().at(2);
-                  QString yUnit = mPlotParametricVariables.last().at(3);
-                  if (xUnit.isEmpty()) {
-                    pPlotWindow->setXLabel(xVariable);
-                  } else {
-                    pPlotWindow->setXLabel(xVariable + " (" + xUnit + ")");
-                  }
-
-                  if (yUnit.isEmpty()) {
-                    pPlotWindow->setYLabel(yVariable);
-                  } else {
-                    pPlotWindow->setYLabel(yVariable + " (" + yUnit + ")");
-                  }
-                } else {
-                  pPlotWindow->setXLabel("");
-                  pPlotWindow->setYLabel("");
-                }
-              } else {
-                pPlotWindow->setXLabel("");
-                pPlotWindow->setYLabel("");
+        bool curveRemoved = false;
+        int i = 0;
+        while (i < mPlotParametricCurves.size()) {
+          PlotParametricCurve plotParametricCurve = mPlotParametricCurves.at(i);
+          if (plotParametricCurve.xVariable.variableName.compare(pVariablesTreeItem->getPlotVariable()) == 0) {
+            foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
+              if (pPlotCurve->getXVariable().compare(plotParametricCurve.xVariable.variableName) == 0) {
+                // uncheck x variable
+                unCheckCurveVariable(QString("%1.%2").arg(pPlotCurve->getFileName(), pPlotCurve->getXVariable()));
+                // uncheck y variable
+                unCheckCurveVariable(QString("%1.%2").arg(pPlotCurve->getFileName(), pPlotCurve->getYVariable()));
+                // remove the curve
+                pPlotWindow->getPlot()->removeCurve(pPlotCurve);
+                pPlotCurve->detach();
+                curveRemoved = true;
               }
             }
+            mPlotParametricCurves.remove(i);
+            i = 0;  //Restart iteration on mPlotParametricCurves.size()
+            continue;
+          } else {
+            int j = 0;
+            int canRemovePlotParametricCurve = false;
+            while (j < plotParametricCurve.yVariables.size()) {
+              PlotParametricVariable plotParametricVariable = plotParametricCurve.yVariables.at(j);
+              if (plotParametricVariable.variableName.compare(pVariablesTreeItem->getPlotVariable()) == 0) {
+                foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
+                  if (pPlotCurve->getYVariable().compare(plotParametricVariable.variableName) == 0) {
+                    // uncheck x variable if size of y variables is 1.
+                    if (plotParametricCurve.yVariables.size() == 1) {
+                      unCheckCurveVariable(QString("%1.%2").arg(pPlotCurve->getFileName(), pPlotCurve->getXVariable()));
+                      canRemovePlotParametricCurve = true;
+                    }
+                    // uncheck y variable
+                    unCheckCurveVariable(QString("%1.%2").arg(pPlotCurve->getFileName(), pPlotCurve->getYVariable()));
+                    // remove the curve
+                    pPlotWindow->getPlot()->removeCurve(pPlotCurve);
+                    pPlotCurve->detach();
+                    curveRemoved = true;
+                    plotParametricCurve.yVariables.remove(j);
+                    mPlotParametricCurves.replace(i, plotParametricCurve);
+                    break;
+                  }
+                }
+              }
+              j++;
+            }
+            if (canRemovePlotParametricCurve) {
+              mPlotParametricCurves.remove(i);
+              i = 0;  //Restart iteration on mPlotParametricCurves
+              continue;
+            }
+          }
+          i++;
+        }
+        if (curveRemoved) {
+          if (pPlotWindow->getAutoScaleButton()->isChecked()) {
+            pPlotWindow->fitInView();
+          } else {
+            pPlotWindow->updatePlot();
           }
         }
       }
-    }
-    else { // if plottype is INTERACTIVE then
+    } else { // if plottype is INTERACTIVE then
       VariablesTreeItem *pVariablesTreeRootItem = pVariablesTreeItem;
       if (!pVariablesTreeItem->isRootItem()) {
         pVariablesTreeRootItem = pVariablesTreeItem->rootParent();
@@ -2025,8 +2241,7 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
 
       if (pVariablesTreeItem->isChecked()) { // if user checks the variable
         if (!pVariablesTreeRootItem->getSimulationOptions().isInteractiveSimulation()) {
-          QMessageBox::information(this, QString(Helper::applicationName).append(" - ").append(Helper::information),
-                                   tr("Can not be attached to an interactive plot window."), Helper::ok);
+          QMessageBox::information(this, QString(Helper::applicationName).append(" - ").append(Helper::information), tr("Cannot be attached to an interactive plot window."), Helper::ok);
           pVariablesTreeItem->setChecked(false);
         } else {
           // if user checks a variable belonging to an inactive plot window, switch to it.
@@ -2038,8 +2253,8 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
             pPlotWindow->setCurveStyle(curveStyle);
             QString plotVariable = pVariablesTreeItem->getPlotVariable();
             pPlotWindow->setVariablesList(QStringList(plotVariable));
-            pPlotWindow->setUnit(pVariablesTreeItem->getUnit());
-            pPlotWindow->setDisplayUnit(pVariablesTreeItem->getDisplayUnit());
+            pPlotWindow->setYUnit(Utilities::convertUnitToSymbol(pVariablesTreeItem->getUnit()));
+            pPlotWindow->setYDisplayUnit(Utilities::convertUnitToSymbol(pVariablesTreeItem->getDisplayUnit()));
             pPlotWindow->setInteractiveModelName(pVariablesTreeItem->getFileName());
             OpcUaClient *pOpcUaClient = MainWindow::instance()->getSimulationDialog()->getOpcUaClient(port);
             if (pOpcUaClient) {
@@ -2063,13 +2278,13 @@ void VariablesWidget::plotVariables(const QModelIndex &index, qreal curveThickne
         }
         foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
           /* FIX: Make sure to remove the right curve when implementing several interactive simulations at the same time */
-          if (pVariablesTreeItem->getVariableName().endsWith("." + pPlotCurve->getName())) {
+          if (pVariablesTreeItem->getVariableName().endsWith("." + pPlotCurve->getYVariable())) {
             pPlotWindow->getPlot()->removeCurve(pPlotCurve);
             pPlotCurve->detach();
             if (pPlotWindow->getAutoScaleButton()->isChecked()) {
               pPlotWindow->fitInView();
             } else {
-              pPlotWindow->getPlot()->replot();
+              pPlotWindow->updatePlot();
             }
             break;
           }
@@ -2107,8 +2322,7 @@ void VariablesWidget::unitChanged(const QModelIndex &index)
     if (!pPlotWindow) {
       return;
     }
-    OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(pVariablesTreeItem->getPreviousUnit(),
-                                                                                           pVariablesTreeItem->getDisplayUnit());
+    OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(pVariablesTreeItem->getPreviousUnit(), pVariablesTreeItem->getDisplayUnit());
     if (convertUnit.unitsCompatible) {
       /* update value */
       QVariant stringValue = pVariablesTreeItem->data(1, Qt::EditRole);
@@ -2120,17 +2334,32 @@ void VariablesWidget::unitChanged(const QModelIndex &index)
       }
       /* update plots */
       foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
-        QString curveTitle = pPlotCurve->getNameStructure();
-        if (curveTitle.compare(pVariablesTreeItem->getVariableName()) == 0) {
+        const QString yVariableName = QString("%1.%2").arg(pPlotCurve->getFileName(), pPlotCurve->getYVariable());
+        if (yVariableName.compare(pVariablesTreeItem->getVariableName()) == 0) {
           for (int i = 0 ; i < pPlotCurve->mYAxisVector.size() ; i++) {
             pPlotCurve->updateYAxisValue(i, Utilities::convertUnit(pPlotCurve->mYAxisVector.at(i), convertUnit.offset, convertUnit.scaleFactor));
           }
           pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
-          pPlotCurve->setDisplayUnit(pVariablesTreeItem->getDisplayUnit());
-          pPlotCurve->setTitleLocal();
-          pPlotWindow->getPlot()->replot();
-          break;
+          pPlotCurve->setYDisplayUnit(Utilities::convertUnitToSymbol(pVariablesTreeItem->getDisplayUnit()));
+          if (!(pPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC || pPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC)) {
+            break;
+          }
         }
+        if (pPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC || pPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC) {
+          const QString xVariableName = QString("%1.%2").arg(pPlotCurve->getFileName(), pPlotCurve->getXVariable());
+          if (xVariableName.compare(pVariablesTreeItem->getVariableName()) == 0) {
+            for (int i = 0 ; i < pPlotCurve->mXAxisVector.size() ; i++) {
+              pPlotCurve->updateXAxisValue(i, Utilities::convertUnit(pPlotCurve->mXAxisVector.at(i), convertUnit.offset, convertUnit.scaleFactor));
+            }
+            pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+            pPlotCurve->setXDisplayUnit(Utilities::convertUnitToSymbol(pVariablesTreeItem->getDisplayUnit()));
+          }
+        }
+      }
+      if (pPlotWindow->getAutoScaleButton()->isChecked()) {
+        pPlotWindow->fitInView();
+      } else {
+        pPlotWindow->updatePlot();
       }
     }
   } catch (PlotException &e) {
@@ -2256,7 +2485,7 @@ void VariablesWidget::closeResultFile()
  * \brief VariablesWidget::openResultFile
  * Opens the result file.
  */
-void VariablesWidget::openResultFile()
+void VariablesWidget::openResultFile(double &startTime, double &stopTime)
 {
   if (mpVariablesTreeModel->getActiveVariablesTreeItem()) {
     // read filename
@@ -2266,18 +2495,64 @@ void VariablesWidget::openResultFile()
     QString errorString = "";
     if (mpVariablesTreeModel->getActiveVariablesTreeItem()->getFileName().endsWith(".mat")) {
       const char *msg[] = {""};
-      if (0 != (msg[0] = omc_new_matlab4_reader(fileName.toUtf8().constData(), &mModelicaMatReader))) {
+      if (0 == (msg[0] = omc_new_matlab4_reader(fileName.toUtf8().constData(), &mModelicaMatReader))) {
+        startTime = omc_matlab4_startTime(&mModelicaMatReader);
+        stopTime = omc_matlab4_stopTime(&mModelicaMatReader);
+      } else {
         errorOpeningFile = true;
         errorString = msg[0];
       }
     } else if (mpVariablesTreeModel->getActiveVariablesTreeItem()->getFileName().endsWith(".csv")) {
       mpCSVData = read_csv(fileName.toUtf8().constData());
-      if (!mpCSVData) {
+      if (mpCSVData) {
+        //Read in timevector
+        double *timeVals = read_csv_dataset(mpCSVData, "time");
+        if (timeVals == NULL) {
+          errorOpeningFile = true;
+          errorString = "Error reading time from CSV file.";
+        } else {
+          startTime = timeVals[0];
+          stopTime = timeVals[mpCSVData->numsteps-1];
+        }
+      } else {
         errorOpeningFile = true;
+        errorString = "Error reading CSV file.";
       }
     } else if (mpVariablesTreeModel->getActiveVariablesTreeItem()->getFileName().endsWith(".plt")) {
       mPlotFileReader.setFileName(fileName);
-      if (!mPlotFileReader.open(QIODevice::ReadOnly)) {
+      if (mPlotFileReader.open(QIODevice::ReadOnly)) {
+        QTextStream textStream(&mPlotFileReader);
+        // read the interval size from the file
+        int intervalSize = 0;
+        QString currentLine;
+        while (!textStream.atEnd()) {
+          currentLine = textStream.readLine();
+          if (currentLine.startsWith("#IntervalSize")) {
+            intervalSize = static_cast<QString>(currentLine.split("=").last()).toInt();
+            break;
+          }
+        }
+        // Read start and stop time
+        while (!textStream.atEnd()) {
+          currentLine = textStream.readLine();
+          QString currentVariable;
+          if (currentLine.contains("DataSet:")) {
+            currentVariable = currentLine.remove("DataSet: ");
+            if (currentVariable == "time") {
+              // read the variable values now
+              currentLine = textStream.readLine();
+              QStringList values = currentLine.split(",");
+              startTime = QString(values[0]).toDouble();
+              for(int j = 0; j < intervalSize-1; j++) {
+                currentLine = textStream.readLine();
+              }
+              values = currentLine.split(",");
+              stopTime = QString(values[0]).toDouble();
+              break;
+            }
+          }
+        }
+      } else {
         errorOpeningFile = true;
         errorString = mPlotFileReader.errorString();
       }
@@ -2302,12 +2577,55 @@ void VariablesWidget::updateVisualization()
   // Update the DiagramWindow
   emit updateDynamicSelect(mpTimeManager->getVisTime());
   if (MainWindow::instance()->getPlotWindowContainer()->getDiagramWindow()
-      && MainWindow::instance()->getPlotWindowContainer()->getDiagramWindow()->getGraphicsView()) {
-    MainWindow::instance()->getPlotWindowContainer()->getDiagramWindow()->getGraphicsView()->scene()->update();
+      && MainWindow::instance()->getPlotWindowContainer()->getDiagramWindow()->getModelWidget()) {
+    MainWindow::instance()->getPlotWindowContainer()->getDiagramWindow()->getModelWidget()->getDiagramGraphicsView()->scene()->update();
   }
   mpTimeManager->updateTick();  //for real-time measurement
   visTime = mpTimeManager->getRealTime() - visTime;
   mpTimeManager->setRealTimeFactor(mpTimeManager->getHVisual() / visTime);
+}
+
+/*!
+ * \brief VariablesWidget::checkVariable
+ * \param index
+ */
+void VariablesWidget::checkVariable(const QModelIndex &index, bool checkState)
+{
+  /* When we add a new plotwindow then the checked variables are cleared based on the new plotwindow.
+   * So check the active variable again
+   */
+  bool state = mpVariablesTreeModel->blockSignals(true);
+  mpVariablesTreeModel->setData(index, checkState ? Qt::Checked : Qt::Unchecked, Qt::CheckStateRole);
+  mpVariablesTreeModel->blockSignals(state);
+}
+
+/*!
+ * \brief VariablesWidget::unCheckVariableAndErrorMessage
+ * Unchecks the variable in case of error and shows an error message if any.
+ * \param index
+ * \param errorMessage
+ */
+void VariablesWidget::unCheckVariableAndErrorMessage(const QModelIndex &index, const QString &errorMessage)
+{
+  bool state = mpVariablesTreeModel->blockSignals(true);
+  mpVariablesTreeModel->setData(index, Qt::Unchecked, Qt::CheckStateRole);
+  mpVariablesTreeModel->blockSignals(state);
+  if (!errorMessage.isEmpty()) {
+    QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), errorMessage, Helper::ok);
+  }
+}
+
+void VariablesWidget::unCheckCurveVariable(const QString &variable)
+{
+  bool state = mpVariablesTreeModel->blockSignals(true);
+  VariablesTreeItem *pVariablesTreeItem = mpVariablesTreeModel->findVariablesTreeItem(variable, mpVariablesTreeModel->getRootVariablesTreeItem());
+  if (pVariablesTreeItem) {
+    mpVariablesTreeModel->setData(mpVariablesTreeModel->variablesTreeItemIndex(pVariablesTreeItem), Qt::Unchecked, Qt::CheckStateRole);
+  }
+  mpVariablesTreeModel->blockSignals(state);
+  if (pVariablesTreeItem) {
+    mpVariablesTreeModel->updateVariablesTreeItem(pVariablesTreeItem);
+  }
 }
 
 /*!
@@ -2334,6 +2652,7 @@ void VariablesWidget::timeUnitChanged(QString unit)
     } else if (pPlotWindow->getPlotType() == PlotWindow::PLOT ||
                pPlotWindow->getPlotType() == PlotWindow::PLOTINTERACTIVE) {
       OMCInterface::convertUnits_res convertUnit = MainWindow::instance()->getOMCProxy()->convertUnits(pPlotWindow->getTimeUnit(), unit);
+      pPlotWindow->setTimeUnit(unit);
       if (convertUnit.unitsCompatible) {
         foreach (PlotCurve *pPlotCurve, pPlotWindow->getPlot()->getPlotCurvesList()) {
           for (int i = 0 ; i < pPlotCurve->mXAxisVector.size() ; i++) {
@@ -2341,9 +2660,11 @@ void VariablesWidget::timeUnitChanged(QString unit)
           }
           pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
         }
-        pPlotWindow->setXLabel(QString("time (%1)").arg(unit));
-        pPlotWindow->setTimeUnit(unit);
-        pPlotWindow->getPlot()->replot();
+        if (pPlotWindow->getAutoScaleButton()->isChecked()) {
+          pPlotWindow->fitInView();
+        } else {
+          pPlotWindow->updatePlot();
+        }
       }
     }
   } catch (PlotException &e) {
@@ -2389,9 +2710,7 @@ void VariablesWidget::showContextMenu(QPoint point)
     QAction *pSetResultActiveAction = new QAction(tr("Set Active"), this);
     pSetResultActiveAction->setData(pVariablesTreeItem->getVariableName());
     pSetResultActiveAction->setStatusTip(tr("An active item is used for the visualization"));
-    pSetResultActiveAction->setEnabled(pVariablesTreeItem->getSimulationOptions().isValid()
-                                       && !pVariablesTreeItem->getSimulationOptions().isInteractiveSimulation()
-                                       && !pVariablesTreeItem->isActive());
+    pSetResultActiveAction->setEnabled(!pVariablesTreeItem->getSimulationOptions().isInteractiveSimulation() && !pVariablesTreeItem->isActive());
     connect(pSetResultActiveAction, SIGNAL(triggered()), mpVariablesTreeModel, SLOT(setVariableTreeItemActive()));
 
     QMenu menu(this);
@@ -2404,8 +2723,6 @@ void VariablesWidget::showContextMenu(QPoint point)
     point.setY(point.y() + adjust);
     menu.exec(mpVariablesTreeView->mapToGlobal(point));
   } else if (pVariablesTreeItem) {
-    qDebug() << "showContextMenu" << index;
-    qDebug() << "name" << pVariablesTreeItem->getVariableName() << "path" << pVariablesTreeItem->getFilePath() << "uses" << pVariablesTreeItem->getUses();
     QAction *pGetDepends = new QAction(tr("Show only direct dependencies"), this);
     if (pVariablesTreeItem->getUses().size() <= 1 /* Self only */) {
       pGetDepends->setEnabled(false);
@@ -2442,7 +2759,7 @@ void VariablesWidget::showContextMenu(QPoint point)
       connect(pGetDefines, SIGNAL(triggered()), mpVariablesTreeModel, SLOT(openTransformationsBrowser()));
     }
 
-    menu.exec(mpVariablesTreeView->mapToGlobal(point));
+    menu.exec(mpVariablesTreeView->viewport()->mapToGlobal(point));
   }
 }
 
@@ -2518,11 +2835,11 @@ void VariablesWidget::pauseVisualization()
 void VariablesWidget::visulizationTimeChanged()
 {
   QString time = mpTimeTextBox->text();
-  bool isFloat = true;
+  bool isDouble = true;
   double start = mpTimeManager->getStartTime();
   double end = mpTimeManager->getEndTime();
-  double value = time.toFloat(&isFloat);
-  if (isFloat && value >= 0.0) {
+  double value = time.toDouble(&isDouble);
+  if (isDouble && value >= 0.0) {
     if (value < start) {
       value = start;
     } else if (value > end) {
@@ -2541,9 +2858,9 @@ void VariablesWidget::visulizationTimeChanged()
 void VariablesWidget::visualizationSpeedChanged()
 {
   QString speed = mpSpeedComboBox->lineEdit()->text();
-  bool isFloat = true;
-  double value = speed.toFloat(&isFloat);
-  if (isFloat && value > 0.0) {
+  bool isDouble = true;
+  double value = speed.toDouble(&isDouble);
+  if (isDouble && value > 0.0) {
     mpTimeManager->setSpeedUp(value);
   }
 }

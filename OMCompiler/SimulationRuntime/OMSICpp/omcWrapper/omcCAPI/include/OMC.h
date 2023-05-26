@@ -8,7 +8,7 @@
 
 extern "C"
 {
-    OMC_DLL typedef struct OMCData data;
+    typedef struct OMCData data;
 
 
     void OMC_DLL InitMetaOMC();
@@ -27,7 +27,7 @@ extern "C"
     *  \param [out] version string of omc instance
     *  \return returns a status flag
     */
-   int OMC_DLL InitOMCWithZeroMQ(data** omcDataPtr, const char* compiler,  const char* codetarget, const char* openModelicaHome, const char* zeromqOptions);	
+   int OMC_DLL InitOMCWithZeroMQ(data** omcDataPtr, const char* compiler,  const char* codetarget, const char* openModelicaHome, const char* zeromqOptions,int debug);	
 	
    int OMC_DLL GetOMCVersion(data* omcData, char** result);
 

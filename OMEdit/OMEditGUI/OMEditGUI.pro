@@ -33,8 +33,13 @@ greaterThan(QT_MAJOR_VERSION, 4) {
   QT += printsupport widgets webkitwidgets concurrent
 }
 
+# Set the C++ standard.
+CONFIG += c++14
+
 TARGET = OMEdit
 TEMPLATE = app
+
+PRE_TARGETDEPS += ../bin/libOMEdit.a
 
 LIBS += -L../bin -lOMEdit
 
@@ -42,6 +47,14 @@ OMEDIT_ROOT = ../
 
 # Windows libraries and includes
 win32 {
+  _cxx = $$(CXX)
+  contains(_cxx, clang++) {
+    message("Found clang++ on windows in $CXX, removing unknown flags: -fno-keep-inline-dllexport -mthreads")
+    QMAKE_CFLAGS -= -fno-keep-inline-dllexport
+    QMAKE_CXXFLAGS -= -fno-keep-inline-dllexport
+    QMAKE_CXXFLAGS_EXCEPTIONS_ON -= -mthreads
+  }
+
   include(OMEditGUI.win.config.pri)
   RC_FILE = rc_omedit.rc
 } else { # Unix libraries and includes
@@ -65,7 +78,10 @@ SOURCES += main.cpp
 CONFIG += warn_on
 # Only disable the unused variable/function/parameter warning
 win32 {
-  QMAKE_CXXFLAGS += -Wno-clobbered
+  # -Wno-clobbered is not recognized by clang
+  !contains(_cxx, clang++) {
+    QMAKE_CXXFLAGS += -Wno-clobbered
+  }
 }
 
 DESTDIR = ../bin

@@ -1,5 +1,6 @@
 // name: FourBar.TestPlanarLoops [simulate]
 // status: correct
+// cflags: -d=-newInst
 // provided by Martin Otter
 //
 
@@ -10,9 +11,9 @@ simulate(FourBar.TestPlanarLoops); getErrorString();
 
 // Result:
 // true
-// "Notification: Automatically loaded package Modelica 3.2.2 due to uses annotation.
-// Notification: Automatically loaded package Complex 3.2.2 due to uses annotation.
-// Notification: Automatically loaded package ModelicaServices 3.2.2 due to uses annotation.
+// "Notification: Automatically loaded package Modelica 3.2.2 due to uses annotation from FourBar.
+// Notification: Automatically loaded package Complex 3.2.2 due to uses annotation from Modelica.
+// Notification: Automatically loaded package ModelicaServices 3.2.2 due to uses annotation from Modelica.
 // "
 // record SimulationResult
 //     resultFile = "FourBar.TestPlanarLoops_res.mat",

@@ -37,12 +37,22 @@
 
 #include <QObject>
 
+/*!
+ * \brief The Diagram class
+ * Browses the items in the Libraries tree and opens then in the diagram view.
+ */
 class Diagram: public QObject
 {
   Q_OBJECT
 
 private slots:
+  void initTestCase();
+  /*!
+   * \brief chuaCircuit
+   * Browses to Modelica.Electrical.Analog.Examples.ChuaCircuit and loads its diagram view.
+   */
   void chuaCircuit();
+  void cleanupTestCase();
 };
 
 #endif // DIAGRAM_H

@@ -482,7 +482,6 @@ algorithm
       list<DAE.Statement> stmts,stmts_1;
       Boolean b,b1,b2,b3;
       String i;
-      Integer ix;
       DAE.ElementSource source;
       list<DAE.ComponentRef> conditions;
       Boolean initialCall;
@@ -516,13 +515,13 @@ algorithm
         true = b1 or b2 or b3;
       then
         (DAE.STMT_IF(e_1,stmts_1,a_else_1,source),true);
-    case(DAE.STMT_FOR(t,b,i,ix,e,stmts,source),fns)
+    case(DAE.STMT_FOR(t,b,i,e,stmts,source),fns)
       equation
         (e_1,source,b1,_) = inlineExp(e,fns,source);
         (stmts_1,b2) = inlineStatements(stmts,fns,{},false);
         true = b1 or b2;
       then
-        (DAE.STMT_FOR(t,b,i,ix,e_1,stmts_1,source),true);
+        (DAE.STMT_FOR(t,b,i,e_1,stmts_1,source),true);
     case(DAE.STMT_WHILE(e,stmts,source),fns)
       equation
         (e_1,source,b1,_) = inlineExp(e,fns,source);
@@ -810,6 +809,7 @@ algorithm
       Boolean generateEvents;
       Option<SCode.Comment> comment;
       DAE.Type ty;
+      DAE.Function func;
 
     // If we disable inlining by use of flags, we still inline builtin functions
     case DAE.CALL(attr=DAE.CALL_ATTR(inlineType=inlineType))
@@ -817,6 +817,17 @@ algorithm
         false = Flags.isSet(Flags.INLINE_FUNCTIONS);
         false = valueEq(DAE.BUILTIN_EARLY_INLINE(), inlineType);
       then (exp,assrtLst);
+
+    // remove empty calls entirely if it is not impure
+    case (e1 as DAE.CALL(p,args,DAE.CALL_ATTR(ty=ty,inlineType=inlineType)))
+      equation
+        // is impure?
+        func = getFunction(p,fns);
+        false = DAEUtil.getFunctionImpureAttribute(func);
+        // no return value?
+        0 = Types.getDimensionProduct(ty);
+        newExp = Expression.makeArray({}, ty, true);
+      then (newExp, assrtLst);
 
     case (e1 as DAE.CALL(p,args,DAE.CALL_ATTR(ty=ty,inlineType=inlineType)))
       equation
@@ -827,7 +838,7 @@ algorithm
         if (Config.acceptMetaModelicaGrammar()) then // MetaModelica
           crefs = List.map(fn,getInputCrefs);
           crefs = List.select(crefs,removeWilds);
-          argmap = List.threadTuple(crefs,args);
+          argmap = List.zip(crefs,args);
           false = List.exist(fn,DAEUtil.isProtectedVar);
           newExp = getRhsExp(fn);
           // compare types
@@ -852,7 +863,7 @@ algorithm
             // compare types
             true = checkExpsTypeEquiv(e1, newExp);
             // input map cref again function args
-            argmap = List.threadTuple(crefs,args);
+            argmap = List.zip(crefs,args);
             (checkcr,_) = getInlineHashTableVarTransform();
             (argmap,checkcr) = extendCrefRecords(argmap,checkcr);
             // add noEvent to avoid events as usually for functions
@@ -870,7 +881,7 @@ algorithm
             newExp = Expression.makeTuple(list( getReplacementCheckComplex(repl,cr,ty) for cr in lst_cr));
             // compare types
             true = checkExpsTypeEquiv(e1, newExp);
-            argmap = List.threadTuple(crefs,args);
+            argmap = List.zip(crefs,args);
             (argmap,checkcr) = extendCrefRecords(argmap,checkcr);
             // add noEvent to avoid events as usually for functions
             // MSL 3.2.1 need GenerateEvents to disable this
@@ -977,7 +988,7 @@ algorithm
         newExp = Expression.makeTuple(list( VarTransform.getReplacement(repl,cr) for cr in lst_cr));
         // compare types
         true = checkExpsTypeEquiv(e1, newExp);
-        argmap = List.threadTuple(crefs,args);
+        argmap = List.zip(crefs,args);
         (argmap,checkcr) = extendCrefRecords(argmap,checkcr);
         // add noEvent to avoid events as usually for functions
         // MSL 3.2.1 need GenerateEvents to disable this
@@ -1135,7 +1146,7 @@ algorithm
 
     case DAE.ALGORITHM(algorithm_ = DAE.ALGORITHM_STMTS(st))
       equation
-        oBody = listAppend(oBody,st);
+        oBody = List.append_reverse(st, oBody);
       then
         ();
 
@@ -1150,6 +1161,7 @@ algorithm
 
   oInputs := listReverse(oInputs);
   oOutputs := listReverse(oOutputs);
+  oBody := listReverse(oBody);
 
 end getFunctionInputsOutputBody;
 
@@ -1289,7 +1301,7 @@ algorithm
       equation
         (res1,ht1) = extendCrefRecords(res,ht);
         crlst = List.map1(varLst,extendCrefRecords2,c);
-        new = List.threadTuple(crlst,expl);
+        new = List.zip(crlst,expl);
         (new1,ht2) = extendCrefRecords(new,ht1);
         res2 = listAppend(new1,res1);
       then ((c,e)::res2,ht2);
@@ -1297,7 +1309,7 @@ algorithm
       equation
         (res1,ht1) = extendCrefRecords(res,ht);
         crlst = List.map1(varLst,extendCrefRecords2,c);
-        new = List.threadTuple(crlst,expl);
+        new = List.zip(crlst,expl);
         (new1,ht2) = extendCrefRecords(new,ht1);
         res2 = listAppend(new1,res1);
       then ((c,e)::res2,ht2);
@@ -1428,6 +1440,29 @@ algorithm
         fail();
   end matchcontinue;
 end getFunctionBody;
+
+
+public function getFunction
+"returns the function"
+  input Absyn.Path p;
+  input Functiontuple fns;
+  output DAE.Function func;
+algorithm
+  func := matchcontinue(p,fns)
+    local
+      DAE.FunctionTree ftree;
+    case(_,(SOME(ftree),_))
+      equation
+        SOME(func) = DAE.AvlTreePathFunction.get(ftree,p);
+      then func;
+    else
+      equation
+        true = Flags.isSet(Flags.FAILTRACE);
+        Debug.traceln("Inline.getFunction failed for function: " + AbsynUtil.pathString(p));
+      then
+        fail();
+  end matchcontinue;
+end getFunction;
 
 protected function getRhsExp
 "returns the right hand side of an assignment from a function"

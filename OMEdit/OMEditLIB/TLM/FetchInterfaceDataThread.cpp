@@ -51,8 +51,6 @@ void FetchInterfaceDataThread::run()
   mpManagerProcess = new QProcess;
   QFileInfo fileInfo(mpFetchInterfaceDataDialog->getLibraryTreeItem()->getFileName());
   mpManagerProcess->setWorkingDirectory(fileInfo.absoluteDir().absolutePath());
-  qRegisterMetaType<QProcess::ExitStatus>("QProcess::ExitStatus");
-  qRegisterMetaType<StringHandler::SimulationMessageType>("StringHandler::SimulationMessageType");
   connect(mpManagerProcess, SIGNAL(started()), SLOT(managerProcessStarted()));
   connect(mpManagerProcess, SIGNAL(readyReadStandardOutput()), SLOT(readManagerStandardOutput()));
   connect(mpManagerProcess, SIGNAL(readyReadStandardError()), SLOT(readManagerStandardError()));
@@ -66,7 +64,7 @@ void FetchInterfaceDataThread::run()
   args << fileInfo.absoluteFilePath();
   TLMPage *pTLMPage = OptionsDialog::instance()->getTLMPage();
   QProcessEnvironment environment;
-#ifdef WIN32
+#if defined(_WIN32)
   environment = StringHandler::simulationProcessEnvironment();
   environment.insert("PATH", pTLMPage->getOMTLMSimulatorPath() + ";" + environment.value("PATH"));
 #else
@@ -122,7 +120,7 @@ void FetchInterfaceDataThread::readManagerStandardError()
 void FetchInterfaceDataThread::managerProcessFinished(int exitCode, QProcess::ExitStatus exitStatus)
 {
   setIsManagerProcessRunning(false);
-  QString exitCodeStr = tr("TLMManager process failed. Exited with code %1.").arg(QString::number(exitCode));
+  QString exitCodeStr = tr("TLMManager process failed. Exited with code %1.").arg(Utilities::formatExitCode(exitCode));
   if (exitStatus == QProcess::NormalExit && exitCode == 0) {
     emit sendManagerOutput(tr("TLMManager process finished successfully."), StringHandler::OMEditInfo);
   } else if (mpManagerProcess->error() == QProcess::UnknownError) {
@@ -131,7 +129,7 @@ void FetchInterfaceDataThread::managerProcessFinished(int exitCode, QProcess::Ex
     emit sendManagerOutput(mpManagerProcess->errorString() + "\n" + exitCodeStr, StringHandler::Error);
   }
   emit sendManagerFinished(exitCode, exitStatus);
-#ifdef WIN32
+#if defined(_WIN32)
   Utilities::killProcessTreeWindows(mManagerProcessId);
 #else
   /*! @todo do similar stuff for Linux! */

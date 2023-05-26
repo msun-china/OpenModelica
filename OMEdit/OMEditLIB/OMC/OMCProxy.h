@@ -41,10 +41,12 @@
 #include "Util/Utilities.h"
 
 class CustomExpressionBox;
-class ComponentInfo;
+class OutputPlainTextEdit;
+class ElementInfo;
 class StringHandler;
 class OMCInterface;
 class LibraryTreeItem;
+class QNetworkReply;
 
 typedef struct {
   QString mFromUnit;
@@ -61,7 +63,7 @@ private:
   QWidget *mpOMCLoggerWidget;
   CustomExpressionBox *mpExpressionTextBox;
   QPushButton *mpOMCLoggerSendButton;
-  QPlainTextEdit *mpOMCLoggerTextBox;
+  OutputPlainTextEdit *mpOMCLoggerTextBox;
   QWidget *mpOMCDiffWidget;
   Label *mpOMCDiffBeforeLabel;
   QPlainTextEdit *mpOMCDiffBeforeTextBox;
@@ -79,6 +81,9 @@ private:
   QMap<QString, QList<QString> > mDerivedUnitsMap;
   OMCInterface *mpOMCInterface;
   bool mIsLoggingEnabled;
+  QStringList mLibrariesBrowserAdditionCommandsList;
+  QStringList mLibrariesBrowserDeletionCommandsList;
+  bool mLoadModelError;
 public:
   OMCProxy(threadData_t *threadData, QWidget *pParent = 0);
   ~OMCProxy();
@@ -94,6 +99,7 @@ public:
   void removeObjectRefFile();
   void setLoggingEnabled(bool enable) {mIsLoggingEnabled = enable;}
   bool isLoggingEnabled() {return mIsLoggingEnabled;}
+  bool isLoadModelError() const {return mLoadModelError;}
   QString getErrorString(bool warningsAsErrors = false);
   bool printMessagesStringInternal();
   int getMessagesStringInternal();
@@ -107,8 +113,9 @@ public:
   QString getErrorMessage();
   QString getErrorKind();
   QString getErrorLevel();
+  int getErrorId();
   QString getVersion(QString className = QString("OpenModelica"));
-  void loadSystemLibraries();
+  void loadSystemLibraries(const QVector<QPair<QString, QString> > libraries);
   void loadUserLibraries();
   QStringList getClassNames(QString className = QString("AllLoadedClasses"), bool recursive = false, bool qualified = false,
                             bool sort = false, bool builtin = false, bool showProtected = true, bool includeConstants = false);
@@ -120,19 +127,22 @@ public:
   bool isWhat(StringHandler::ModelicaClasses type, QString className);
   bool isProtectedClass(QString className, QString nestedClassName);
   bool isPartial(QString className);
-  bool isReplaceable(QString parentClassName, QString className);
+  bool isReplaceable(QString elementName);
+  bool isRedeclare(QString elementName);
   StringHandler::ModelicaClasses getClassRestriction(QString className);
+  bool setParameterValue(const QString &className, const QString &parameter, const QString &value);
   QString getParameterValue(const QString &className, const QString &parameter);
-  QStringList getComponentModifierNames(QString className, QString name);
-  QString getComponentModifierValue(QString className, QString name);
-  bool setComponentModifierValue(QString className, QString name, QString modifierValue);
-  bool removeComponentModifiers(QString className, QString name);
-  QString getComponentModifierValues(QString className, QString name);
+  QStringList getElementModifierNames(QString className, QString name);
+  QString getElementModifierValue(QString className, QString name);
+  bool setElementModifierValue(QString className, QString modifierName, QString modifierValue);
+  bool removeElementModifiers(QString className, QString name);
+  QString getElementModifierValues(QString className, QString name);
   QStringList getExtendsModifierNames(QString className, QString extendsClassName);
   QString getExtendsModifierValue(QString className, QString extendsClassName, QString modifierName);
   bool setExtendsModifierValue(QString className, QString extendsClassName, QString modifierName, QString modifierValue);
   bool isExtendsModifierFinal(QString className, QString extendsClassName, QString modifierName);
   bool removeExtendsModifiers(QString className, QString extendsClassName);
+  QString qualifyPath(const QString &classPath, const QString &path);
   QString getIconAnnotation(QString className);
   QString getDiagramAnnotation(QString className);
   int getConnectionCount(QString className);
@@ -145,16 +155,15 @@ public:
   QList<QString> getInheritedClasses(QString className);
   QString getNthInheritedClassIconMapAnnotation(QString className, int num);
   QString getNthInheritedClassDiagramMapAnnotation(QString className, int num);
-  QList<ComponentInfo*> getComponents(QString className);
-  QStringList getComponentAnnotations(QString className);
+  QList<ElementInfo*> getElements(QString className);
+  QStringList getElementAnnotations(QString className);
   QString getDocumentationAnnotationInfoHeader(LibraryTreeItem *pLibraryTreeItem, QString infoHeader);
   QString getDocumentationAnnotation(LibraryTreeItem *pLibraryTreeItem);
   QList<QString> getDocumentationAnnotationInClass(LibraryTreeItem *pLibraryTreeItem);
   QString getClassComment(QString className);
   QString changeDirectory(QString directory = QString(""));
-  bool loadModel(QString className, QString priorityVersion = QString("default"), bool notify = false, QString languageStandard = QString(""),
-                 bool requireExactVersion = false);
-  bool loadFile(QString fileName, QString encoding = Helper::utf8, bool uses = true);
+  bool loadModel(QString className, QString priorityVersion = QString("default"), bool notify = true, QString languageStandard = QString(""), bool requireExactVersion = false);
+  bool loadFile(QString fileName, QString encoding = Helper::utf8, bool uses = true, bool notify = true, bool requireExactVersion = false);
   bool loadString(QString value, QString fileName, QString encoding = Helper::utf8, bool merge = false, bool checkError = true);
   QList<QString> parseFile(QString fileName, QString encoding = Helper::utf8);
   QList<QString> parseString(QString value, QString fileName, bool printErrors = true);
@@ -167,10 +176,10 @@ public:
   bool setSourceFile(QString className, QString path);
   bool save(QString className);
   bool saveModifiedModel(QString modelText);
-  bool saveTotalModel(QString fileName, QString className);
+  bool saveTotalModel(QString fileName, QString className, bool stripAnnotations, bool stripComments, bool obfuscate);
   QString list(QString className);
   QString listFile(QString className, bool nestedClasses = true);
-  QString diffModelicaFileListings(QString before, QString after);
+  QString diffModelicaFileListings(const QString &before, const QString &after);
   QString instantiateModel(QString className);
   bool addClassAnnotation(QString className, QString annotation);
   QString getDefaultComponentName(QString className);
@@ -188,13 +197,10 @@ public:
   bool setComponentDimensions(QString className, QString componentName, QString dimensions);
   bool addConnection(QString from, QString to, QString className, QString annotation);
   bool deleteConnection(QString from, QString to, QString className);
-  bool addTransition(QString className, QString from, QString to, QString condition, bool immediate, bool reset, bool synchronize,
-                     int priority, QString annotation);
-  bool deleteTransition(QString className, QString from, QString to, QString condition, bool immediate, bool reset, bool synchronize,
-                        int priority);
-  bool updateTransition(QString className, QString from, QString to, QString oldCondition, bool oldImmediate, bool oldReset,
-                        bool oldSynchronize, int oldPriority, QString condition, bool immediate, bool reset, bool synchronize, int priority,
-                        QString annotation);
+  bool addTransition(QString className, QString from, QString to, QString condition, bool immediate, bool reset, bool synchronize, int priority, QString annotation);
+  bool deleteTransition(QString className, QString from, QString to, QString condition, bool immediate, bool reset, bool synchronize, int priority);
+  bool updateTransition(QString className, QString from, QString to, QString oldCondition, bool oldImmediate, bool oldReset, bool oldSynchronize, int oldPriority,
+                        QString condition, bool immediate, bool reset, bool synchronize, int priority, QString annotation);
   bool addInitialState(QString className, QString state, QString annotation);
   bool deleteInitialState(QString className, QString state);
   bool updateInitialState(QString className, QString state, QString annotation);
@@ -209,9 +215,9 @@ public:
   QString checkAllModelsRecursive(QString className);
   bool isExperiment(QString className);
   OMCInterface::getSimulationOptions_res getSimulationOptions(QString className, double defaultTolerance = 1e-6);
-  QString buildModelFMU(QString className, QString version, QString type, QString fileNamePrefix, QList<QString> platforms, bool includeResources = true);
+  QString buildModelFMU(QString className, QString version, QString type, QString fileNamePrefix, QList<QString> platforms, bool includeResources);
   QString translateModelXML(QString className);
-  QString importFMU(QString fmuName, QString outputDirectory, int logLevel, bool debugLogging, bool generateInputConnectors, bool generateOutputConnectors);
+  QString importFMU(QString fmuName, QString outputDirectory, int logLevel, bool debugLogging, bool generateInputConnectors, bool generateOutputConnectors, QString modelName);
   QString importFMUModelDescription(QString fmuModelDescriptionName, QString outputDirectory, int logLevel, bool debugLogging, bool generateInputConnectors, bool generateOutputConnectors);
   QString getMatchingAlgorithm();
   OMCInterface::getAvailableMatchingAlgorithms_res getAvailableMatchingAlgorithms();
@@ -226,20 +232,22 @@ public:
   bool disableNewInstantiation();
   QString makeDocumentationUriToFileName(QString documentation);
   QString uriToFilename(QString uri);
+  bool setModelicaPath(const QString &path);
   QString getModelicaPath();
+  QString getHomeDirectoryPath();
   QStringList getAvailableLibraries();
+  QStringList getAvailableLibraryVersions(QString libraryName);
   QStringList getDerivedClassModifierNames(QString className);
   QString getDerivedClassModifierValue(QString className, QString modifierName);
   OMCInterface::convertUnits_res convertUnits(QString from, QString to);
   QList<QString> getDerivedUnits(QString baseUnit);
-  QString getVersionDateAnnotation(QString className);
-  QString getVersionBuildAnnotation(QString className);
-  bool getDocumentationClassAnnotation(QString className);
+  QString getNamedAnnotation(const QString &className, const QString &annotation, StringHandler::ResultType type = StringHandler::String);
   QString getCommandLineOptionsAnnotation(QString className);
   QList<QString> getAnnotationNamedModifiers(QString className, QString annotation);
   QString getAnnotationModifierValue(QString className, QString annotation, QString modifier);
   QString getSimulationFlagsAnnotation(QString className);
   int numProcessors();
+  QStringList getAllSubtypeOf(QString className, QString parentClassName = QString("AllLoadedClasses"), bool qualified = false, bool includePartial = false, bool sort = false);
   QString help(QString topic);
   OMCInterface::getConfigFlagValidOptions_res getConfigFlagValidOptions(QString topic);
   QString getCompiler();
@@ -265,13 +273,24 @@ public:
   QList<QList<QString > > getUses(QString className);
   bool buildEncryptedPackage(QString className, bool encrypt = true);
   QList<QString> parseEncryptedPackage(QString fileName, QString workingDirectory);
-  bool loadEncryptedPackage(QString fileName, QString workingDirectory, bool skipUnzip);
+  bool loadEncryptedPackage(QString fileName, QString workingDirectory, bool skipUnzip, bool uses = true, bool notify = true, bool requireExactVersion = false);
+  bool installPackage(const QString &library, const QString &version, bool exactMatch);
+  bool updatePackageIndex();
+  bool upgradeInstalledPackages(bool installNewestVersions);
+  QStringList getAvailablePackageVersions(QString pkg, QString version);
+  bool convertPackageToLibrary(const QString &packageToConvert, const QString &library, const QString &libraryVersion);
+  QList<QString> getAvailablePackageConversionsFrom(const QString &pkg, const QString &version);
+  QJsonObject getModelInstance(const QString &className, const QString &modifier = QString(""), bool prettyPrint = false, bool icon = false);
+  QJsonObject modifierToJSON(const QString &modifier, bool prettyPrint = false);
+  int storeAST();
+  bool restoreAST(int id);
+  bool clear();
 signals:
   void commandFinished();
 public slots:
-  void logCommand(QString command, QTime *commandTime) { logCommand(command, commandTime, false); }
-  void logCommand(QString command, QTime *commandTime, bool saveToHistory);
-  void logResponse(QString command, QString response, QTime *responseTime);
+  void logCommand(QString command) { logCommand(command, false); }
+  void logCommand(QString command, bool saveToHistory);
+  void logResponse(QString command, QString response, double elapsed, bool customCommand = false);
   void showException(QString exception);
   void openOMCLoggerWidget();
   void sendCustomExpression();

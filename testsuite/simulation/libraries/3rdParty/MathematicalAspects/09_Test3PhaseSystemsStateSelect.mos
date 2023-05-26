@@ -1,11 +1,12 @@
 // name: 09_Test3PhaseSystemsStateSelect
 // status: correct
+// cflags: -d=-newInst
 //
 //  Simulation Results
 //  Examples to the Tutorial "Mathematical Aspects of Object-Oriented Modeling and Simulation"
 //
 
-loadModel(Modelica); getErrorString();
+loadModel(Modelica, {"3.2.3"}); getErrorString();
 loadFile("Test3PhaseSystemsStateSelect.mo"); getErrorString();
 loadFile("Test3PhaseSystemsInit.mo"); getErrorString();
 

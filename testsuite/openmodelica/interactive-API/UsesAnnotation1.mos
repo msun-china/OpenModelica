@@ -1,5 +1,6 @@
 // name: UsesAnnotation1
 // status: correct
+// cflags: -d=-newInst
 //
 // Checks that only uses-annotations on top-level classes are takes into
 // consideration when loading models.
@@ -43,8 +44,8 @@ instantiateModel(A.B); getErrorString();
 //   x = A.B.f(time);
 // end A.B;
 // "
-// "Notification: Automatically loaded package Modelica 3.2.2 due to uses annotation.
-// Notification: Automatically loaded package Complex 3.2.2 due to uses annotation.
-// Notification: Automatically loaded package ModelicaServices 3.2.2 due to uses annotation.
+// "Notification: Automatically loaded package Modelica 3.2.2 due to uses annotation from A.
+// Notification: Automatically loaded package Complex 3.2.2 due to uses annotation from Modelica.
+// Notification: Automatically loaded package ModelicaServices 3.2.2 due to uses annotation from Modelica.
 // "
 // endResult

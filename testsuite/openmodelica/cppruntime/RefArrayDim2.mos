@@ -2,10 +2,11 @@
 // keywords: multi-dimensional RefArray external F77 LAPACK, ticket:4093
 // status: correct
 // teardown_command: rm -f *AliasArrayTest*
+// cflags: -d=-newInst
 
 setCommandLineOptions("+simCodeTarget=Cpp");
 
-loadModel(Modelica);
+loadModel(Modelica, {"3.2.3"});
 loadString("
 model AliasArrayTest
   Real[3,3] A = {{t, 2, 3}, {4, t, 6}, {7, 8, t}}; // RefArrayDim2

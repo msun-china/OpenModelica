@@ -55,12 +55,22 @@ sub make_link {
   # Depending on how the path is given we need to use different rules for how
   # the symlink should be created.
   for ($file) {
-    if    (/\.\.\/(\w*)\/package.mo/) { symlink("../" . $1, "../" . $1); }
-    elsif (/\.\/(\w*)\/package.mo/)   { symlink("../" . $1, $1); }
-    elsif (/\.\.\/([\w-]*)\//)        { symlink("../" . $1, "../" . $1); }
-    elsif (/^(\w*)\/(.*)/)            { symlink("../" . $1, $1); }
-    elsif (/(.*)/)                    { symlink("../" . $1, $1); }
-    else                              { symlink("../" . $file, $file); }
+    if    (/\.\.\/(\w*)\/package.mo/) { symlink_if_exists("../" . $1, "../" . $1); }
+    elsif (/\.\/(\w*)\/package.mo/)   { symlink_if_exists("../" . $1, $1); }
+    elsif (/\.\.\/([\w-]*)\//)        { symlink_if_exists("../" . $1, "../" . $1); }
+    elsif (/^(\w*)\/(.*)/)            { symlink_if_exists("../" . $1, $1); }
+    elsif (/(.*)/)                    { symlink_if_exists("../" . $1, $1); }
+    else                              { symlink_if_exists("../" . $file, $file); }
+  }
+}
+
+# Creates a symbolic link to a file, but only if the file exists.
+sub symlink_if_exists {
+  my $src = shift;
+  my $dst = shift;
+
+  if (-e $src) {
+    symlink($src, $dst)
   }
 }
 
@@ -146,11 +156,9 @@ sub enter_sandbox {
     if    (/$stop_expr/)               { last; }
     elsif (/setup_command.*\s(.*\.c)/) { make_link($1); }
     elsif (/depends: *([A-Za-z0-9_.-]*)/) { make_link($1); }
-    elsif (/loadFile.*\(\"linear_simple_test\.mo\"\)/) {}
     elsif (/loadFile.*\(\"(.*)\"\)/)   { make_link($1); }
     elsif (/runScript.*\(\"(.*)\"\)/)  { make_link($1); }
     elsif (/importFMU.*\(\"(.*)\"\)/)  { make_link($1); }
-    elsif (/partest-link: *([A-Za-z0-9.]*)/) { make_link($1); }
     elsif (/system\(\"(gcc|g\+\+).*\s(\w*\.\w*)\s(\w*\.\w*)/) {
       my $header = lib_to_header($2);
       make_link($header);
@@ -241,7 +249,7 @@ while(<$test_log>) {
   elsif(/== Failed to set baseline.*time: (\d*)/) {
     $nfailed = 1;
     $time = $2;
-  }  
+  }
   elsif(/.*time: (\d*)/) {
     $nfailed = 0;
     $time = $1;
@@ -341,4 +349,3 @@ if ($exit_status == 0) {
   }
   exit $time;
 }
-

@@ -34,6 +34,7 @@
         <file>Resources/icons/zoomReset.svg</file>
         <file>Resources/icons/zoomIn.svg</file>
         <file>Resources/icons/zoomOut.svg</file>
+        <file>Resources/icons/fit-to-diagram.svg</file>
         <file>Resources/icons/txt.svg</file>
         <file>Resources/icons/model-icon.svg</file>
         <file>Resources/icons/package-icon.svg</file>
@@ -111,6 +112,7 @@
         <file>Resources/icons/export-xml.svg</file>
         <file>Resources/icons/optimization-icon.svg</file>
         <file>Resources/icons/refresh.svg</file>
+        <file>Resources/icons/reset.svg</file>
         <file>Resources/icons/add-icon.svg</file>
         <file>Resources/icons/edit-icon.svg</file>
         <file>Resources/icons/edit-info.svg</file>
@@ -176,6 +178,7 @@
         <file>Resources/icons/checkered.svg</file>
         <file>Resources/icons/texture.svg</file>
         <file>Resources/icons/changeColor.svg</file>
+        <file>Resources/icons/specularity.svg</file>
         <file>Resources/bitmaps/check.png</file>
         <file>Resources/icons/traceability.svg</file>
         <file>Resources/icons/interaction.svg</file>
@@ -211,5 +214,6 @@
         <file>Resources/icons/completerClass.svg</file>
         <file>Resources/icons/completerAnnotation.svg</file>
         <file>Resources/icons/import-tlmmodel.svg</file>
+        <file>Resources/icons/auto_scale.svg</file>
     </qresource>
 </RCC>

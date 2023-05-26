@@ -42,35 +42,30 @@ import DAE;
 import Dimension = NFDimension;
 import Expression = NFExpression;
 import NFInstNode.InstNode;
-import NFBinding.Binding;
-import NFPrefixes.Variability;
+import Binding = NFBinding;
+import NFPrefixes.{Variability, Purity};
+import Subscript = NFSubscript;
 
 protected
-import Config;
-import Debug;
 import DAEExpression = Expression;
 import Error;
-import ExpressionDump;
 import Flags;
 import List;
 import Types;
 import Operator = NFOperator;
 import Type = NFType;
-import Class = NFClass.Class;
+import Class = NFClass;
 import ClassTree = NFClassTree;
-import InstUtil = NFInstUtil;
 import Prefixes = NFPrefixes;
 import Restriction = NFRestriction;
 import ComplexType = NFComplexType;
 import NFOperator.Op;
-import NFTyping.ExpOrigin;
 import NFFunction.Function;
 import NFFunction.TypedArg;
 import NFFunction.FunctionMatchKind;
 import NFFunction.MatchedFunction;
-import NFCall.Call;
+import Call = NFCall;
 import BuiltinCall = NFBuiltinCall;
-import NFCall.CallAttributes;
 import ComponentRef = NFComponentRef;
 import ErrorExt;
 import NFBuiltin;
@@ -80,7 +75,11 @@ import OperatorOverloading = NFOperatorOverloading;
 import ExpandExp = NFExpandExp;
 import NFFunction.Slot;
 import Util;
-import NFComponent.Component;
+import Component = NFComponent;
+import InstContext = NFInstContext;
+import NFInstNode.InstNodeType;
+import Array;
+import Inline = NFInline;
 
 public
 type MatchKind = enumeration(
@@ -153,7 +152,9 @@ function checkBinaryOperation
   output Expression binaryExp;
   output Type resultType;
 algorithm
-  if Type.isComplex(Type.arrayElementType(type1)) or
+  if Type.isConditionalArray(type1) or Type.isConditionalArray(type2) then
+    (binaryExp, resultType) := checkConditionalBinaryOperator(exp1, type1, var1, operator, exp2, type2, var2, info);
+  elseif Type.isComplex(Type.arrayElementType(type1)) or
      Type.isComplex(Type.arrayElementType(type2)) then
     (binaryExp, resultType) := checkOverloadedBinaryOperator(exp1, type1, var1, operator, exp2, type2, var2, info);
   elseif Type.isBoxed(type1) and Type.isBoxed(type2) then
@@ -170,6 +171,23 @@ algorithm
       case Op.MUL_EW then checkBinaryOperationEW(exp1, type1, exp2, type2, Op.MUL, info);
       case Op.DIV_EW then checkBinaryOperationDiv(exp1, type1, exp2, type2, info, isElementWise = true);
       case Op.POW_EW then checkBinaryOperationPowEW(exp1, type1, exp2, type2, info);
+      // These operators should not occur in untyped expressions, but sometimes
+      // we want to retype already typed expressions due to changes in them.
+      case Op.ADD_SCALAR_ARRAY then checkBinaryOperationEW(exp1, type1, exp2, type2, Op.ADD, info);
+      case Op.ADD_ARRAY_SCALAR then checkBinaryOperationEW(exp1, type1, exp2, type2, Op.ADD, info);
+      case Op.SUB_SCALAR_ARRAY then checkBinaryOperationEW(exp1, type1, exp2, type2, Op.SUB, info);
+      case Op.SUB_ARRAY_SCALAR then checkBinaryOperationEW(exp1, type1, exp2, type2, Op.SUB, info);
+      case Op.MUL_SCALAR_ARRAY  then checkBinaryOperationMul(exp1, type1, exp2, type2, info);
+      case Op.MUL_ARRAY_SCALAR  then checkBinaryOperationMul(exp1, type1, exp2, type2, info);
+      case Op.MUL_VECTOR_MATRIX then checkBinaryOperationMul(exp1, type1, exp2, type2, info);
+      case Op.MUL_MATRIX_VECTOR then checkBinaryOperationMul(exp1, type1, exp2, type2, info);
+      case Op.SCALAR_PRODUCT    then checkBinaryOperationMul(exp1, type1, exp2, type2, info);
+      case Op.MATRIX_PRODUCT    then checkBinaryOperationMul(exp1, type1, exp2, type2, info);
+      case Op.DIV_SCALAR_ARRAY  then checkBinaryOperationDiv(exp1, type1, exp2, type2, info, isElementWise = false);
+      case Op.DIV_ARRAY_SCALAR  then checkBinaryOperationDiv(exp1, type1, exp2, type2, info, isElementWise = false);
+      case Op.POW_SCALAR_ARRAY  then checkBinaryOperationPowEW(exp1, type1, exp2, type2, info);
+      case Op.POW_ARRAY_SCALAR  then checkBinaryOperationPowEW(exp1, type1, exp2, type2, info);
+      case Op.POW_MATRIX        then checkBinaryOperationPow(exp1, type1, exp2, type2, info);
     end match;
   end if;
 end checkBinaryOperation;
@@ -213,6 +231,8 @@ algorithm
     (outExp, outType) := matchOverloadedBinaryOperator(
       exp1, type1, var1, op, exp2, type2, var2, candidates, info);
   end if;
+
+  outExp := Inline.inlineCallExp(outExp);
 end checkOverloadedBinaryOperator;
 
 function matchOverloadedBinaryOperator
@@ -236,7 +256,10 @@ protected
   Function fn;
   Operator.Op oop;
 algorithm
-  args := {(exp1, type1, var1), (exp2, type2, var2)};
+  args := {
+    TypedArg.TYPED_ARG(NONE(), exp1, type1, var1, Purity.PURE),
+    TypedArg.TYPED_ARG(NONE(), exp2, type2, var2, Purity.PURE)
+  };
   matchedFunctions := Function.matchFunctionsSilent(candidates, args, {}, info);
   // We only allow exact matches for operator overloading. e.g. no casting or generic matches.
   exactMatches := MatchedFunction.getExactMatches(matchedFunctions);
@@ -278,8 +301,9 @@ algorithm
     outExp := Expression.CALL(
       Call.makeTypedCall(
         matchedFunc.func,
-        list(Util.tuple31(a) for a in matchedFunc.args),
+        list(a.value for a in matchedFunc.args),
         Prefixes.variabilityMax(var1, var2),
+        Purity.PURE,
         outType));
   else
     if showErrors then
@@ -312,6 +336,62 @@ algorithm
 end checkBinaryOperationBoxed;
 
 protected
+function checkConditionalBinaryOperator
+  input Expression exp1;
+  input Type type1;
+  input Variability var1;
+  input Operator op;
+  input Expression exp2;
+  input Type type2;
+  input Variability var2;
+  input SourceInfo info;
+  output Expression outExp;
+  output Type outType;
+protected
+  Type tty1, fty1, tty2, fty2, ty1, ty2;
+  Expression e1, e2;
+  Boolean valid1, valid2;
+  NFType.Branch branch;
+algorithm
+  (tty1, fty1, tty2, fty2, branch) := match (type1, type2)
+    case (Type.CONDITIONAL_ARRAY(), _)
+      then (type1.trueType, type1.falseType, type2, type2, type1.matchedBranch);
+    case (_, Type.CONDITIONAL_ARRAY())
+      then (type1, type1, type2.trueType, type2.falseType, type2.matchedBranch);
+  end match;
+
+  ErrorExt.setCheckpoint(getInstanceName());
+  try
+    (e1, ty1) := checkBinaryOperation(exp1, tty1, var1, op, exp2, tty2, var2, info);
+    valid1 := true;
+  else
+    valid1 := false;
+  end try;
+
+  try
+    (e2, ty2) := checkBinaryOperation(exp1, fty1, var1, op, exp2, fty2, var2, info);
+    valid2 := true;
+  else
+    valid2 := false;
+  end try;
+  ErrorExt.rollBack(getInstanceName());
+
+  if valid1 and valid2 then
+    outType := Type.CONDITIONAL_ARRAY(ty1, ty2, branch);
+    outExp := e1;
+  elseif valid1 then
+    outType := Type.CONDITIONAL_ARRAY(ty1, Type.UNKNOWN(), NFType.Branch.TRUE);
+    outExp := e1;
+  elseif valid2 then
+    outType := Type.CONDITIONAL_ARRAY(Type.UNKNOWN(), ty2, NFType.Branch.FALSE);
+    outExp := e2;
+  else
+    printUnresolvableTypeError(exp1, {type1, type2}, info);
+  end if;
+
+  outExp := Expression.setType(outType, outExp);
+end checkConditionalBinaryOperator;
+
 function checkOverloadedBinaryArrayAddSub
   input Expression exp1;
   input Type type1;
@@ -358,17 +438,16 @@ algorithm
   (outExp, outType) := match (exp1, exp2)
     local
       Type ty, ty1, ty2;
-      Expression e, e2;
-      list<Expression> expl, expl1, expl2;
+      Expression e, e1, e2;
+      array<Expression> arr, arr1, arr2;
 
-    case (Expression.ARRAY(elements = expl1), Expression.ARRAY(elements = expl2))
+    case (Expression.ARRAY(elements = arr1), Expression.ARRAY(elements = arr2))
       algorithm
-        expl := {};
-
-        if listEmpty(expl1) then
+        if arrayEmpty(arr1) then
           // If the arrays are empty, match against the element types to get the expected return type.
           ty1 := Type.arrayElementType(type1);
           ty2 := Type.arrayElementType(type2);
+          arr := listArray({});
 
           try
             (_, ty) := matchOverloadedBinaryOperator(
@@ -379,18 +458,18 @@ algorithm
         else
           ty1 := Type.unliftArray(type1);
           ty2 := Type.unliftArray(type2);
+          arr := arrayCreateNoInit(arrayLength(arr1), arr1[1]);
 
-          for e1 in expl1 loop
-            e2 :: expl2 := expl2;
+          for i in 1:arrayLength(arr1) loop
+            e1 := arrayGetNoBoundsChecking(arr1, i);
+            e2 := arrayGetNoBoundsChecking(arr2, i);
             (e, ty) := checkOverloadedBinaryArrayAddSub2(e1, ty1, var1, op, e2, ty2, var2, candidates, info);
-            expl := e :: expl;
+            arrayUpdateNoBoundsChecking(arr, i, e);
           end for;
-
-          expl := listReverseInPlace(expl);
         end if;
 
         outType := Type.setArrayElementType(type1, ty);
-        outExp := Expression.makeArray(outType, expl);
+        outExp := Expression.makeArray(outType, arr);
       then
         (outExp, outType);
 
@@ -493,9 +572,12 @@ function checkOverloadedBinaryScalarArray2
 protected
   list<Expression> expl;
   Type ty;
+  array<Expression> arr;
+  Expression e2;
 algorithm
   (outExp, outType) := match exp2
-    case Expression.ARRAY(elements = {})
+    case Expression.ARRAY()
+      guard arrayEmpty(exp2.elements)
       algorithm
         try
           ty := Type.unliftArray(type2);
@@ -507,15 +589,22 @@ algorithm
 
         outType := Type.setArrayElementType(exp2.ty, outType);
       then
-        (Expression.makeArray(outType, {}), outType);
+        (Expression.makeEmptyArray(outType), outType);
 
-    case Expression.ARRAY(elements = expl)
+    case Expression.ARRAY()
       algorithm
         ty := Type.unliftArray(type2);
-        expl := list(checkOverloadedBinaryScalarArray2(exp1, type1, var1, op, e, ty, var2, candidates, info) for e in expl);
-        outType := Type.setArrayElementType(exp2.ty, Expression.typeOf(listHead(expl)));
+        arr := arrayCreateNoInit(arrayLength(exp2.elements), exp2);
+
+        for i in 1:arrayLength(arr) loop
+          e2 := arrayGetNoBoundsChecking(exp2.elements, i);
+          arrayUpdateNoBoundsChecking(arr, i,
+            checkOverloadedBinaryScalarArray2(exp1, type1, var1, op, e2, ty, var2, candidates, info));
+        end for;
+
+        outType := Type.setArrayElementType(exp2.ty, Expression.typeOf(arr[1]));
       then
-        (Expression.makeArray(outType, expl), outType);
+        (Expression.makeArray(outType, arr), outType);
 
     else matchOverloadedBinaryOperator(exp1, type1, var1, op, exp2, type2, var2, candidates, info);
   end match;
@@ -554,9 +643,11 @@ protected
   Expression e1;
   list<Expression> expl;
   Type ty;
+  array<Expression> arr;
 algorithm
   (outExp, outType) := match exp1
-    case Expression.ARRAY(elements = {})
+    case Expression.ARRAY()
+      guard arrayEmpty(exp1.elements)
       algorithm
         try
           ty := Type.unliftArray(type1);
@@ -568,15 +659,22 @@ algorithm
 
         outType := Type.setArrayElementType(exp1.ty, outType);
       then
-        (Expression.makeArray(outType, {}), outType);
+        (Expression.makeEmptyArray(outType), outType);
 
-    case Expression.ARRAY(elements = expl)
+    case Expression.ARRAY()
       algorithm
         ty := Type.unliftArray(type1);
-        expl := list(checkOverloadedBinaryArrayScalar2(e, ty, var1, op, exp2, type2, var2, candidates, info) for e in expl);
-        outType := Type.setArrayElementType(exp1.ty, Expression.typeOf(listHead(expl)));
+        arr := arrayCreateNoInit(arrayLength(exp1.elements), exp1);
+
+        for i in 1:arrayLength(arr) loop
+          e1 := arrayGetNoBoundsChecking(exp1.elements, i);
+          arrayUpdateNoBoundsChecking(arr, i,
+            checkOverloadedBinaryArrayScalar2(e1, ty, var1, op, exp2, type2, var2, candidates, info));
+        end for;
+
+        outType := Type.setArrayElementType(exp1.ty, Expression.typeOf(arr[1]));
       then
-        (Expression.makeArray(outType, expl), outType);
+        (Expression.makeArray(outType, arr), outType);
 
     else matchOverloadedBinaryOperator(exp1, type1, var1, op, exp2, type2, var2, candidates, info);
   end match;
@@ -617,7 +715,6 @@ function checkOverloadedBinaryArrayEW
 protected
   Expression e1, e2;
   MatchKind mk;
-  list<Expression> expl1, expl2;
   Type ty;
 algorithm
   if Type.isArray(type1) and Type.isArray(type2) then
@@ -651,8 +748,9 @@ function checkOverloadedBinaryArrayEW2
   output Expression outExp;
   output Type outType;
 protected
-  Expression e2;
-  list<Expression> expl, expl1, expl2;
+  Expression e1, e2;
+  list<Expression> expl;
+  array<Expression> expl1, expl2;
   Type ty, ty1, ty2;
   Boolean is_array1, is_array2;
 algorithm
@@ -679,10 +777,15 @@ algorithm
       expl1 := Expression.arrayElements(exp1);
       expl2 := Expression.arrayElements(exp2);
 
-      for e in expl1 loop
-        e2 :: expl2 := expl2;
-        (e, ty) := checkOverloadedBinaryArrayEW2(e, ty1, var1, op, e2, ty2, var2, candidates, info);
-        expl := e :: expl;
+      if arrayLength(expl1) > arrayLength(expl2) then
+        fail();
+      end if;
+
+      for i in 1:arrayLength(expl1) loop
+        e1 := arrayGetNoBoundsChecking(expl1, i);
+        e2 := arrayGetNoBoundsChecking(expl2, i);
+        (e1, ty) := checkOverloadedBinaryArrayEW2(e1, ty1, var1, op, e2, ty2, var2, candidates, info);
+        expl := e1 :: expl;
       end for;
     elseif is_array1 then
       ty1 := Type.unliftArray(type1);
@@ -703,7 +806,7 @@ algorithm
     end if;
 
     outType := Type.setArrayElementType(type1, ty);
-    outExp := Expression.makeArray(outType, listReverseInPlace(expl));
+    outExp := Expression.makeArray(outType, listArray(listReverseInPlace(expl)));
   else
     (outExp, outType) := matchOverloadedBinaryOperator(
       exp1, type1, var1, op,
@@ -764,7 +867,7 @@ algorithm
   if listLength(matchedfuncs) == 1 then
     (operfn, {exp1,exp2}, var)::_ := matchedfuncs;
     outType := Function.returnType(operfn);
-    outExp := Expression.CALL(Call.makeTypedCall(operfn, {exp1, exp2}, var, outType));
+    outExp := Expression.CALL(Call.makeTypedCall(operfn, {exp1, exp2}, var, Purity.PURE, outType));
   else
     Error.addSourceMessage(Error.AMBIGUOUS_MATCHING_OPERATOR_FUNCTIONS_NFINST,
       {Expression.toString(Expression.BINARY(exp1, op, exp2)),
@@ -798,8 +901,9 @@ algorithm
   // We only want overloaded constructors when trying to implicitly construct.
   // Default constructors are not considered.
   if mk == MatchKind.EXACT then
-    fn_ref := Function.instFunction(Absyn.CREF_IDENT("'constructor'", {}), scope, paramInfo2);
-    e2 := Expression.CALL(NFCall.UNTYPED_CALL(fn_ref, {exp2}, {}, scope));
+    fn_ref := Function.instFunction(Absyn.CREF_IDENT("'constructor'", {}),
+      scope, NFInstContext.NO_CONTEXT, paramInfo2);
+    e2 := Expression.CALL(Call.UNTYPED_CALL(fn_ref, {exp2}, {}, scope));
     (e2, ty, var) := Call.typeCall(e2, 0, paramInfo1);
     (_, _, mk) := matchTypes(paramType2, ty, e2, false);
 
@@ -813,126 +917,6 @@ algorithm
     matched := false;
   end if;
 end implicitConstructAndMatch2;
-
-//function checkValidBinaryOperatorOverload
-//  input String oper_name;
-//  input Function oper_func;
-//  input InstNode rec_node;
-//protected
-//  SourceInfo info;
-//algorithm
-//  info := InstNode.info(oper_func.node);
-//  checkOneOutput(oper_name, oper_func.outputs, rec_node, info);
-//  checkOutputType(oper_name, List.first(oper_func.outputs), rec_node, info);
-//  checkTwoInputs(oper_name, oper_func.inputs, rec_node, info);
-//end checkValidBinaryOperatorOverload;
-
-//function checkValidOperatorOverload
-//  input String oper_name;
-//  input Function oper_func;
-//  input InstNode rec_node;
-//protected
-//  Type ty1, ty2;
-//  InstNode out_class;
-//algorithm
-//  () := match oper_name
-//    case "'constructor'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), rec_node, InstNode.info(oper_func.node));
-//    then ();
-//    case "'0'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), rec_node, InstNode.info(oper_func.node));
-//    then ();
-//    case "'+'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), rec_node, InstNode.info(oper_func.node));
-//    then ();
-//    case "'-'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), rec_node, InstNode.info(oper_func.node));
-//    then ();
-//    case "'*'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), rec_node, InstNode.info(oper_func.node));
-//    then ();
-//    case "'/'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), rec_node, InstNode.info(oper_func.node));
-//    then ();
-//    case "'^'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), rec_node, InstNode.info(oper_func.node));
-//    then ();
-//    case "'and'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), NFBuiltin.BOOLEAN_NODE, InstNode.info(oper_func.node));
-//    then ();
-//    case "'or'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), NFBuiltin.BOOLEAN_NODE, InstNode.info(oper_func.node));
-//    then ();
-//    case "'not'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), NFBuiltin.BOOLEAN_NODE, InstNode.info(oper_func.node));
-//    then ();
-//    case "'String'" algorithm
-//      checkOneOutput(oper_name, oper_func.outputs, rec_node, InstNode.info(oper_func.node));
-//      checkOutputType(oper_name, List.first(oper_func.outputs), NFBuiltin.STRING_NODE, InstNode.info(oper_func.node));
-//    then ();
-//
-//    else ();
-//
-//  end match;
-//end checkValidOperatorOverload;
-
-//public
-//function checkOneOutput
-//  input String oper_name;
-//  input list<InstNode> outputs;
-//  input InstNode rec_node;
-//  input SourceInfo info;
-//protected
-//  InstNode out_class;
-//algorithm
-//  if listLength(outputs) <> 1 then
-//      Error.addSourceMessage(Error.OPERATOR_OVERLOADING_WARNING,
-//          {"Overloaded " + oper_name + " operator functions are required to have exactly one output. Found "
-//          + intString(listLength(outputs))}, info);
-//  end if;
-//end checkOneOutput;
-//
-//public
-//function checkTwoInputs
-//  input String oper_name;
-//  input list<InstNode> inputs;
-//  input InstNode rec_node;
-//  input SourceInfo info;
-//protected
-//  InstNode out_class;
-//algorithm
-//  if listLength(inputs) < 2 then
-//      Error.addSourceMessage(Error.OPERATOR_OVERLOADING_WARNING,
-//          {"Binary overloaded " + oper_name + " operator functions are required to have at least two inputs. Found "
-//          + intString(listLength(inputs))}, info);
-//  end if;
-//end checkTwoInputs;
-//
-//function checkOutputType
-//  input String oper_name;
-//  input InstNode outc;
-//  input InstNode expected;
-//  input SourceInfo info;
-//protected
-//  InstNode out_class;
-//algorithm
-//  out_class := InstNode.classScope(outc);
-//  if not InstNode.isSame(out_class, expected) then
-//    Error.addSourceMessage(Error.OPERATOR_OVERLOADING_WARNING,
-//      {"Wrong type for output of overloaded operator function '"+ oper_name +
-//        "'. Expected '" + InstNode.scopeName(expected) + "' Found '" + InstNode.scopeName(outc) + "'"}, info);
-//  end if;
-//end checkOutputType;
 
 function checkBinaryOperationAdd
   input Expression exp1;
@@ -1184,7 +1168,7 @@ protected
   Operator op;
 algorithm
   // Exponentiation always returns a Real value, so instead of checking if the types
-  // are compatible with ecah other we check if each type is compatible with Real.
+  // are compatible with each other we check if each type is compatible with Real.
   (e1, ty1, mk) := matchTypes(type1, Type.setArrayElementType(type1, Type.REAL()), exp1, true);
   valid := isCompatibleMatch(mk);
   (e2, ty2, mk) := matchTypes(type2, Type.setArrayElementType(type2, Type.REAL()), exp2, true);
@@ -1338,7 +1322,7 @@ algorithm
   //  checkValidOperatorOverload(opstr, fn, node1);
   //end for;
 
-  args := {(inExp1,inType1,var)};
+  args := {TypedArg.TYPED_ARG(NONE(), inExp1, inType1, var, Purity.PURE)};
   matchedFunctions := Function.matchFunctionsSilent(candidates, args, {}, info, vectorize = false);
 
   // We only allow exact matches for operator overloading. e.g. no casting or generic matches.
@@ -1354,8 +1338,9 @@ algorithm
     outExp := Expression.CALL(
       Call.makeTypedCall(
         matchedFunc.func,
-        list(Util.tuple31(a) for a in matchedFunc.args),
+        list(a.value for a in matchedFunc.args),
         var,
+        Purity.PURE,
         outType));
   else
     Error.addSourceMessage(Error.AMBIGUOUS_MATCHING_OPERATOR_FUNCTIONS_NFINST,
@@ -1363,6 +1348,8 @@ algorithm
        Function.candidateFuncListString(list(mfn.func for mfn in matchedFunctions))}, info);
     fail();
   end if;
+
+  outExp := Inline.inlineCallExp(outExp);
 end checkOverloadedUnaryOperator;
 
 function checkLogicalBinaryOperation
@@ -1428,7 +1415,7 @@ function checkRelationOperation
   input Expression exp2;
   input Type type2;
   input Variability var2;
-  input ExpOrigin.Type origin;
+  input InstContext.Type context;
   input SourceInfo info;
   output Expression outExp;
   output Type resultType;
@@ -1458,7 +1445,7 @@ algorithm
       algorithm
         // Print a warning for == or <> with Real operands in a model.
         o := operator.op;
-        if ExpOrigin.flagNotSet(origin, ExpOrigin.FUNCTION) and (o == Op.EQUAL or o == Op.NEQUAL) then
+        if not InstContext.inFunction(context) and (o == Op.EQUAL or o == Op.NEQUAL) then
           Error.addStrictMessage(Error.WARNING_RELATION_ON_REAL,
             {Expression.toString(outExp), Operator.symbol(operator, "")}, info);
         end if;
@@ -1491,499 +1478,6 @@ algorithm
 
   fail();
 end printUnresolvableTypeError;
-
-//
-//public function matchCallArgs
-//"@mahge:
-//  matches given call args with the expected or formal arguments for a function.
-//  if vectorization dimension (inVectDims) is given (is not empty) then the function
-//  works with vectorization mode.
-//  otherwise no vectorization will be done.
-//
-//  However if matching fails in no vect. mode due to dim mismatch then
-//  a vect dim will be returned from  NFTypeCheck.matchCallArgs and this
-//  function will start all over again with the new vect dimension."
-//
-//  input list<Expression> inArgs;
-//  input list<Type> inArgTypes;
-//  input list<Type> inExpectedTypes;
-//  input DAE.Dimensions inVectDims;
-//  output list<Expression> outFixedArgs;
-//  output DAE.Dimensions outVectDims;
-//algorithm
-//  (outFixedArgs, outVectDims):=
-//  matchcontinue (inArgs,inArgTypes,inExpectedTypes, inVectDims)
-//    local
-//      Expression e,e_1;
-//      list<Expression> restargs, fixedArgs;
-//      Type t1,t2;
-//      list<Type> restinty,restexpcty;
-//      DAE.Dimensions dims1, dims2;
-//      String e1Str, t1Str, t2Str, s1;
-//
-//    case ({},{},{},_) then ({}, inVectDims);
-//
-//    // No vectorization mode.
-//    // If things continue to match with no vect.
-//    // Then all is good.
-//    case (e::restargs, (t1 :: restinty), (t2 :: restexpcty), {})
-//      equation
-//        (e_1, {}) = matchCallArg(e,t1,t2,{});
-//
-//        (fixedArgs, {}) = matchCallArgs(restargs, restinty, restexpcty, {});
-//      then
-//        (e_1::fixedArgs, {});
-//
-//    // No vectorization mode.
-//    // If argument failed to match not because of dim mismatch
-//    // but due to actuall type mismatch then it is an invalid call and we fail here.
-//    case (e::_, (t1 :: _), (t2 :: _), {})
-//      equation
-//        failure((_,_) = matchCallArg(e,t1,t2,{}));
-//
-//        e1Str = ExpressionDump.printExpStr(e);
-//        t1Str = Types.unparseType(t1);
-//        t2Str = Types.unparseType(t2);
-//        s1 = "Failed to match or convert '" + e1Str + "' of type '" + t1Str +
-//             "' to type '" + t2Str + "'";
-//        Error.addSourceMessage(Error.INTERNAL_ERROR, {s1}, AbsynUtil.dummyInfo);
-//        true = Flags.isSet(Flags.FAILTRACE);
-//        Debug.traceln("- NFTypeCheck.matchCallArgs failed with type mismatch: " + t1Str + " tys: " + t2Str);
-//      then
-//        fail();
-//
-//    // No -> Yes vectorization mode.
-//    // If argument fails to match due to dim mistmatch. then we
-//    // have our vect. dim and we start from the begining.
-//    case (e::_, (t1 :: _), (t2 :: _), {})
-//      equation
-//        (_, dims1) = matchCallArg(e,t1,t2,{});
-//
-//        // This is just to be realllly sure. The cases above actually make sure of it.
-//        false = Expression.dimsEqual(dims1, {});
-//
-//        // Start from the first arg. This time with Vectorization.
-//        (fixedArgs, dims2) = matchCallArgs(inArgs,inArgTypes,inExpectedTypes, dims1);
-//      then
-//        (fixedArgs, dims2);
-//
-//    // Vectorization mode.
-//    case (e::restargs, (t1 :: restinty), (t2 :: restexpcty), dims1)
-//      equation
-//        false = Expression.dimsEqual(dims1, {});
-//        (e_1, dims1) = matchCallArg(e,t1,t2,dims1);
-//        (fixedArgs, dims1) = matchCallArgs(restargs, restinty, restexpcty, dims1);
-//      then
-//        (e_1::fixedArgs, dims1);
-//
-//
-//
-//    case (_::_,(_ :: _),(_ :: _), _)
-//      equation
-//        true = Flags.isSet(Flags.FAILTRACE);
-//        Debug.trace("- NFTypeCheck.matchCallArgs failed\n");
-//      then
-//        fail();
-//  end matchcontinue;
-//end matchCallArgs;
-//
-//
-//public function matchCallArg
-//"@mahge:
-//  matches a given call arg with the expected or formal argument for a function.
-//  if vectorization dimension (inVectDims) is given (is not empty) then the function
-//  works with vectorization mode.
-//  otherwise no vectorization will be done.
-//
-//  However if matching fails in no vect. mode due to dim mismatch then
-//  it will try to see if vectoriztion is possible. If so the vectorization dim is
-//  returned to NFTypeCheck.matchCallArg so that it can start matching from the begining
-//  with the new vect dim."
-//
-//  input Expression inArg;
-//  input Type inArgType;
-//  input Type inExpectedType;
-//  input DAE.Dimensions inVectDims;
-//  output Expression outArg;
-//  output DAE.Dimensions outVectDims;
-//algorithm
-//  (outArg, outVectDims) := matchcontinue (inArg,inArgType,inExpectedType,inVectDims)
-//    local
-//      Expression e,e_1;
-//      Type e_type,expected_type;
-//      String e1Str, t1Str, t2Str, s1;
-//      DAE.Dimensions dims1, dims2, foreachdim;
-//
-//
-//    // No vectorization mode.
-//    // Types match (i.e. dims match exactly). Then all is good
-//    case (e,e_type,expected_type, {})
-//      equation
-//        // Of course matchtype will make sure of this
-//        // but this is faster.
-//        dims1 = Types.getDimensions(e_type);
-//        dims2 = Types.getDimensions(expected_type);
-//        true = Expression.dimsEqual(dims1, dims2);
-//
-//        (e_1,_) = Types.matchType(e, e_type, expected_type, true);
-//      then
-//        (e_1, {});
-//
-//
-//    // No vectorization mode.
-//    // If it failed NOT because of dim mismatch but because
-//    // of actuall type mismatch then fail here.
-//    case (_,e_type,expected_type, {})
-//      equation
-//        dims1 = Types.getDimensions(e_type);
-//        dims2 = Types.getDimensions(expected_type);
-//        true = Expression.dimsEqual(dims1, dims2);
-//      then
-//        fail();
-//
-//    // No Vect. -> Vectorization mode.
-//    // We found a dim mistmatch. Try vectorizing. If vectorizing
-//    // matches, then this is our vectoriztion dimension.
-//    // N.B. We still have to start matching again from the first arg
-//    // with the new vectorization dimension.
-//    case (e,e_type,expected_type, {})
-//      equation
-//        dims1 = Types.getDimensions(e_type);
-//        dims2 = Types.getDimensions(expected_type);
-//
-//        false = Expression.dimsEqual(dims1, dims2);
-//
-//        foreachdim = findVectorizationDim(dims1,dims2);
-//
-//      then
-//        (e, foreachdim);
-//
-//
-//    // IN Vectorization mode!!!.
-//    case (e,e_type,expected_type, foreachdim)
-//      equation
-//        e_1 = checkVectorization(e,e_type,expected_type,foreachdim);
-//      then
-//        (e_1, foreachdim);
-//
-//
-//    case (e,e_type,expected_type, _)
-//      equation
-//        e1Str = ExpressionDump.printExpStr(e);
-//        t1Str = Types.unparseType(e_type);
-//        t2Str = Types.unparseType(expected_type);
-//        s1 = "Failed to match or convert '" + e1Str + "' of type '" + t1Str +
-//             "' to type '" + t2Str + "'";
-//        Error.addSourceMessage(Error.INTERNAL_ERROR, {s1}, AbsynUtil.dummyInfo);
-//        true = Flags.isSet(Flags.FAILTRACE);
-//        Debug.traceln("- NFTypeCheck.matchCallArg failed with type mismatch: " + t1Str + " tys: " + t2Str);
-//      then
-//        fail();
-//  end matchcontinue;
-//end matchCallArg;
-//
-//
-//protected function checkVectorization
-//"@mahge:
-//  checks if it is possible to vectorize a given argument to the
-//  expected or formal argument with the given vectorization dim.
-//  e.g. inForeachDim=[3,2]
-//       function F(input Integer[2]);
-//
-//       Integer a[2,3,2], b[2,2,2],s;
-//
-//       a is vectorizable with [3,2] => a[1]), a[2]
-//       b is not vectorizable with [3,2]
-//       s is vectorizable with [3,2] => {{s,s},{s,s},{s,s}}
-//
-//  N.B. The vectoriztion dim came from the first arg mismatch in
-//  NFTypeCheck.matchCallArg and all susequent args shoudl be vectorizable
-//  with that dim. This function checks that.
-//  "
-//  input Expression inArg;
-//  input Type inArgType;
-//  input Type inExpectedType;
-//  input DAE.Dimensions inForeachDim;
-//  output Expression outArg;
-//algorithm
-//  outArg := matchcontinue (inArg,inArgType,inExpectedType,inForeachDim)
-//    local
-//      Expression outExp;
-//      DAE.Dimensions expectedDims, argDims;
-//      String e1Str, t1Str, t2Str, s1;
-//      Type expcType;
-//
-//    // if types match (which also means dims match exactly).
-//    // Then we have to change the given argument to an array of
-//    // the vect. dim to have a 'foreach' argument
-//    case(_,_,_,_)
-//      equation
-//        // Of course matchtype will make sure of this
-//        // but this is faster.
-//        argDims = Types.getDimensions(inArgType);
-//        expectedDims = Types.getDimensions(inExpectedType);
-//        true = Expression.dimsEqual(argDims, expectedDims);
-//
-//        (outExp,_) = Types.matchType(inArg, inArgType, inExpectedType, false);
-//
-//        // create the array from the given arg to match the vectorization
-//        outExp = Expression.arrayFill(inForeachDim,outExp);
-//      then
-//        outExp;
-//
-//    // if dims don't match exactly. Then the given argument
-//    // must have the same dimension as our vecorization or 'foreach' dimension.
-//    // And the expected type will be lifeted to the 'foreach' dim and then
-//    // matched with the given argument
-//    case(_,_,_,_)
-//      equation
-//
-//        argDims = Types.getDimensions(inArgType);
-//
-//        // lift the expected type by 'foreach' dims
-//        expcType = Types.liftArrayListDims(inExpectedType,inForeachDim);
-//
-//        // Now the given type and the expected type must have the
-//        // same dimesions. Otherwise vectorization is not possible.
-//        expectedDims = Types.getDimensions(expcType);
-//        true = Expression.dimsEqual(argDims, expectedDims);
-//
-//        (outExp,_) = Types.matchType(inArg, inArgType, expcType, false);
-//      then
-//        outExp;
-//
-//    else
-//      equation
-//        argDims = Types.getDimensions(inArgType);
-//        expectedDims = Types.getDimensions(inExpectedType);
-//
-//        expectedDims = listAppend(inForeachDim,expectedDims);
-//
-//        e1Str = ExpressionDump.printExpStr(inArg);
-//        t1Str = Types.unparseType(inArgType);
-//        t2Str = Types.unparseType(inExpectedType);
-//        s1 = "Vectorization can not continue matching '" + e1Str + "' of type '" + t1Str +
-//             "' to type '" + t2Str + "'. Expected dimensions [" +
-//             ExpressionDump.printListStr(expectedDims,ExpressionDump.dimensionString,",") + "], found [" +
-//             ExpressionDump.printListStr(argDims,ExpressionDump.dimensionString,",") + "]";
-//
-//        Error.addSourceMessage(Error.INTERNAL_ERROR, {s1}, AbsynUtil.dummyInfo);
-//        true = Flags.isSet(Flags.FAILTRACE);
-//        Debug.traceln("- NFTypeCheck.checkVectorization failed ");
-//      then
-//        fail();
-//
-//   end matchcontinue;
-//
-//end checkVectorization;
-//
-//
-//public function findVectorizationDim
-//"@mahge:
-// This function basically finds the diff between two dims. The resulting dimension
-// is used for vectorizing calls.
-//
-// e.g. dim1=[2,3,4,2]  dim2=[4,2], findVectorizationDim(dim1,dim2) => [2,3]
-//      dim1=[2,3,4,2]  dim2=[3,4,2], findVectorizationDim(dim1,dim2) => [2]
-//      dim1=[2,3,4,2]  dim2=[4,3], fail
-// "
-//  input DAE.Dimensions inGivenDims;
-//  input DAE.Dimensions inExpectedDims;
-//  output DAE.Dimensions outVectDims;
-//algorithm
-//  outVectDims := matchcontinue(inGivenDims, inExpectedDims)
-//    local
-//      DAE.Dimensions dims1;
-//      DAE.Dimension dim1;
-//
-//    case(_, {}) then inGivenDims;
-//
-//    case(_, _)
-//      equation
-//        true = Expression.dimsEqual(inGivenDims, inExpectedDims);
-//      then
-//        {};
-//
-//    case(dim1::dims1, _)
-//      equation
-//        true = listLength(inGivenDims) > listLength(inExpectedDims);
-//        dims1 = findVectorizationDim(dims1,inExpectedDims);
-//      then
-//        dim1::dims1;
-//
-//    case(_::_, _)
-//      equation
-//        true = Flags.isSet(Flags.FAILTRACE);
-//        Debug.traceln("- NFTypeCheck.findVectorizationDim failed with dimensions: [" +
-//         ExpressionDump.printListStr(inGivenDims,ExpressionDump.dimensionString,",") + "] vs [" +
-//         ExpressionDump.printListStr(inExpectedDims,ExpressionDump.dimensionString,",") + "].");
-//      then
-//        fail();
-//
-//  end matchcontinue;
-//
-//end findVectorizationDim;
-//
-//
-//public function makeCallReturnType
-//"@mahge:
-//   makes the return type for function.
-//   i.e if a list of types is given then it is a tuple ret function.
-// "
-//  input list<Type> inTypeLst;
-//  output Type outType;
-//  output Boolean outBoolean;
-//algorithm
-//  (outType,outBoolean) := match (inTypeLst)
-//    local
-//      Type ty;
-//
-//    case {} then (DAE.T_NORETCALL(DAE.emptyTypeSource), false);
-//
-//    case {ty} then (ty, false);
-//
-//    else  (DAE.T_TUPLE(inTypeLst,NONE(),DAE.emptyTypeSource), true);
-//
-//  end match;
-//end makeCallReturnType;
-//
-//
-//
-//public function vectorizeCall
-//"@mahge:
-//   Vectorizes calls. Most of the work is done
-//   vectorizeCall2.
-//   This function get a list of functions with each arg
-//   subscripted from vectorizeCall2. e.g. {F(a[1,1]),F(a[1,2]),F(a[2,1]),F(a[2,2])}
-//   The it converts the list to an array of 'inForEachdim' dims using
-//   Expression.listToArray. i.e.
-//   {F(a[1,1]),F(a[1,2]),F(a[2,1]),F(a[2,2])} with vec. dim [2,2] will be
-//   {{F(a[1,1]),F(a[1,2])}, {F(a[2,1])F(a[2,2])}}
-//
-// "
-//  input Absyn.Path inFnName;
-//  input list<Expression> inArgs;
-//  input DAE.CallAttributes inAttrs;
-//  input Type inRetType;
-//  input DAE.Dimensions inForEachdim;
-//  output Expression outExp;
-//  output Type outType;
-//algorithm
-//  (outExp,outType) := matchcontinue (inFnName,inArgs,inAttrs,inRetType,inForEachdim)
-//    local
-//      list<Expression> callLst;
-//      Expression callArr;
-//      Type outtype;
-//
-//
-//    // If no 'forEachdim' then no vectorization
-//    case(_, _, _, _, {}) then (DAE.CALL(inFnName, inArgs, inAttrs), inRetType);
-//
-//
-//    case(_, _::_, _, _, _)
-//      equation
-//        // Get the call list with args subscripted for each value in 'foreaach' dim.
-//        callLst = vectorizeCall2(inFnName, inArgs, inAttrs, inForEachdim, {});
-//
-//        // Create the array of calls from the list
-//        callArr = Expression.listToArray(callLst,inForEachdim);
-//
-//        // lift the retType to 'forEachDim' dims
-//        outtype = Types.liftArrayListDims(inRetType, inForEachdim);
-//      then
-//        (callArr, outtype);
-//
-//    else
-//      equation
-//        Error.addMessage(Error.INTERNAL_ERROR, {"NFTypeCheck.vectorizeCall failed."});
-//      then
-//        fail();
-//
-//  end matchcontinue;
-//end vectorizeCall;
-//
-//
-//public function vectorizeCall2
-//"@mahge:
-//   Vectorizes calls. This function takes a list of args for a function
-//   and a vectorization dim. then it subscripts the args for each idex
-//   of the vec. dim and creates a function call for each subscripted
-//   arg list. Then retuns the list of functions.
-//   e.g.
-//   for argLst ( a, {{b,b,b},{c,c,c}} ) and functionname F with vect. dim of [2,3]
-//   this function creates the list
-//
-//   {F(a[1,1],b), F(a[1,2],b), F(a[1,3],b), F(a[2,1],c), F(a[2,2],c), F(a[2,3],c)}
-// "
-//  input Absyn.Path inFnName;
-//  input list<Expression> inArgs;
-//  input DAE.CallAttributes inAttrs;
-//  input DAE.Dimensions inDims;
-//  input list<Expression> inAccumCalls;
-//  output list<Expression> outAccumCalls;
-//algorithm
-//  outAccumCalls := matchcontinue(inFnName, inArgs, inAttrs, inDims, inAccumCalls)
-//    local
-//      DAE.Dimension dim;
-//      DAE.Dimensions dims;
-//      Expression idx;
-//      list<Expression> calls, subedargs;
-//
-//    case (_, _, _, {}, _) then DAE.CALL(inFnName, inArgs, inAttrs) :: inAccumCalls;
-//
-//    case (_, _, _, dim :: dims, _)
-//      equation
-//        (idx, dim) = getNextIndex(dim);
-//
-//        subedargs = List.map1(inArgs, Expression.subscriptExp, {DAE.INDEX(idx)});
-//
-//        calls = vectorizeCall2(inFnName, subedargs, inAttrs, dims, inAccumCalls);
-//        calls = vectorizeCall2(inFnName, inArgs, inAttrs, dim :: dims, calls);
-//      then
-//        calls;
-//
-//    else inAccumCalls;
-//
-//  end matchcontinue;
-//end vectorizeCall2;
-//
-//protected function getNextIndex
-//  "Returns the next index given a dimension, and updates the dimension. Fails
-//  when there are no indices left."
-//  input DAE.Dimension inDim;
-//  output Expression outNextIndex;
-//  output DAE.Dimension outDim;
-//algorithm
-//  (outNextIndex, outDim) := match(inDim)
-//    local
-//      Integer new_idx, dim_size;
-//      Absyn.Path p, ep;
-//      String l;
-//      list<String> l_rest;
-//
-//    case DAE.DIM_INTEGER(integer = 0) then fail();
-//    case DAE.DIM_ENUM(size = 0) then fail();
-//
-//    case DAE.DIM_INTEGER(integer = new_idx)
-//      equation
-//        dim_size = new_idx - 1;
-//      then
-//        (DAE.ICONST(new_idx), DAE.DIM_INTEGER(dim_size));
-//
-//    // Assumes that the enum has been reversed with reverseEnumType.
-//    case DAE.DIM_ENUM(p, l :: l_rest, new_idx)
-//      equation
-//        ep = AbsynUtil.joinPaths(p, Absyn.IDENT(l));
-//        dim_size = new_idx - 1;
-//      then
-//        (DAE.ENUM_LITERAL(ep, new_idx), DAE.DIM_ENUM(p, l_rest, dim_size));
-//  end match;
-//end getNextIndex;
-
-
-// ************************************************************** //
-//   END: TypeCall helper functions
-// ************************************************************** //
 
 function matchExpressions
   input output Expression exp1;
@@ -2157,6 +1651,13 @@ algorithm
       then
         compatibleType;
 
+    case Type.CONDITIONAL_ARRAY()
+      algorithm
+        (expression, compatibleType, matchKind) :=
+          matchConditionalArrayTypes(actualType, expectedType, expression, allowUnknown);
+      then
+        compatibleType;
+
     else
       algorithm
         Error.assertion(false, getInstanceName() + " got unknown type.", sourceInfo());
@@ -2253,6 +1754,20 @@ algorithm
       then
         (Type.box(type2), MatchKind.GENERIC);
 
+    case (Type.CONDITIONAL_ARRAY(), _)
+      algorithm
+        (exp1, exp2, compatibleType, matchKind) :=
+          matchConditionalArrayExp(exp1, type1, exp2, type2, allowUnknown);
+      then
+        (compatibleType, matchKind);
+
+    case (_, Type.CONDITIONAL_ARRAY())
+      algorithm
+        (exp2, exp1, compatibleType, matchKind) :=
+          matchConditionalArrayExp(exp2, type2, exp1, type1, allowUnknown);
+      then
+        (compatibleType, matchKind);
+
     else (Type.UNKNOWN(), MatchKind.NOT_COMPATIBLE);
   end match;
 end matchExpressions_cast;
@@ -2301,15 +1816,20 @@ algorithm
           matchKind := MatchKind.NOT_COMPATIBLE;
         else
           for i in 1:arrayLength(comps1) loop
-            e :: elements := elements;
-            (e, _, mk) := matchTypes(InstNode.getType(comps1[i]), InstNode.getType(comps2[i]), e, allowUnknown);
-            matched_elements := e :: matched_elements;
+            comp2 := InstNode.component(comps2[i]);
 
-            if mk == MatchKind.CAST then
-              matchKind := mk;
-            elseif not isValidPlugCompatibleMatch(mk) then
-              matchKind := MatchKind.NOT_COMPATIBLE;
-              break;
+            if Component.isTyped(comp2) then
+              e :: elements := elements;
+              comp1 := InstNode.component(comps1[i]);
+              (e, _, mk) := matchTypes(Component.getType(comp1), Component.getType(comp2), e, allowUnknown);
+              matched_elements := e :: matched_elements;
+
+              if mk == MatchKind.CAST then
+                matchKind := mk;
+              elseif not isValidPlugCompatibleMatch(mk) then
+                matchKind := MatchKind.NOT_COMPATIBLE;
+                break;
+              end if;
             end if;
           end for;
 
@@ -2351,10 +1871,10 @@ algorithm
           matchKind := MatchKind.NOT_COMPATIBLE;
         else
           for i in 1:arrayLength(comps1) loop
-            comp1 := InstNode.component(comps1[i]);
             comp2 := InstNode.component(comps2[i]);
 
             if Component.isTyped(comp2) then
+              comp1 := InstNode.component(comps1[i]);
               (_, _, mk) := matchTypes(Component.getType(comp1), Component.getType(comp2), expression, allowUnknown);
 
               if not isValidPlugCompatibleMatch(mk) then
@@ -2681,6 +2201,184 @@ algorithm
   compatibleType := Type.box(compatibleType);
 end matchBoxedExpressions;
 
+function matchConditionalArrayExp
+  input output Expression condExp;
+  input Type condType;
+  input output Expression otherExp;
+  input Type otherType;
+  input Boolean allowUnknown;
+        output Type compatibleType;
+        output MatchKind matchKind;
+protected
+  Type true_ty, false_ty, cond_ty, comp_ty1, comp_ty2;
+  Expression e1_1, e2_1, e1_2, e2_2;
+  NFType.Branch branch;
+  MatchKind mk1, mk2;
+  Boolean compat1, compat2;
+algorithm
+  Type.CONDITIONAL_ARRAY(trueType = true_ty, falseType = false_ty, matchedBranch = branch) := condType;
+
+  if branch == NFType.Branch.NONE then
+    // If no branch has already been selected as the correct branch, check both of them.
+    (e1_1, e2_1, comp_ty1, mk1) :=
+      matchExpressions(condExp, true_ty, otherExp, otherType, allowUnknown);
+
+    (e1_2, e2_2, comp_ty2, mk2) :=
+      matchExpressions(condExp, false_ty, otherExp, otherType, allowUnknown);
+
+    compat1 := isCompatibleMatch(mk1);
+    compat2 := isCompatibleMatch(mk2);
+
+    (compatibleType, otherExp, matchKind) := match (isCompatibleMatch(mk1), isCompatibleMatch(mk2))
+      // Both branches matched, one of them is probably itself of a conditional
+      // array type since the types should otherwise have different dimensions.
+      case (true, true)
+        algorithm
+          cond_ty := Type.CONDITIONAL_ARRAY(comp_ty1, comp_ty2, NFType.Branch.NONE);
+          condExp := Expression.typeCast(condExp, cond_ty);
+        then
+          (comp_ty1, otherExp, mk1);
+
+      // Only the first branch matches, mark it as the correct branch.
+      case (true, _)
+        algorithm
+          cond_ty := Type.CONDITIONAL_ARRAY(comp_ty1, comp_ty2, NFType.Branch.TRUE);
+          condExp := Expression.typeCast(e1_1, cond_ty);
+        then
+          (comp_ty1, e2_1, mk1);
+
+      // Only the second branch matches, mark it as the correct branch.
+      case (_, true)
+        algorithm
+          cond_ty := Type.CONDITIONAL_ARRAY(comp_ty1, comp_ty2, NFType.Branch.FALSE);
+          condExp := Expression.typeCast(e1_2, cond_ty);
+        then
+          (comp_ty2, e2_2, mk2);
+
+      else (condType, condExp, mk1);
+    end match;
+  else
+    if branch == NFType.Branch.TRUE then
+      (condExp, otherExp, compatibleType, matchKind) :=
+        matchExpressions(condExp, true_ty, otherExp, otherType, allowUnknown);
+      cond_ty := Type.CONDITIONAL_ARRAY(compatibleType, false_ty, branch);
+    else
+      (condExp, otherExp, compatibleType, matchKind) :=
+        matchExpressions(condExp, false_ty, otherExp, otherType, allowUnknown);
+      cond_ty := Type.CONDITIONAL_ARRAY(true_ty, compatibleType, branch);
+    end if;
+
+    if isCompatibleMatch(matchKind) then
+      condExp := Expression.typeCast(condExp, cond_ty);
+    end if;
+  end if;
+end matchConditionalArrayExp;
+
+function matchConditionalArrayTypes
+  input Type actualType;
+  input Type expectedType;
+  input output Expression exp;
+  input Boolean allowUnknown;
+        output Type compatibleType;
+        output MatchKind matchKind;
+protected
+  Type actual_true_ty, actual_false_ty;
+  Type expected_true_ty, expected_false_ty;
+  Type true_ty, false_ty;
+  Expression true_exp, false_exp;
+algorithm
+  Type.CONDITIONAL_ARRAY(trueType = actual_true_ty, falseType = actual_false_ty) := actualType;
+  Type.CONDITIONAL_ARRAY(trueType = expected_true_ty, falseType = expected_false_ty) := expectedType;
+
+  () := match exp
+    case Expression.IF()
+      algorithm
+        (true_exp, true_ty, matchKind) :=
+          matchTypes(actual_true_ty, expected_true_ty, exp.trueBranch, allowUnknown);
+
+        if not isCompatibleMatch(matchKind) then
+          compatibleType := actualType;
+          return;
+        end if;
+
+        (false_exp, false_ty, matchKind) :=
+          matchTypes(actual_false_ty, expected_false_ty, exp.falseBranch, allowUnknown);
+
+        if not isCompatibleMatch(matchKind) then
+          compatibleType := actualType;
+          return;
+        end if;
+
+        compatibleType := Type.CONDITIONAL_ARRAY(true_ty, false_ty, NFType.Branch.NONE);
+        exp := Expression.IF(compatibleType, exp.condition, true_exp, false_exp);
+      then
+        ();
+  end match;
+end matchConditionalArrayTypes;
+
+function matchConditionalArrayTypes_cast
+  input Type condType;
+  input Type expectedType;
+  input output Expression exp;
+  input Boolean allowUnknown;
+        output Type compatibleType;
+        output MatchKind matchKind;
+protected
+  Type true_ty, false_ty, cond_ty, comp_ty1, comp_ty2;
+  Expression e1, e2;
+  NFType.Branch branch;
+  MatchKind mk1, mk2;
+algorithm
+  Type.CONDITIONAL_ARRAY(trueType = true_ty, falseType = false_ty, matchedBranch = branch) := condType;
+
+  if branch == NFType.Branch.NONE then
+    // If no branch has already been selected as the correct branch, check both of them.
+    (e1, comp_ty1, mk1) := matchTypes(true_ty, expectedType, exp, allowUnknown);
+    (e2, comp_ty2, mk2) := matchTypes(false_ty, expectedType, exp, allowUnknown);
+
+    (compatibleType, matchKind) := match (isCompatibleMatch(mk1), isCompatibleMatch(mk2))
+      // Both branches matched, one of them is probably itself of a conditional
+      // array type since the types should otherwise have different dimensions.
+      case (true, true)
+        algorithm
+          cond_ty := Type.CONDITIONAL_ARRAY(comp_ty1, comp_ty2, NFType.Branch.NONE);
+          exp := Expression.typeCast(exp, cond_ty);
+        then
+          (comp_ty1, mk1);
+
+      // Only the first branch matches, mark it as the correct branch.
+      case (true, _)
+        algorithm
+          cond_ty := Type.CONDITIONAL_ARRAY(comp_ty1, false_ty, NFType.Branch.TRUE);
+          exp := Expression.typeCast(e1, cond_ty);
+        then
+          (comp_ty1, mk1);
+
+      // Only the second branch matches, mark it as the correct branch.
+      case (_, true)
+        algorithm
+          cond_ty := Type.CONDITIONAL_ARRAY(true_ty, comp_ty2, NFType.Branch.FALSE);
+          exp := Expression.typeCast(e2, cond_ty);
+        then
+          (comp_ty2, mk2);
+
+      else (condType, mk1);
+    end match;
+  else
+    if branch == NFType.Branch.TRUE then
+      (exp, compatibleType, matchKind) := matchTypes(true_ty, expectedType, exp, allowUnknown);
+      cond_ty := Type.CONDITIONAL_ARRAY(compatibleType, false_ty, branch);
+    else
+      (exp, compatibleType, matchKind) := matchTypes(false_ty, expectedType, exp, allowUnknown);
+      cond_ty := Type.CONDITIONAL_ARRAY(true_ty, compatibleType, branch);
+    end if;
+
+    if isCompatibleMatch(matchKind) then
+      exp := Expression.typeCast(exp, cond_ty);
+    end if;
+  end if;
+end matchConditionalArrayTypes_cast;
+
 function matchTypes_cast
   input Type actualType;
   input Type expectedType;
@@ -2751,14 +2449,14 @@ algorithm
 
     case (_, Type.POLYMORPHIC())
       algorithm
-        expression := Expression.BOX(expression);
-        // matchKind := MatchKind.GENERIC(expectedType.b,actualType);
+        (expression, compatibleType, matchKind) :=
+          matchPolymorphic(expectedType.name, actualType, expression);
       then
-        (Type.METABOXED(actualType), MatchKind.GENERIC);
+        (compatibleType, matchKind);
 
     case (Type.POLYMORPHIC(), _)
       algorithm
-        // expression := Expression.UNBOX(expression, Expression.typeOf(expression));
+        // expression := Expression.unbox(expression);
         // matchKind := MatchKind.GENERIC(expectedType.b,actualType);
       then
         (expectedType, MatchKind.GENERIC);
@@ -2766,10 +2464,71 @@ algorithm
     // Expected type is any, any actual type matches.
     case (_, Type.ANY()) then (expectedType, MatchKind.EXACT);
 
+    case (Type.CONDITIONAL_ARRAY(), _)
+      algorithm
+        (expression, compatibleType, matchKind) :=
+          matchConditionalArrayTypes_cast(actualType, expectedType, expression, allowUnknown);
+      then
+        (compatibleType, matchKind);
+
     // Anything else is not compatible.
     else (Type.UNKNOWN(), MatchKind.NOT_COMPATIBLE);
   end match;
 end matchTypes_cast;
+
+function matchPolymorphic
+  input String polymorphicName;
+  input Type actualType;
+  input output Expression exp;
+        output Type compatibleType;
+        output MatchKind matchKind;
+algorithm
+  (compatibleType, matchKind) := match polymorphicName
+    // Any type, used when we don't want the expression to be boxed.
+    case "__Any" then (actualType, MatchKind.GENERIC);
+
+    // Any scalar type.
+    case "__Scalar"
+      algorithm
+        matchKind := if Type.isScalar(actualType) then MatchKind.GENERIC else MatchKind.NOT_COMPATIBLE;
+      then
+        (actualType, matchKind);
+
+    // Any array type.
+    case "__Array"
+      algorithm
+        matchKind := if Type.isArray(actualType) then MatchKind.GENERIC else MatchKind.NOT_COMPATIBLE;
+      then
+        (actualType, matchKind);
+
+    case "__Connector"
+      algorithm
+        matchKind := if Type.isScalar(actualType) and Expression.isConnector(exp) then
+          MatchKind.GENERIC else MatchKind.NOT_COMPATIBLE;
+      then
+        (actualType, matchKind);
+
+    case "__ComponentExpression"
+      algorithm
+        matchKind := if Type.isScalar(actualType) and Expression.isComponentExpression(exp) then
+          MatchKind.GENERIC else MatchKind.NOT_COMPATIBLE;
+      then
+        (actualType, matchKind);
+
+    case "__Block"
+      algorithm
+        matchKind := if Type.isComplex(actualType) then MatchKind.GENERIC else MatchKind.NOT_COMPATIBLE;
+      then
+        (actualType, matchKind);
+
+    else
+      algorithm
+        exp := Expression.box(exp);
+      then
+        (Type.METABOXED(actualType), MatchKind.GENERIC);
+
+  end match;
+end matchPolymorphic;
 
 function getRangeType
   input Expression startExp;
@@ -2827,6 +2586,7 @@ algorithm
       Integer step;
       Expression step_exp, dim_exp;
       Variability var;
+      Purity pur;
 
     case (Expression.INTEGER(), NONE(), Expression.INTEGER())
       then Dimension.fromInteger(max(stopExp.value - startExp.value + 1, 0));
@@ -2859,15 +2619,18 @@ algorithm
         dim_exp := Expression.BINARY(stopExp, Operator.makeSub(Type.INTEGER()), startExp);
         var := Prefixes.variabilityMax(Expression.variability(stopExp),
                                        Expression.variability(startExp));
+        pur := Prefixes.purityMin(Expression.purity(stopExp),
+                                  Expression.purity(startExp));
 
         if isSome(stepExp) then
           SOME(step_exp) := stepExp;
           var := Prefixes.variabilityMax(var, Expression.variability(step_exp));
-          dim_exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.DIV_INT, {dim_exp, step_exp}, var));
+          pur := Prefixes.purityMin(pur, Expression.purity(step_exp));
+          dim_exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.DIV_INT, {dim_exp, step_exp}, var, pur));
         end if;
 
         dim_exp := Expression.BINARY(dim_exp, Operator.makeAdd(Type.INTEGER()), Expression.INTEGER(1));
-        dim_exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.MAX_INT, {dim_exp, Expression.INTEGER(0)}, var));
+        dim_exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.MAX_INT, {dim_exp, Expression.INTEGER(0)}, var, pur));
         dim_exp := SimplifyExp.simplify(dim_exp);
       then
         Dimension.fromExp(dim_exp, var);
@@ -2887,6 +2650,7 @@ algorithm
       Real start, step;
       Expression dim_exp, step_exp;
       Variability var;
+      Purity pur;
 
     case (Expression.REAL(), NONE(), Expression.REAL())
       then Dimension.fromInteger(Util.realRangeSize(startExp.value, 1.0, stopExp.value));
@@ -2910,16 +2674,18 @@ algorithm
         dim_exp := Expression.BINARY(stopExp, Operator.makeSub(Type.REAL()), startExp);
         var := Prefixes.variabilityMax(Expression.variability(stopExp),
                                        Expression.variability(startExp));
+        pur := Prefixes.purityMin(Expression.purity(stopExp), Expression.purity(startExp));
 
         if isSome(stepExp) then
           SOME(step_exp) := stepExp;
           var := Prefixes.variabilityMax(var, Expression.variability(step_exp));
+          pur := Prefixes.purityMin(pur, Expression.purity(step_exp));
           dim_exp := Expression.BINARY(dim_exp, Operator.makeDiv(Type.REAL()), step_exp);
           dim_exp := Expression.BINARY(dim_exp, Operator.makeAdd(Type.REAL()), Expression.REAL(5e-15));
         end if;
 
-        dim_exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.FLOOR, {dim_exp}, var));
-        dim_exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.INTEGER_REAL, {dim_exp}, var));
+        dim_exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.FLOOR, {dim_exp}, var, pur));
+        dim_exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.INTEGER_REAL, {dim_exp}, var, pur));
         dim_exp := Expression.BINARY(dim_exp, Operator.makeAdd(Type.INTEGER()), Expression.INTEGER(1));
         dim_exp := SimplifyExp.simplify(dim_exp);
       then
@@ -2954,10 +2720,13 @@ algorithm
         else
           var := Prefixes.variabilityMax(Expression.variability(startExp),
                                          Expression.variability(stopExp));
+          // [if start == stop then 1 else if start < stop then 2 else 0]
           dim_exp := Expression.IF(
+            Type.INTEGER(),
             Expression.RELATION(startExp, Operator.makeEqual(Type.BOOLEAN()), stopExp),
             Expression.INTEGER(1),
             Expression.IF(
+              Type.INTEGER(),
               Expression.RELATION(startExp, Operator.makeLess(Type.BOOLEAN()), stopExp),
               Expression.INTEGER(2),
               Expression.INTEGER(0)));
@@ -3019,34 +2788,27 @@ function matchBinding
   input Type componentType;
   input String name;
   input InstNode component;
+  input InstContext.Type context;
 algorithm
   () := match binding
     local
       MatchKind ty_match;
       Expression exp;
-      Type ty, exp_ty, comp_ty;
+      Type ty, bind_ty, comp_ty;
       list<list<Dimension>> dims;
 
     case Binding.TYPED_BINDING(bindingExp = exp)
       algorithm
-        (exp_ty, comp_ty) := match exp
-          case Expression.BINDING_EXP() guard binding.eachType == NFBinding.EachType.NOT_EACH
-            algorithm
-              dims := list(Type.arrayDims(InstNode.getType(p)) for p in listRest(exp.parents));
-            then
-              (exp.expType, Type.liftArrayLeftList(componentType, List.flattenReverse(dims)));
-
-          else (binding.bindingType, componentType);
-        end match;
-
-        (exp, ty, ty_match) := matchTypes(exp_ty, comp_ty, exp, true);
+        (bind_ty, comp_ty) := elaborateBindingType(exp, component, binding.bindingType, componentType);
+        (exp, ty, ty_match) := matchTypes(bind_ty, comp_ty, exp, true);
 
         if not isValidAssignmentMatch(ty_match) then
-          printBindingTypeError(name, binding, comp_ty, exp_ty, component);
+          binding.bindingExp := Expression.expandSplitIndices(exp);
+          printBindingTypeError(name, binding, comp_ty, bind_ty, component, context);
           fail();
         elseif isCastMatch(ty_match) then
           binding := Binding.TYPED_BINDING(exp, ty, binding.variability, binding.eachType,
-            binding.evaluated, binding.isFlattened, binding.info);
+            binding.evalState, binding.isFlattened, binding.source, binding.info);
         end if;
       then
         ();
@@ -3061,12 +2823,83 @@ algorithm
   end match;
 end matchBinding;
 
+function elaborateBindingType
+  "If the binding expression comes from a modifier, returns the type of the
+   actual binding expression and adds dimensions to the component type to match.
+   This is done so that modifiers are type checked properly, i.e.:
+
+    model A
+      Real x;
+    end A;
+
+    model B
+      A a[3](x = {1, 2});
+    end B;
+
+   means the bindingExp will be {1, 2}[<x, 1>] and result in [2] being added to
+   the binding type and [3] to the component type such that the type mismatch is
+   detected."
+  input Expression bindingExp;
+  input InstNode component;
+  input output Type bindingType;
+  input output Type componentType;
+protected
+  list<Dimension> dims;
+
+  function isParent
+    input InstNode parent;
+    input InstNode node;
+    output Boolean res;
+  protected
+    InstNode n = InstNode.getDerivedNode(node);
+    InstNode p;
+  algorithm
+    res := match n
+      case InstNode.COMPONENT_NODE(nodeType = InstNodeType.REDECLARED_COMP(parent = p))
+        then InstNode.refEqual(parent, n) or isParent(parent, p);
+      case InstNode.COMPONENT_NODE()
+        then InstNode.refEqual(parent, n) or isParent(parent, n.parent);
+      else false;
+    end match;
+  end isParent;
+
+algorithm
+  () := match bindingExp
+    case Expression.SUBSCRIPTED_EXP()
+      algorithm
+        bindingType := Expression.typeOf(bindingExp.exp);
+
+        dims := {};
+        for s in bindingExp.subscripts loop
+          dims := match s
+            case Subscript.SPLIT_INDEX()
+              algorithm
+                if isParent(s.node, component) then
+                  dims := Type.nthDimension(InstNode.getType(s.node), s.dimIndex) :: dims;
+                end if;
+              then
+                dims;
+
+            else Dimension.UNKNOWN() :: dims;
+          end match;
+        end for;
+
+        dims := listReverseInPlace(dims);
+        componentType := Type.liftArrayLeftList(componentType, dims);
+      then
+        ();
+
+    else ();
+  end match;
+end elaborateBindingType;
+
 function printBindingTypeError
   input String name;
   input Binding binding;
   input Type componentType;
   input Type bindingType;
   input InstNode component;
+  input InstContext.Type context;
 protected
   SourceInfo binding_info, comp_info;
   String bind_ty_str, comp_ty_str;
@@ -3083,18 +2916,18 @@ algorithm
                              Type.arrayElementType(componentType),
                              Expression.EMPTY(bindingType), true);
 
-    if not Config.getGraphicsExpMode() then // forget errors when handling annotations
-	    if isValidAssignmentMatch(mk) then
-	      Error.addMultiSourceMessage(Error.VARIABLE_BINDING_DIMS_MISMATCH,
-	        {name, Binding.toString(binding),
-	         Dimension.toStringList(Type.arrayDims(componentType)),
-	         Dimension.toStringList(Type.arrayDims(bindingType))},
-	        {binding_info, comp_info});
-	    else
-	      Error.addMultiSourceMessage(Error.VARIABLE_BINDING_TYPE_MISMATCH,
-	        {name, Binding.toString(binding), Type.toString(componentType),
-	         Type.toString(bindingType)}, {binding_info, comp_info});
-	    end if;
+    if not InstContext.inAnnotation(context) then // forget errors when handling annotations
+      if isValidAssignmentMatch(mk) then
+        Error.addMultiSourceMessage(Error.VARIABLE_BINDING_DIMS_MISMATCH,
+          {name, Binding.toString(binding),
+           Dimension.toStringList(Type.arrayDims(componentType)),
+           Dimension.toStringList(Type.arrayDims(bindingType))},
+          {binding_info, comp_info});
+      else
+        Error.addMultiSourceMessage(Error.VARIABLE_BINDING_TYPE_MISMATCH,
+          {name, Binding.toString(binding), Type.toString(componentType),
+           Type.toString(bindingType)}, {binding_info, comp_info});
+      end if;
     end if;
   end if;
 end printBindingTypeError;
@@ -3182,7 +3015,7 @@ function checkSumComplexType
   input SourceInfo info;
   output Boolean valid = true;
 protected
-  InstNode cls_node, op_node;
+  InstNode cls_node;
   Class cls;
 algorithm
   Type.COMPLEX(cls = cls_node) := ty;
@@ -3198,64 +3031,76 @@ algorithm
 end checkSumComplexType;
 
 function matchIfBranches
+  "Matches the types of the branches of an if-expression. The branches must have
+   the same element type and number of dimensions, but might have different
+   dimensions as long as the condition can be evaluated later to select one of
+   the branches."
   input output Expression trueBranch;
   input Type trueType;
   input output Expression falseBranch;
   input Type falseType;
-  input Expression condition;
-  input Variability conditionVar;
   input Boolean allowUnknown = false;
         output Type compatibleType;
         output MatchKind matchKind;
-protected
-  Expression tdim_exp, fdim_exp;
-  Type tety, fety;
-  list<Dimension> tdims, fdims, dims;
-  Dimension fdim;
-  Variability var;
 algorithm
-  tety := Type.arrayElementType(trueType);
-  fety := Type.arrayElementType(falseType);
-  tdims := Type.arrayDims(trueType);
-  fdims := Type.arrayDims(falseType);
+  (compatibleType, matchKind) := match (trueType, falseType)
+    local
+      MatchKind mk1, mk2;
+      Type cty1, cty2;
 
-  // Both branches must have the same number of dimensions.
-  if listLength(tdims) <> listLength(fdims) then
-    matchKind := MatchKind.NOT_COMPATIBLE;
-    compatibleType := trueType;
-    return;
-  end if;
+    case (Type.ARRAY(), Type.ARRAY())
+      algorithm
+        // Check that both branches have the same element type.
+        (trueBranch, falseBranch, compatibleType, matchKind) :=
+          matchExpressions(trueBranch, trueType.elementType,
+                           falseBranch, falseType.elementType, allowUnknown);
 
-  (trueBranch, falseBranch, compatibleType, matchKind) :=
-    matchExpressions(trueBranch, tety, falseBranch, fety);
+        if isIncompatibleMatch(matchKind) then
+          return;
+        end if;
 
-  // Both branches must have the same element type.
-  if isIncompatibleMatch(matchKind) then
-    return;
-  end if;
+        // Check that both branches have the same dimensions.
+        (compatibleType, matchKind) :=
+          matchArrayDims(trueType.dimensions, falseType.dimensions,
+                         compatibleType, matchKind, allowUnknown);
 
-  dims := {};
+        if isIncompatibleMatch(matchKind) and
+           listLength(trueType.dimensions) == listLength(falseType.dimensions) then
+          // If the branches have the same element type and number of dimensions
+          // but the dimensions aren't the same, create a conditional array type.
+          compatibleType := Type.CONDITIONAL_ARRAY(Type.copyElementType(trueType, compatibleType),
+                                                   Type.copyElementType(falseType, compatibleType),
+                                                   NFType.Branch.NONE);
+          matchKind := MatchKind.EXACT;
+        end if;
+      then
+        (compatibleType, matchKind);
 
-  for tdim in tdims loop
-    fdim :: fdims := fdims;
+    case (_, _)
+      guard Type.isConditionalArray(trueType) or Type.isConditionalArray(falseType)
+      algorithm
+        (trueBranch, falseBranch, compatibleType, matchKind) :=
+          matchExpressions(trueBranch, Type.arrayElementType(trueType),
+                           falseBranch, Type.arrayElementType(falseType), allowUnknown);
 
-    if Dimension.isEqual(tdim, fdim) then
-      dims := tdim :: dims;
-    elseif conditionVar <= Variability.PARAMETER and
-           Dimension.isKnown(tdim, allowExp = true) and
-           Dimension.isKnown(fdim, allowExp = true) then
-      tdim_exp := Dimension.sizeExp(tdim);
-      fdim_exp := Dimension.sizeExp(fdim);
-      var := Prefixes.variabilityMax(Expression.variability(tdim_exp),
-                                     Expression.variability(fdim_exp));
-      dims := Dimension.fromExp(Expression.IF(condition, tdim_exp, fdim_exp), var) :: dims;
+        if isIncompatibleMatch(matchKind) then
+          return;
+        end if;
+
+        compatibleType := Type.CONDITIONAL_ARRAY(Type.copyElementType(trueType, compatibleType),
+                                                 Type.copyElementType(falseType, compatibleType),
+                                                 NFType.Branch.NONE);
+      then
+        (compatibleType, matchKind);
+
     else
-      matchKind := MatchKind.NOT_COMPATIBLE;
-      return;
-    end if;
-  end for;
+      algorithm
+        (trueBranch, falseBranch, compatibleType, matchKind) :=
+          matchExpressions(trueBranch, trueType, falseBranch, falseType, allowUnknown);
+      then
+        (compatibleType, matchKind);
 
-  compatibleType := Type.liftArrayLeftList(compatibleType, listReverse(dims));
+  end match;
 end matchIfBranches;
 
 annotation(__OpenModelica_Interface="frontend");

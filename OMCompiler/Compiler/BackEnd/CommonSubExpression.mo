@@ -56,7 +56,7 @@ import Expression;
 import ExpressionDump;
 import ExpressionSolve;
 import ExpressionSimplify;
-import GC;
+import GCExt;
 import Global;
 import HashSet;
 import HashTableExpToExp;
@@ -173,7 +173,7 @@ algorithm
     if Flags.isSet(Flags.DUMP_CSE_VERBOSE) then
       print("Hastable after analysis\n" + UNDERLINE + "\n");
       BaseHashTable.dumpHashTable(HT);
-      ExpandableArray.dump(exarray, "\nExpandable Array after analysis", printCSEEquation);
+      print(ExpandableArray.toString(exarray, "\nExpandable Array after analysis", printCSEEquation));
     end if;
 
     if index > 0 then
@@ -184,7 +184,7 @@ algorithm
         print("\n\nPhase 2: Dependencies\n" + BORDER + "\n\n");
         print("Hashtable after dependencies\n" + UNDERLINE + "\n");
         BaseHashTable.dumpHashTable(HT);
-        ExpandableArray.dump(exarray, "\nExpandable Array after dependencies", printCSEEquation);
+        print(ExpandableArray.toString(exarray, "\nExpandable Array after dependencies", printCSEEquation));
         print("\n\nPhase3: Substitution\n" + BORDER + "\n");
       end if;
 
@@ -195,7 +195,7 @@ algorithm
       if Flags.isSet(Flags.DUMP_CSE_VERBOSE) then
         print("Hashtable after substitution\n" + UNDERLINE + "\n");
         BaseHashTable.dumpHashTable(HT);
-        ExpandableArray.dump(exarray, "\nExpandable Array after substitution", printCSEEquation);
+        print(ExpandableArray.toString(exarray, "\nExpandable Array after substitution", printCSEEquation));
         print("\n\nPhase 4: Create CSE-Equations\n" + BORDER + "\n\n");
       end if;
 
@@ -220,7 +220,7 @@ algorithm
         BackendDump.dumpVariables(syst.orderedVars, "########### Updated Variable List (" + BackendDump.printBackendDAEType2String(shared.backendDAEType) + ")");
         BackendDump.dumpEquationArray(syst.orderedEqs, "########### Updated Equation List (" + BackendDump.printBackendDAEType2String(shared.backendDAEType) + ")");
         BackendDump.dumpVariables(globalKnownVars, "########### Updated globalKnownVars (" + BackendDump.printBackendDAEType2String(shared.backendDAEType) + ")");
-        ExpandableArray.dump(exarray, "\n########### CSE Replacements", printCSEEquation);
+        print(ExpandableArray.toString(exarray, "\n########### CSE Replacements", printCSEEquation));
       end if;
 
       if Flags.isSet(Flags.DUMP_CSE_VERBOSE) then
@@ -396,7 +396,7 @@ algorithm
     CSE_EQUATION(cse=cse, call=call, dependencies=dependencies) := ExpandableArray.get(id, exarray);
     call := substituteExp(call, inCall, inCSE);
 
-    //ExpandableArray.dump(exarray, "substituteDependencies", printCSEEquation);
+    //ExpandableArray.toString(exarray, "substituteDependencies", printCSEEquation);
     //print("Exp: " + ExpressionDump.printExpStr(call) + "\n");
 
     if not BaseHashTable.hasKey(call, ht) then
@@ -415,7 +415,7 @@ algorithm
       //print("inCall: " + ExpressionDump.printExpStr(inCall) + "\n");
       //print("inCSE: " + ExpressionDump.printExpStr(inCSE) + "\n");
       //BaseHashTable.dumpHashTable(ht);
-      //ExpandableArray.dump(exarray, "substituteDependencies", printCSEEquation);
+      //ExpandableArray.toString(exarray, "substituteDependencies", printCSEEquation);
     end if;
   end for;
 end substituteDependencies;
@@ -545,7 +545,7 @@ algorithm
 
             // Save the rhs (call) as bind expression and set fixed=true
             var := BackendVariable.setBindExp(var, SOME(call));
-            var := BackendVariable.setVarFixed(var, true);
+            var := BackendVariable.makeParam(var);
 
             // If it is a tuple or a record (or record within tuple)
             if intGt(listLength(varList), 1) or Expression.isTuple(cse) then
@@ -647,6 +647,24 @@ algorithm
         end for;
      then ();
 
+    case(DAE.CALL(expLst = expLst))
+      algorithm
+        for exp in expLst loop
+          if Expression.isNotWild(exp) then
+            globalKnownVarHT := addConstantCseVarsToGlobalKnownVarHT(exp, globalKnownVarHT);
+          end if;
+        end for;
+    then();
+
+    case(DAE.RECORD(exps = expLst))
+      algorithm
+        for exp in expLst loop
+          if Expression.isNotWild(exp) then
+            globalKnownVarHT := addConstantCseVarsToGlobalKnownVarHT(exp, globalKnownVarHT);
+          end if;
+        end for;
+    then();
+
     case DAE.CREF(componentRef=cr, ty = DAE.T_COMPLEX(complexClassType=ClassInf.RECORD(_)))
       algorithm
         globalKnownVarHT := BaseHashSet.add(cr, globalKnownVarHT);
@@ -671,6 +689,11 @@ algorithm
       algorithm
         globalKnownVarHT := BaseHashSet.add(cr, globalKnownVarHT);
      then ();
+
+     else algorithm
+        Error.addInternalError("addConstantCseVarsToGlobalKnownVarHT failed. Reached else case that should not be reachable while handling CSE expression:\n" + ExpressionDump.dumpExpStr(cse_crExp, 0), sourceInfo());
+        fail();
+      then();
   end match;
 end addConstantCseVarsToGlobalKnownVarHT;
 
@@ -988,7 +1011,7 @@ end isEquationRedundant2;
 
 protected function isEquationRedundant_flatten
   "Same as isEquationRedundant but flattens equations of form 'tuple = tuple'
-  (e.g. (a,_,b) = (_,c,d) => b=d), if left tuple elements are in globalKnownVarHT and adds them to globalKnownVars"
+  (e.g. (a,_,b) = (_,c,d) => b=d), if right tuple elements are in globalKnownVarHT add left tuple elements to globalKnownVars"
   input BackendDAE.Equation inEq;
   input output HashSet.HashSet globalKnownVarHT;
   input output BackendDAE.Variables globalKnownVars;
@@ -1000,8 +1023,10 @@ algorithm
     local
       DAE.Exp exp1, exp2;
       list<DAE.Exp> lhs, rhs;
+      list<BackendDAE.Var> varList;
       Boolean isRedundant;
 
+    // a = b
     case BackendDAE.EQUATION(exp=exp1, scalar=exp2)
       algorithm
         isRedundant := Expression.expEqual(exp1, exp2);
@@ -1013,10 +1038,33 @@ algorithm
         end if;
      then isRedundant;
 
+    // (a,b) = (c,d)
     case BackendDAE.COMPLEX_EQUATION(left=DAE.TUPLE(lhs), right=DAE.TUPLE(rhs)) guard (listLength(lhs) == listLength(rhs))
       algorithm
         (globalKnownVarHT, globalKnownVars, orderedVars, isRedundant) := isEquationRedundant_flatten2(lhs, rhs, globalKnownVarHT, globalKnownVars, orderedVars);
      then isRedundant;
+
+  // (a,b) = c
+  case BackendDAE.COMPLEX_EQUATION(_, exp1 as DAE.TUPLE(lhs), exp2, _, _)
+    algorithm
+      isRedundant := Expression.expEqual(exp1, exp2);
+      if not isRedundant then
+        isGlobalKnown := allArgsInGlobalKnownVars({exp2}, globalKnownVarHT);
+        if isGlobalKnown then
+          for expMem in lhs loop
+            // create variable with bind exp
+            varList := createVarsForExp(expMem, {});
+            for var in varList loop
+              // Add var to globalKnownVars
+              var := BackendVariable.setBindExp(var, SOME(exp2));
+              globalKnownVars := BackendVariable.addVar(var, globalKnownVars);
+              // Add cref(s) to globalKnownVarHT
+              globalKnownVarHT := addConstantCseVarsToGlobalKnownVarHT(expMem, globalKnownVarHT);
+            end for;
+          end for;
+        end if;
+      end if;
+   then isRedundant;
 
     case BackendDAE.COMPLEX_EQUATION(left=exp1, right=exp2)
       algorithm
@@ -1388,6 +1436,12 @@ algorithm
       value = DAE.CREF(cr, DAE.T_BOOL_DEFAULT);
     then (value, inIndex + 1);
 
+    case DAE.T_ENUMERATION() equation
+      str = inPrefix + intString(inIndex);
+      cr = DAE.CREF_IDENT(str, inType, {});
+      value = DAE.CREF(cr, inType);
+    then (value, inIndex + 1);
+
     case DAE.T_CLOCK() equation
       str = inPrefix + intString(inIndex);
       cr = DAE.CREF_IDENT(str, DAE.T_CLOCK_DEFAULT, {});
@@ -1427,9 +1481,7 @@ algorithm
     then (value, inIndex + 1);
 
     else equation
-      if Flags.isSet(Flags.DUMP_CSE_VERBOSE) then
-        print("  - createReturnExp failed for " + Types.printTypeStr(inType) + "\n");
-      end if;
+      Error.addInternalError("  - createReturnExp failed for " + Types.printTypeStr(inType) + "\n", sourceInfo());
     then fail();
   end match;
 end createReturnExp;
@@ -1577,7 +1629,10 @@ algorithm
     then outVarLst;
 
     case DAE.RECORD(exps=expLst) equation
-      print("This should never appear\n");
+      outVarLst = List.fold(expLst, createVarsForExp, inAccumVarLst);
+    then outVarLst;
+
+    case DAE.CALL(expLst=expLst) equation
       outVarLst = List.fold(expLst, createVarsForExp, inAccumVarLst);
     then outVarLst;
 
@@ -1595,10 +1650,9 @@ protected
 algorithm
   b := matchcontinue(cr)
     case(DAE.CREF_IDENT(ident=s))
-     then (substring(s, 1, 4) == "$cse");
+     then (stringLength(s) > 3 and substring(s, 1, 4) == "$cse");
     case(DAE.CREF_QUAL(ident=s))
-     then (substring(s, 1, 4) == "$cse");
-    else false;
+     then (stringLength(s) > 3 and substring(s, 1, 4) == "$cse");
   end matchcontinue;
 end isCSECref;
 
@@ -1960,8 +2014,8 @@ algorithm
       cseLst := commonSubExpressionFind(m, mT, vars, eqs, isInitial);
           //if not listEmpty(cseLst) then print("update "+stringDelimitList(List.map(cseLst, printCSE), "\n")+"\n");end if;
       syst := commonSubExpressionUpdate(cseLst, m, mT, sysIn);
-      GC.free(m);
-      GC.free(mT);
+      GCExt.free(m);
+      GCExt.free(mT);
       syst.orderedEqs := eqs;
           //print("done this eqSystem\n");
           //BackendDump.dumpEqSystem(syst, "eqSystem");
@@ -2116,8 +2170,8 @@ algorithm
            cses := SHORTCUT_CSE(adjEqs,varIdx)::cses;
          end if;
        end for; //end the variables
-       GC.free(m);
-       GC.free(mT);
+       GCExt.free(m);
+       GCExt.free(mT);
      end for;  //end all partitions
       //print("the SHORTPATH cses : \n"+stringDelimitList(List.map(cses, printCSE), "\n")+"\n");
     end if;
@@ -2175,10 +2229,10 @@ algorithm
          //print("is equal\n");
       // build CSE
       sharedVarIdcs = List.map1(sharedVarIdcs, List.getIndexFirst, varMap);
-      varIdcs1 = listAppend(varIdcs1, varIdcs2);
-      varIdcs1 = List.map1(varIdcs1, List.getIndexFirst, varMap);
+      varIdcs2 = listAppend(varIdcs1, varIdcs2);
+      varIdcs2 = List.map1(varIdcs2, List.getIndexFirst, varMap);
       eqIdcs = List.map1(partition, List.getIndexFirst, eqMap);
-    then ASSIGNMENT_CSE(eqIdcs, sharedVarIdcs, varIdcs1)::cseIn;
+    then ASSIGNMENT_CSE(eqIdcs, sharedVarIdcs, varIdcs2)::cseIn;
   else cseIn;
   end matchcontinue;
 end getCSE2;
@@ -2242,12 +2296,12 @@ algorithm
             eqMapArr := listArray(eqMap);
             varMapArr := listArray(varMap);
             sharedVarIdcs := list(arrayGet(varMapArr, i) for i in sharedVarIdcs);
-            varIdcs1 := listAppend(varIdcs1, varIdcs2);
-            varIdcs1 := list(arrayGet(varMapArr, i) for i in varIdcs1);
+            varIdcs2 := listAppend(varIdcs1, varIdcs2);
+            varIdcs2 := list(arrayGet(varMapArr, i) for i in varIdcs2);
             eqIdcs := list(arrayGet(eqMapArr,i) for i in loop1);
-            GC.free(eqMapArr);
-            GC.free(varMapArr);
-            cseLst := ASSIGNMENT_CSE(eqIdcs, sharedVarIdcs, varIdcs1)::cseLst;
+            GCExt.free(eqMapArr);
+            GCExt.free(varMapArr);
+            cseLst := ASSIGNMENT_CSE(eqIdcs, sharedVarIdcs, varIdcs2)::cseLst;
           end if;
       end for;
     then cseLst;
@@ -2268,7 +2322,7 @@ author:Waurich TUD 2014-11"
   input BackendDAE.EqSystem sysIn;
   output BackendDAE.EqSystem sysOut;
 algorithm
-  sysOut := matchcontinue (tplsIn, m, mT, sysIn)
+  sysOut := match (tplsIn, m, mT, sysIn)
     local
       Integer sharedVar, eqIdx1, eqIdx2, varIdx1, varIdx2, varIdx_remain, varIdxAlias, eqIdxDel, eqIdxLeft, n;
       list<Integer> eqIdcs, eqs1, eqs2, vars1, vars2, aliasVars;
@@ -2347,7 +2401,7 @@ case (SHORTCUT_CSE(eqIdcs={eqIdx1, eqIdx2}, sharedVar=sharedVar)::rest, _, _, sy
       (lhs1, _) = ExpressionSolve.solve(lhs2, rhs2, varExp);
 
       (_,lhs1,rhs1) = cancelExpressions(lhs1,rhs1);
-      n = listLength(Expression.getAllCrefs(Expression.makeDiff(lhs1,rhs1)));
+      n = listLength(Expression.getAllCrefs(Expression.expSub(lhs1,rhs1)));
         //print("n1 "+intString(n1)+"\n");
         //print("n2 "+intString(n2)+"\n");
 
@@ -2363,7 +2417,7 @@ case (SHORTCUT_CSE(eqIdcs={eqIdx1, eqIdx2}, sharedVar=sharedVar)::rest, _, _, sy
     then commonSubExpressionUpdate(rest, m, mT, syst);
  case (_::rest, _, _, _)
   then commonSubExpressionUpdate(rest, m, mT, sysIn);
-  end matchcontinue;
+  end match;
 end commonSubExpressionUpdate;
 
 

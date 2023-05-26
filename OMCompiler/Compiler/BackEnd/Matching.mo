@@ -82,22 +82,25 @@ protected
 algorithm
   ass1 := arrayCreate(N, -1);
   ass2 := arrayCreate(N, -1);
-  (ass1, ass2, true) := ContinueMatching(m, N, N, ass1, ass2, true);
+  (ass1, ass2, true, _, _) := ContinueMatching(m, N, N, ass1, ass2, true);
 end PerfectMatching;
 
 public function RegularMatching "
   This function returns at least a partial matching for singular systems, starting from scratch.
-  Unmatched nodes are represented by -1."
+  Unmatched nodes are represented by -1. The eMark and vMark vectors are only relevant if
+  perfectMatching = false."
   input BackendDAE.AdjacencyMatrix m;
   input Integer nVars;
   input Integer nEqns;
-  output array<Integer> ass1 "eqn := ass1[var]";
-  output array<Integer> ass2 "var := ass2[eqn]";
+  output array<Integer> ass1      "eqn := ass1[var]";
+  output array<Integer> ass2      "var := ass2[eqn]";
   output Boolean perfectMatching;
+  output array<Boolean> eMark     "equations contained in the minimal structurally singular subset";
+  output array<Boolean> vMark     "variables contained in the minimal structurally singular subset";
 algorithm
   ass1 := arrayCreate(nVars, -1);
   ass2 := arrayCreate(nEqns, -1);
-  (ass1, ass2, perfectMatching) := ContinueMatching(m, nVars, nEqns, ass1, ass2, false);
+  (ass1, ass2, perfectMatching, eMark, vMark) := ContinueMatching(m, nVars, nEqns, ass1, ass2, false);
 end RegularMatching;
 
 public function ContinueMatching "
@@ -110,9 +113,10 @@ public function ContinueMatching "
   input output array<Integer> ass2 "var := ass2[eqn]";
   input Boolean stopAtSingularity = false;
   output Boolean perfectMatching = true;
+  output array<Boolean> eMark;
+  output array<Boolean> vMark;
 protected
   Integer i, j;
-  array<Boolean> eMark, vMark;
   array<Integer> eMarkIx, vMarkIx;
   Integer eMarkN=0, vMarkN=0;
   Boolean success;
@@ -3888,7 +3892,7 @@ algorithm
         false = intEq(L,level[r1]);
         (r2::unmatched) = listReverse(unMatched);
         l = level[r2];
-        unmatched = listAppend(unmatched,r2::unmatchedRows);
+        unmatched = listAppend(unmatched,r2::unmatchedRows) annotation(__OpenModelica_DisableListAppendWarning=true);
         ABMPDFS(unmatchedRows,i,l,nv,ne,m,mT,level,colptrs,ass1,ass2,{});
       then ();
     case (_,_,r1::_,{},_,_,_,_,_,_,_,_,_,_)
@@ -5316,21 +5320,20 @@ public function PFPlusExternal
   output BackendDAE.EqSystem osyst;
   output BackendDAE.Shared oshared;
   output BackendDAE.StructurallySingularSystemHandlerArg outArg;
+protected
+  Integer nvars,neqns;
 algorithm
+  neqns := BackendDAEUtil.systemSize(isyst);
+  nvars := BackendVariable.daenumVariables(isyst);
   (osyst,oshared,outArg) :=
   matchcontinue (isyst,ishared,clearMatching,inMatchingOptions,sssHandler,inArg)
     local
-      Integer nvars,neqns;
       array<Integer> vec1,vec2;
       BackendDAE.StructurallySingularSystemHandlerArg arg;
       BackendDAE.EqSystem syst;
       BackendDAE.Shared shared;
-    case (_,_,_,_,_,_)
+    case (_,_,_,_,_,_) guard intGt(nvars,0) and intGt(neqns,0)
       equation
-        neqns = BackendDAEUtil.systemSize(isyst);
-        nvars = BackendVariable.daenumVariables(isyst);
-        true = intGt(nvars,0);
-        true = intGt(neqns,0);
         (vec1,vec2) = getAssignment(clearMatching,nvars,neqns,isyst);
         true = if not clearMatching then BackendDAEEXT.setAssignment(neqns, nvars, vec1, vec2) else true;
         (vec1,vec2,syst,shared,arg) = matchingExternal({},false,5,Config.getCheapMatchingAlgorithm(),if clearMatching then 1 else 0,isyst,ishared,nvars, neqns, vec1, vec2, inMatchingOptions, sssHandler, inArg);
@@ -5338,12 +5341,8 @@ algorithm
       then
         (syst,shared,arg);
     // fail case if system is empty
-    case (_,_,_,_,_,_)
+    case (_,_,_,_,_,_) guard not intGt(nvars,0) and not intGt(neqns,0)
       equation
-        neqns = BackendDAEUtil.systemSize(isyst);
-        nvars = BackendVariable.daenumVariables(isyst);
-        false = intGt(nvars,0);
-        false = intGt(neqns,0);
         vec1 = listArray({});
         vec2 = listArray({});
         syst = BackendDAEUtil.setEqSystMatching(isyst,BackendDAE.MATCHING(vec2,vec1,{}));
@@ -5633,7 +5632,7 @@ algorithm
         syst := isyst;
 
         /* check if index type is solvable and is unprocessed and if index reduction is activated */
-        if not Flags.getConfigBool(Flags.NO_ASSC) and BackendDAEUtil.hasIndexTypeSolvableAndUnprocessedScalar(syst) and BackendDAEUtil.doIndexReduction(inMatchingOptions) then
+        if (not Flags.getConfigBool(Flags.NO_ASSC)) and BackendDAEUtil.hasIndexTypeSolvableAndUnprocessedScalar(syst) and BackendDAEUtil.doIndexReduction(inMatchingOptions) then
           /* set the system to processed so that it gets analyzed only once */
           syst := BackendDAEUtil.setAnalyticalToStructuralProcessed(syst, true);
 

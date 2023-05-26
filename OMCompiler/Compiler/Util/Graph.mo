@@ -64,7 +64,7 @@ public function buildGraph
     output list<NodeType> outEdges;
   end EdgeFunc;
 algorithm
-  outGraph := List.threadTuple(inNodes, List.map1(inNodes, inEdgeFunc, inEdgeArg));
+  outGraph := List.zip(inNodes, List.map1(inNodes, inEdgeFunc, inEdgeArg));
 end buildGraph;
 
 public function emptyGraph
@@ -987,7 +987,7 @@ algorithm
       updateForbiddenColorArrayInt(indexes, inColored, forbiddenColor, inNode);
     end for;
   else
-    Error.addSourceMessage(Error.INTERNAL_ERROR, {"Graph.addForbiddenColors failed."}, sourceInfo());
+    Error.addSourceMessage(Error.INTERNAL_ERROR, {"Graph.addForbiddenColorsInt failed."}, sourceInfo());
     fail();
   end try;
 end addForbiddenColorsInt;

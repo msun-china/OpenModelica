@@ -81,13 +81,11 @@ type FlatEdges = NFConnections.BrokenEdges
 protected
 import Absyn;
 import NFBuiltin;
-import NFCall.Call;
-import NFClass.Class;
+import Call = NFCall;
+import Ceval = NFCeval;
+import Class = NFClass;
 import Dimension = NFDimension;
 import NFFunction.Function;
-import NFHashTable;
-import NFHashTable3;
-import NFHashTableCG;
 import NFInstNode.InstNode;
 import Operator = NFOperator;
 import NFOperator.Op;
@@ -97,12 +95,13 @@ import Type = NFType;
 import MetaModelica.Dangerous.listReverseInPlace;
 import Connector = NFConnector;
 import ElementSource;
-import NFTyping.ExpOrigin;
 import Typing = NFTyping;
 import NFPrefixes.Variability;
 import Error;
 import Connections = NFConnections;
 import Connection = NFConnection;
+import InstContext = NFInstContext;
+import UnorderedMap;
 
 type Edge  = tuple<ComponentRef,ComponentRef> "an edge is a tuple with two component references";
 type Edges = list<Edge> "A list of edges";
@@ -140,6 +139,9 @@ type ConnectionsOperator = enumeration(
   NOT_OPERATOR
 );
 
+type CrefCrefTable = UnorderedMap<ComponentRef, ComponentRef>;
+type CrefIndexTable = UnorderedMap<ComponentRef, Integer>;
+type CrefRootsTable = UnorderedMap<ComponentRef, DefiniteRoots>;
 
 public
 function handleOverconstrainedConnections
@@ -158,8 +160,13 @@ function handleOverconstrainedConnections
    - Connections.uniqueRootIndices"
   input output FlatModel flatModel;
   input Connections conns;
-  input String modelNameQualified;
+  input IsDeleted isDeleted;
   output FlatEdges outBroken;
+
+  partial function IsDeleted
+    input ComponentRef cref;
+    output Boolean res;
+  end IsDeleted;
 protected
   ComponentRef lhs, rhs, cref;
   DAE.ElementSource source;
@@ -169,24 +176,24 @@ protected
   Call call;
   list<Expression> lst;
   Integer priority;
-  Expression root, msg;
+  Expression root, msg, arg1, arg2;
   Connector c1, c2;
   list<ComponentRef> lhs_crefs, rhs_crefs;
   Boolean print_trace = Flags.isSet(Flags.CGRAPH);
-  ExpOrigin.Type origin;
+  InstContext.Type context;
   String name;
 algorithm
-  origin := intBitOr(ExpOrigin.EQUATION, ExpOrigin.CONNECT);
+  context := intBitOr(NFInstContext.EQUATION, NFInstContext.CONNECT);
 
   // go over all equations, connect, Connection.branch
   for conn in conns.connections loop
     Connection.CONNECTION(lhs = c1, rhs = c2) := conn;
 
-    lhs_crefs := getOverconstrainedCrefs(c1);
-    rhs_crefs := getOverconstrainedCrefs(c2);
+    lhs_crefs := getOverconstrainedCrefs(c1, isDeleted);
+    rhs_crefs := getOverconstrainedCrefs(c2, isDeleted);
 
     if not listEmpty(lhs_crefs) then
-      eqlBroken := generateEqualityConstraintEquation(c1.name, c1.ty, c2.name, c2.ty, origin, c1.source);
+      eqlBroken := generateEqualityConstraintEquation(c1.name, c1.ty, c2.name, c2.ty, context, c1.source, isDeleted);
       graph := List.threadFold(lhs_crefs, rhs_crefs,
         function addConnection(brokenEquations = eqlBroken, printTrace = print_trace), graph);
     end if;
@@ -204,13 +211,12 @@ algorithm
 
           case ConnectionsOperator.POTENTIAL_ROOT
             algorithm
-              graph := match lst
-                case {Expression.CREF(cref = cref)}
-                  then addPotentialRoot(cref, 0, print_trace, graph);
-                case {Expression.CREF(cref = cref), Expression.INTEGER(priority)}
-                  then addPotentialRoot(cref, priority, print_trace, graph);
-              end match;
-            then eql;
+              {arg1, arg2} := lst;
+              Expression.CREF(cref = cref) := arg1;
+              Expression.INTEGER(value = priority) := Ceval.evalExp(arg2);
+              graph := addPotentialRoot(cref, priority, print_trace, graph);
+            then
+              eql;
 
           case ConnectionsOperator.UNIQUE_ROOT
             algorithm
@@ -238,9 +244,9 @@ algorithm
   // now we have the graph, remove the broken connects and evaluate the equation operators
   eql := listReverseInPlace(eql);
   ieql := flatModel.initialEquations;
-  (eql, ieql, connected, broken) := handleOverconstrainedConnections_dispatch(graph, modelNameQualified, eql, ieql);
+  (eql, ieql, connected, broken) := handleOverconstrainedConnections_dispatch(graph, flatModel.name, eql, ieql);
 
-  eql := removeBrokenConnects(eql, connected, broken);
+  eql := removeBrokenConnects(eql, connected, broken, isDeleted);
 
   flatModel.equations := eql;
   flatModel.initialEquations := ieql;
@@ -253,18 +259,21 @@ function generateEqualityConstraintEquation
   input Type lhs_ty;
   input ComponentRef crhs;
   input Type rhs_ty;
-  input ExpOrigin.Type origin;
+  input InstContext.Type context;
   input DAE.ElementSource source;
+  input IsDeleted isDeleted;
   output list<Equation> eqsEqualityConstraint = {};
+
+  partial function IsDeleted
+    input ComponentRef cref;
+    output Boolean res;
+  end IsDeleted;
 protected
-  ComponentRef lhs, rhs, cref, fcref_rhs, fcref_lhs, lhsArr, rhsArr;
-  list<Equation> eql = {};
-  list<Expression> lst;
+  ComponentRef lhs, rhs, fcref_rhs, fcref_lhs, lhsArr, rhsArr;
   Type ty, ty1, ty2;
   Integer priority;
+  list<Connection> conns;
   Expression root, msg;
-  Connector c1, c2, cc1, cc2;
-  list<Connector> cl1, cl2, lhsl, rhsl;
   Equation replaceEq;
   Expression expLHS, expRHS;
   InstNode fn_node_lhs, fn_node_rhs;
@@ -274,66 +283,65 @@ algorithm
     return;
   end if;
 
-  if not (ComponentRef.isDeleted(clhs) or ComponentRef.isDeleted(crhs)) then
-    cl1 := NFConnections.makeConnectors(clhs, lhs_ty, source);
-    cl2 := NFConnections.makeConnectors(crhs, rhs_ty, source);
+  conns := NFConnections.makeConnections(clhs, lhs_ty, crhs, rhs_ty, source, isDeleted);
 
-    for c1 in cl1 loop
-      c2 :: cl2 := cl2;
+  for c in conns loop
+    for sconn in Connection.split(c) loop
+      for conn in Connection.scalarizePrefix(sconn) loop
+        lhs := Connector.name(conn.lhs);
+        rhs := Connector.name(conn.rhs);
 
-      lhsl := Connector.split(c1);
-      rhsl := Connector.split(c2);
+        if isOverconstrainedCref(lhs) and isOverconstrainedCref(rhs) then
+          lhs := getOverconstrainedCref(lhs);
+          rhs := getOverconstrainedCref(rhs);
 
-      for cc1 in lhsl loop
-        cc2 :: rhsl := rhsl;
-        if not (Connector.isDeleted(cc1) or Connector.isDeleted(cc2)) then
-          lhs := Connector.name(cc1);
-          rhs := Connector.name(cc2);
-          if isOverconstrainedCref(lhs) and isOverconstrainedCref(rhs) then
-            lhs := getOverconstrainedCref(lhs);
-            rhs := getOverconstrainedCref(rhs);
+          lhsArr := ComponentRef.stripSubscripts(lhs);
+          rhsArr := ComponentRef.stripSubscripts(rhs);
 
-            lhsArr := ComponentRef.stripSubscripts(lhs);
-            rhsArr := ComponentRef.stripSubscripts(rhs);
+          ty1 := ComponentRef.getComponentType(lhsArr);
+          ty2 := ComponentRef.getComponentType(rhsArr);
 
-            ty1 := ComponentRef.getComponentType(lhsArr);
-            ty2 := ComponentRef.getComponentType(rhsArr);
+          fcref_rhs := Function.lookupFunctionSimple("equalityConstraint", InstNode.classScope(ComponentRef.node(lhs)), context);
+          (fcref_rhs, fn_node_rhs, _) := Function.instFunctionRef(fcref_rhs, context, ElementSource.getInfo(source));
+          expRHS := Expression.CALL(Call.UNTYPED_CALL(fcref_rhs, {Expression.CREF(ty1, lhsArr), Expression.CREF(ty2, rhsArr)}, {}, fn_node_rhs));
 
-            fcref_rhs := Function.lookupFunctionSimple("equalityConstraint", InstNode.classScope(ComponentRef.node(lhs)));
-            (fcref_rhs, fn_node_rhs, _) := Function.instFunctionRef(fcref_rhs, ElementSource.getInfo(source));
-            expRHS := Expression.CALL(Call.UNTYPED_CALL(fcref_rhs, {Expression.CREF(ty1, lhsArr), Expression.CREF(ty2, rhsArr)}, {}, fn_node_rhs));
+          (expRHS, ty, var) := Typing.typeExp(expRHS, context, ElementSource.getInfo(source));
 
-            (expRHS, ty, var) := Typing.typeExp(expRHS, origin, ElementSource.getInfo(source));
+          fcref_lhs := Function.lookupFunctionSimple("fill", InstNode.topScope(ComponentRef.node(lhs)), context);
+          (fcref_lhs, fn_node_lhs, _) := Function.instFunctionRef(fcref_lhs, context, ElementSource.getInfo(source));
+          expLHS := Expression.CALL(Call.UNTYPED_CALL(fcref_lhs, Expression.REAL(0.0)::List.map(Type.arrayDims(ty), Dimension.sizeExp), {}, fn_node_lhs));
 
-            fcref_lhs := Function.lookupFunctionSimple("fill", InstNode.topScope(ComponentRef.node(clhs)));
-            (fcref_lhs, fn_node_lhs, _) := Function.instFunctionRef(fcref_lhs, ElementSource.getInfo(source));
-            expLHS := Expression.CALL(Call.UNTYPED_CALL(fcref_lhs, Expression.REAL(0.0)::List.map(Type.arrayDims(ty), Dimension.sizeExp), {}, fn_node_lhs));
+          (expLHS, ty, var) := Typing.typeExp(expLHS, context, ElementSource.getInfo(source));
 
-            (expLHS, ty, var) := Typing.typeExp(expLHS, origin, ElementSource.getInfo(source));
+          replaceEq := Equation.EQUALITY(expRHS, expLHS, ty, InstNode.EMPTY_NODE(), source);
 
-            replaceEq := Equation.EQUALITY(expRHS, expLHS, ty, source);
+          eqsEqualityConstraint := {replaceEq};
 
-            eqsEqualityConstraint := {replaceEq};
-
-            return;
-          end if;
+          return;
         end if;
       end for;
     end for;
-  end if;
+  end for;
 end generateEqualityConstraintEquation;
 
 protected
 
 function getOverconstrainedCrefs
   input Connector conn;
+  input IsDeleted isDeleted;
   output list<ComponentRef> crefs;
+
+  partial function IsDeleted
+    input ComponentRef cref;
+    output Boolean res;
+  end IsDeleted;
 protected
   list<Connector> conns;
 algorithm
-  conns := Connector.split(conn, scalarize = NFConnector.ScalarizeSetting.PREFIX);
+  conns := Connector.split(conn);
+  conns := List.mapFlat(conns, Connector.scalarizePrefix);
   crefs := list(getOverconstrainedCref(c.name) for c
-    guard not Connector.isDeleted(c) and isOverconstrainedCref(c.name) in conns);
+    guard not isDeleted(c.name) and isOverconstrainedCref(c.name) in conns);
   crefs := List.uniqueOnTrue(crefs, ComponentRef.isEqual);
 end getOverconstrainedCrefs;
 
@@ -513,7 +521,6 @@ end addConnection;
 // ********* protected section ********* //
 // ************************************* //
 
-protected import BaseHashTable;
 protected import Debug;
 protected import Flags;
 protected import List;
@@ -525,57 +532,32 @@ protected import Settings;
 protected function canonical
 "Returns the canonical element of the component where input element belongs to.
  See explanation at the top of file."
-  input NFHashTableCG.HashTable inPartition;
+  input CrefCrefTable inPartition;
   input ComponentRef inRef;
-//output NFHashTableCG.HashTable outPartition;
   output ComponentRef outCanonical;
+protected
+  Option<ComponentRef> cref_opt;
+
+  ComponentRef parent, parentCanonical;
 algorithm
-  (/*outPartition,*/outCanonical) := matchcontinue(inPartition, inRef)
-    local
-      NFHashTableCG.HashTable partition;
-      ComponentRef ref, parent, parentCanonical;
+  cref_opt := UnorderedMap.get(inRef, inPartition);
 
-    case (partition, ref)
-      equation
-        parent = BaseHashTable.get(ref, partition);
-        parentCanonical = canonical(partition, parent);
-        //fprintln(Flags.CGRAPH,
-        //  "- NFOCConnectionGraph.canonical_case1(" + ComponentRef.toString(ref) + ") = " +
-        //  ComponentRef.toString(parentCanonical));
-        //partition2 = BaseHashTable.add((ref, parentCanonical), partition);
-      then parentCanonical;
-
-    case (_,ref)
-      equation
-        //fprintln(Flags.CGRAPH,
-        //  "- NFOCConnectionGraph.canonical_case2(" + ComponentRef.toString(ref) + ") = " +
-        //  ComponentRef.toString(ref));
-      then ref;
-  end matchcontinue;
+  outCanonical := match cref_opt
+    case SOME(outCanonical) then canonical(inPartition, outCanonical);
+    else inRef;
+  end match;
 end canonical;
 
 protected function areInSameComponent
 "Tells whether the elements belong to the same component.
  See explanation at the top of file."
-  input NFHashTableCG.HashTable inPartition;
-  input ComponentRef inRef1;
-  input ComponentRef inRef2;
+  input CrefCrefTable partition;
+  input ComponentRef ref1;
+  input ComponentRef ref2;
   output Boolean outResult;
 algorithm
-  // canonical(inPartition,inRef1) = canonical(inPartition,inRef2);
-  outResult := matchcontinue(inPartition,inRef1,inRef2)
-    local
-      NFHashTableCG.HashTable partition;
-      ComponentRef ref1, ref2, canon1,canon2;
-
-    case(partition,ref1,ref2)
-      equation
-        canon1 = canonical(partition,ref1);
-        canon2 = canonical(partition,ref2);
-        true = ComponentRef.isEqual(canon1, canon2);
-      then true;
-    else false;
-  end matchcontinue;
+  outResult := ComponentRef.isEqual(canonical(partition, ref1),
+                                    canonical(partition, ref2));
 end areInSameComponent;
 
 
@@ -584,29 +566,12 @@ protected function connectBranchComponents
  on wheter the connection success or not (i.e are the components already
  connected), adds either inConnectionDae or inBreakDae to the list of
  DAE elements."
-  input NFHashTableCG.HashTable inPartition;
-  input ComponentRef inRef1;
-  input ComponentRef inRef2;
-  output NFHashTableCG.HashTable outPartition;
+  input CrefCrefTable partition;
+  input ComponentRef ref1;
+  input ComponentRef ref2;
 algorithm
-  outPartition := matchcontinue(inPartition,inRef1,inRef2)
-    local
-      NFHashTableCG.HashTable partition;
-      ComponentRef ref1, ref2, canon1, canon2;
-
-    // can connect them
-    case(partition,ref1,ref2)
-      equation
-        canon1 = canonical(partition,ref1);
-        canon2 = canonical(partition,ref2);
-        (partition, true) = connectCanonicalComponents(partition,canon1,canon2);
-      then partition;
-
-    // cannot connect them
-    case(partition,_,_)
-      equation
-      then partition;
-  end matchcontinue;
+  connectCanonicalComponents(partition,
+    canonical(partition, ref1), canonical(partition, ref2));
 end connectBranchComponents;
 
 protected function connectComponents
@@ -614,39 +579,37 @@ protected function connectComponents
  on wheter the connection success or not (i.e are the components already
  connected), adds either inConnectionDae or inBreakDae to the list of
  DAE elements."
-  input NFHashTableCG.HashTable inPartition;
+  input CrefCrefTable partition;
   input FlatEdge inFlatEdge;
-  output NFHashTableCG.HashTable outPartition;
   output FlatEdges outConnectedConnections;
   output FlatEdges outBrokenConnections;
 algorithm
-  (outPartition,outConnectedConnections,outBrokenConnections) := matchcontinue(inPartition,inFlatEdge)
+  (outConnectedConnections,outBrokenConnections) := matchcontinue inFlatEdge
     local
-      NFHashTableCG.HashTable partition;
       ComponentRef ref1, ref2, canon1, canon2;
 
     // leave the connect(ref1,ref2)
-    case(partition,(ref1,_,_))
+    case ((ref1,_,_))
       equation
         failure(_ = canonical(partition,ref1)); // no parent
-      then (partition, {inFlatEdge}, {});
+      then ({inFlatEdge}, {});
 
     // leave the connect(ref1,ref2)
-    case(partition,(_,ref2,_))
+    case ((_,ref2,_))
       equation
         failure(_ = canonical(partition,ref2)); // no parent
-      then (partition, {inFlatEdge}, {});
+      then ({inFlatEdge}, {});
 
     // leave the connect(ref1,ref2)
-    case(partition,(ref1,ref2,_))
+    case ((ref1,ref2,_))
       equation
         canon1 = canonical(partition,ref1);
         canon2 = canonical(partition,ref2);
-        (partition, true) = connectCanonicalComponents(partition,canon1,canon2);
-      then (partition, {inFlatEdge}, {});
+        true = connectCanonicalComponents(partition,canon1,canon2);
+      then ({inFlatEdge}, {});
 
     // break the connect(ref1, ref2)
-    case(partition,(ref1,ref2,_))
+    case ((ref1,ref2,_))
       equation
         // debug print
         if Flags.isSet(Flags.CGRAPH) then
@@ -654,92 +617,62 @@ algorithm
              ComponentRef.toString(ref1) + ", " +
              ComponentRef.toString(ref2) + ") and add {0, ..., 0} = equalityConstraint(cr1, cr2) instead.\n");
         end if;
-      then (partition, {}, {inFlatEdge});
+      then ({}, {inFlatEdge});
   end matchcontinue;
 end connectComponents;
 
 protected function connectCanonicalComponents
 "Tries to connect two components whose canonical elements are given.
  Helper function for connectionComponents."
-  input NFHashTableCG.HashTable inPartition;
+  input CrefCrefTable inPartition;
   input ComponentRef inRef1;
   input ComponentRef inRef2;
-  output NFHashTableCG.HashTable outPartition;
   output Boolean outReallyConnected;
 algorithm
-  (outPartition,outReallyConnected) :=  matchcontinue(inPartition,inRef1,inRef2)
-    local
-      NFHashTableCG.HashTable partition;
-      ComponentRef ref1, ref2;
+  outReallyConnected := not ComponentRef.isEqual(inRef1, inRef2);
 
-    // they are the same
-    case(partition,ref1,ref2)
-      equation
-        true = ComponentRef.isEqual(ref1, ref2);
-      then (partition, false);
-
-    // not the same, add it
-    case(partition,ref1,ref2)
-      equation
-        partition = BaseHashTable.add((ref1,ref2), partition);
-      then (partition, true);
-  end matchcontinue;
+  if outReallyConnected then
+    UnorderedMap.add(inRef1, inRef2, inPartition);
+  end if;
 end connectCanonicalComponents;
 
 protected function addRootsToTable
 "Adds a root the the graph. This is implemented by connecting the root to inFirstRoot element."
-  input NFHashTableCG.HashTable inTable;
-  input list<ComponentRef> inRoots;
-  input ComponentRef inFirstRoot;
-  output NFHashTableCG.HashTable outTable;
+  input CrefCrefTable table;
+  input list<ComponentRef> roots;
+  input ComponentRef firstRoot;
+protected
+  ComponentRef root;
+  list<ComponentRef> rest_roots;
 algorithm
-  outTable := match(inTable, inRoots, inFirstRoot)
-    local
-      NFHashTableCG.HashTable table;
-      ComponentRef root, firstRoot;
-      list<ComponentRef> tail;
-
-    case(table, (root::tail), firstRoot)
-      equation
-        table = BaseHashTable.add((root,firstRoot), table);
-        table = addRootsToTable(table, tail, firstRoot);
-      then table;
-    case(table, {}, _) then table;
-  end match;
+  for root in roots loop
+    UnorderedMap.add(root, firstRoot, table);
+  end for;
 end addRootsToTable;
 
 protected function resultGraphWithRoots
 "Creates an initial graph with given definite roots."
   input list<ComponentRef> roots;
-  output NFHashTableCG.HashTable outTable;
+  output CrefCrefTable outTable;
 protected
-  NFHashTableCG.HashTable table0;
   ComponentRef dummyRoot;
 algorithm
   dummyRoot := NFBuiltin.TIME_CREF;
-  table0 := NFHashTableCG.emptyHashTable();
-  outTable := addRootsToTable(table0, roots, dummyRoot);
+  outTable := newCrefCrefTable();
+  addRootsToTable(outTable, roots, dummyRoot);
 end resultGraphWithRoots;
 
 protected function addBranchesToTable
 "Adds all branches to the graph."
-  input NFHashTableCG.HashTable inTable;
-  input Edges inBranches;
-  output NFHashTableCG.HashTable outTable;
+  input CrefCrefTable table;
+  input Edges branches;
+protected
+  ComponentRef ref1, ref2;
 algorithm
-  outTable := match(inTable, inBranches)
-    local
-      NFHashTableCG.HashTable table, table1, table2;
-      ComponentRef ref1, ref2;
-      Edges tail;
-
-    case(table, ((ref1,ref2)::tail))
-      equation
-        table1 = connectBranchComponents(table, ref1, ref2);
-        table2 = addBranchesToTable(table1, tail);
-      then table2;
-    case(table, {}) then table;
-  end match;
+  for branch in branches loop
+    (ref1, ref2) := branch;
+    connectBranchComponents(table, ref1, ref2);
+  end for;
 end addBranchesToTable;
 
 protected function ord
@@ -770,60 +703,57 @@ end ord;
 
 protected function addPotentialRootsToTable
 "Adds all potential roots to graph."
-  input NFHashTableCG.HashTable inTable;
-  input PotentialRoots inPotentialRoots;
-  input DefiniteRoots inRoots;
-  input ComponentRef inFirstRoot;
-  output NFHashTableCG.HashTable outTable;
+  input CrefCrefTable table;
+  input PotentialRoots potentialRoots;
+  input DefiniteRoots roots;
+  input ComponentRef firstRoot;
   output DefiniteRoots outRoots;
 algorithm
-  (outTable,outRoots) := matchcontinue(inTable, inPotentialRoots, inRoots, inFirstRoot)
+  outRoots := matchcontinue potentialRoots
     local
-      NFHashTableCG.HashTable table;
-      ComponentRef potentialRoot, firstRoot, canon1, canon2;
-      DefiniteRoots roots, finalRoots;
+      ComponentRef potentialRoot, canon1, canon2;
+      DefiniteRoots finalRoots;
       PotentialRoots tail;
 
-    case(table, {}, roots, _) then (table,roots);
-    case(table, ((potentialRoot,_)::tail), roots, firstRoot)
-      equation
-        canon1 = canonical(table, potentialRoot);
-        canon2 = canonical(table, firstRoot);
-        (table, true) = connectCanonicalComponents(table, canon1, canon2);
-        (table, finalRoots) = addPotentialRootsToTable(table, tail, potentialRoot::roots, firstRoot);
-      then (table, finalRoots);
-    case(table, (_::tail), roots, firstRoot)
-      equation
-        (table, finalRoots) = addPotentialRootsToTable(table, tail, roots, firstRoot);
-      then (table, finalRoots);
+    case {} then roots;
+    case ((potentialRoot,_)::tail)
+      algorithm
+        canon1 := canonical(table, potentialRoot);
+        canon2 := canonical(table, firstRoot);
+        true := connectCanonicalComponents(table, canon1, canon2);
+        finalRoots := addPotentialRootsToTable(table, tail, potentialRoot::roots, firstRoot);
+      then finalRoots;
+    case _::tail
+      algorithm
+        finalRoots := addPotentialRootsToTable(table, tail, roots, firstRoot);
+      then finalRoots;
   end matchcontinue;
 end addPotentialRootsToTable;
 
 protected function addConnections
 "Adds all connections to graph."
-  input NFHashTableCG.HashTable inTable;
+  input CrefCrefTable inTable;
   input FlatEdges inConnections;
-  output NFHashTableCG.HashTable outTable;
   output FlatEdges outConnectedConnections;
   output FlatEdges outBrokenConnections;
 algorithm
-  (outTable, outConnectedConnections, outBrokenConnections) := match(inTable, inConnections)
+  (outConnectedConnections, outBrokenConnections) := match(inTable, inConnections)
     local
-      NFHashTableCG.HashTable table;
+      CrefCrefTable table;
       FlatEdges tail;
       FlatEdges broken1,broken2,broken,connected1,connected2,connected;
       FlatEdge e;
 
     // empty case
-    case(table, {}) then (table, {}, {});
+    case(table, {}) then ({}, {});
     // normal case
     case(table, e::tail)
       equation
-        (table, connected1, broken1) = connectComponents(table, e);
-        (table, connected2, broken2) = addConnections(table, tail);
+        (connected1, broken1) = connectComponents(table, e);
+        (connected2, broken2) = addConnections(table, tail);
         connected = listAppend(connected1, connected2);
         broken = listAppend(broken1, broken2);
-      then (table, connected, broken);
+      then (connected, broken);
   end match;
 end addConnections;
 
@@ -843,7 +773,7 @@ algorithm
       UniqueRoots uniqueRoots;
       Edges branches;
       FlatEdges connections, broken, connected;
-      NFHashTableCG.HashTable table;
+      CrefCrefTable table;
       ComponentRef dummyRoot;
       String brokenConnectsViaGraphViz;
       list<String> userBrokenLst;
@@ -863,7 +793,7 @@ algorithm
         // add definite roots to the table
         table = resultGraphWithRoots(definiteRoots);
         // add branches to the table
-        table = addBranchesToTable(table, branches);
+        addBranchesToTable(table, branches);
         // order potential roots in the order or priority
         orderedPotentialRoots = List.sort(potentialRoots, ord);
 
@@ -872,12 +802,12 @@ algorithm
         end if;
 
         // add connections to the table and return the broken/connected connections
-        (table, connected, broken) = addConnections(table, connections);
+        (connected, broken) = addConnections(table, connections);
 
         // create a dummy root
         dummyRoot = NFBuiltin.TIME_CREF;
         // select final roots
-        (table, finalRoots) = addPotentialRootsToTable(table, orderedPotentialRoots, definiteRoots, dummyRoot);
+        finalRoots = addPotentialRootsToTable(table, orderedPotentialRoots, definiteRoots, dummyRoot);
 
         // generate the graphviz representation and display
         brokenConnectsViaGraphViz = generateGraphViz(modelNameQualified, definiteRoots, potentialRoots, uniqueRoots, branches, connections, finalRoots, broken);
@@ -1009,103 +939,98 @@ end printPotentialRootTuple;
 
 protected function setRootDistance
   input list<ComponentRef> finalRoots;
-  input NFHashTable3.HashTable table;
+  input CrefRootsTable table;
   input Integer distance;
   input list<ComponentRef> nextLevel;
-  input NFHashTable.HashTable irooted;
-  output NFHashTable.HashTable orooted;
+  input CrefIndexTable rooted;
 algorithm
-  orooted := matchcontinue(finalRoots,table,distance,nextLevel,irooted)
+  () := matchcontinue(finalRoots,nextLevel)
     local
-      NFHashTable.HashTable rooted;
       list<ComponentRef> rest,next;
       ComponentRef cr;
-    case({},_,_,{},_) then irooted;
-    case({},_,_,_,_)
+    case({},{}) then ();
+    case({},_)
+      algorithm
+        setRootDistance(nextLevel,table,distance+1,{},rooted);
       then
-        setRootDistance(nextLevel,table,distance+1,{},irooted);
-    case(cr::rest,_,_,_,_)
+        ();
+    case(cr::rest,_)
       equation
-        false = BaseHashTable.hasKey(cr, irooted);
-        rooted = BaseHashTable.add((cr,distance),irooted);
-        next = BaseHashTable.get(cr, table);
+        false = UnorderedMap.contains(cr, rooted);
+        UnorderedMap.add(cr,distance,rooted);
+        next = UnorderedMap.getOrFail(cr, table);
         //print("- NFOCConnectionGraph.setRootDistance: Set Distance " +
         //   ComponentRef.toString(cr) + " , " + intString(distance) + "\n");
         //print("- NFOCConnectionGraph.setRootDistance: add " +
         //   stringDelimitList(List.map(next,ComponentRef.toString),"\n") + " to the queue\n");
         next = listAppend(nextLevel,next);
-      then
         setRootDistance(rest,table,distance,next,rooted);
-    case(cr::rest,_,_,_,_)
+      then
+        ();
+    case(cr::rest,_)
       equation
-        false = BaseHashTable.hasKey(cr, irooted);
-        rooted = BaseHashTable.add((cr,distance),irooted);
+        false = UnorderedMap.contains(cr, rooted);
+        UnorderedMap.add(cr,distance,rooted);
         //print("- NFOCConnectionGraph.setRootDistance: Set Distance " +
         //   ComponentRef.toString(cr) + " , " + intString(distance) + "\n");
-      then
         setRootDistance(rest,table,distance,nextLevel,rooted);
+      then
+        ();
 /*    case(cr::rest,_,_,_,_)
       equation
-        i = BaseHashTable.get(cr, irooted);
         print("- NFOCConnectionGraph.setRootDistance: found " +
            ComponentRef.toString(cr) + " twice, value is " + intString(i) + "\n");
       then
-        setRootDistance(rest,table,distance,nextLevel,irooted);
+        setRootDistance(rest,table,distance,nextLevel,rooted);
 */
-    case (_::rest,_,_,_,_)
-      //equation
+    case (_::rest,_)
+      algorithm
       //  print("- NFOCConnectionGraph.setRootDistance: cannot found " + ComponentRef.toString(cr) + "\n");
+        setRootDistance(rest,table,distance,nextLevel,rooted);
       then
-        setRootDistance(rest,table,distance,nextLevel,irooted);
+        ();
   end matchcontinue;
 end setRootDistance;
 
 protected function addBranches
   input Edge edge;
-  input NFHashTable3.HashTable itable;
-  output NFHashTable3.HashTable otable;
+  input CrefRootsTable table;
 protected
   ComponentRef cref1,cref2;
 algorithm
   (cref1,cref2) := edge;
-  otable := addConnectionRooted(cref1,cref2,itable);
-  otable := addConnectionRooted(cref2,cref1,otable);
+  addConnectionRooted(cref1,cref2,table);
+  addConnectionRooted(cref2,cref1,table);
 end addBranches;
 
 protected function addConnectionsRooted
   input FlatEdge connection;
-  input NFHashTable3.HashTable itable;
-  output NFHashTable3.HashTable otable;
+  input CrefRootsTable table;
 protected
   ComponentRef cref1,cref2;
 algorithm
   (cref1,cref2,_) := connection;
-  otable := addConnectionRooted(cref1,cref2,itable);
-  otable := addConnectionRooted(cref2,cref1,otable);
+  addConnectionRooted(cref1,cref2,table);
+  addConnectionRooted(cref2,cref1,table);
 end addConnectionsRooted;
 
 protected function addConnectionRooted
   input ComponentRef cref1;
   input ComponentRef cref2;
-  input NFHashTable3.HashTable itable;
-  output NFHashTable3.HashTable otable;
+  input CrefRootsTable table;
+
+  function updateRooted
+    input Option<DefiniteRoots> roots;
+    input ComponentRef newRoot;
+    output DefiniteRoots outRoots;
+  algorithm
+    outRoots := match roots
+      case SOME(outRoots) then newRoot :: outRoots;
+      else {newRoot};
+    end match;
+  end updateRooted;
 algorithm
-  otable := match(cref1,cref2,itable)
-    local
-      NFHashTable3.HashTable table;
-      list<ComponentRef> crefs;
-
-    case(_, _, _)
-      equation
-          crefs = matchcontinue()
-            case () then BaseHashTable.get(cref1,itable);
-            else {};
-          end matchcontinue;
-          table = BaseHashTable.add((cref1,cref2::crefs),itable);
-      then
-        table;
-
-  end match;
+  UnorderedMap.addUpdate(cref1, function updateRooted(newRoot = cref2), table);
 end addConnectionRooted;
 
 protected function evalConnectionsOperators
@@ -1125,8 +1050,8 @@ protected function evalConnectionsOperators
 algorithm
   outEquations := matchcontinue(inRoots,graph,inEquations)
     local
-      NFHashTable.HashTable rooted;
-      NFHashTable3.HashTable table;
+      CrefIndexTable rooted;
+      CrefRootsTable table;
       Edges branches;
       FlatEdges connections;
 
@@ -1135,18 +1060,17 @@ algorithm
     else
       equation
         // built table
-        table = NFHashTable3.emptyHashTable();
+        table = newCrefRootsTable();
         // add branches to table
         branches = getBranches(graph);
-        table = List.fold(branches,addBranches,table);
+        List.map1_0(branches, addBranches, table);
         // add connections to table
         connections = getConnections(graph);
-        table = List.fold(connections,addConnectionsRooted,table);
+        List.map1_0(connections, addConnectionsRooted, table);
         // get distance to root
         //  print("Roots: " + stringDelimitList(List.map(inRoots,ComponentRef.toString),"\n") + "\n");
-        //  BaseHashTable.dumpHashTable(table);
-        rooted = setRootDistance(inRoots,table,0,{},NFHashTable.emptyHashTable());
-        //  BaseHashTable.dumpHashTable(rooted);
+        rooted = newCrefIndexTable();
+        setRootDistance(inRoots, table, 0, {}, rooted);
         outEquations = list(Equation.mapExp(eq,
             function evaluateOperators(rooted = rooted, roots = inRoots, graph = graph, info = Equation.info(eq)))
           for eq in inEquations);
@@ -1157,7 +1081,7 @@ end evalConnectionsOperators;
 
 function evaluateOperators
   input output Expression exp;
-  input NFHashTable.HashTable rooted;
+  input CrefIndexTable rooted;
   input list<ComponentRef> roots;
   input NFOCConnectionGraph graph;
   input SourceInfo info;
@@ -1169,7 +1093,7 @@ end evaluateOperators;
 protected function evalConnectionsOperatorsHelper
 "Helper function for evaluation of Connections.rooted, Connections.isRoot, Connections.uniqueRootIndices"
   input Expression exp;
-  input NFHashTable.HashTable rooted;
+  input CrefIndexTable rooted;
   input list<ComponentRef> roots;
   input NFOCConnectionGraph graph;
   input SourceInfo info;
@@ -1184,6 +1108,7 @@ algorithm
       list<Expression> lst;
       Call call;
       String str;
+      Dimension dim;
 
     case Expression.CALL(call = call as Call.TYPED_CALL())
       then match identifyConnectionsOperator(Function.name(call.fn))
@@ -1192,31 +1117,35 @@ algorithm
           algorithm
             res := match call.arguments
               // zero size array TODO! FIXME! check how zero size arrays are handled in the NF
-              case {Expression.ARRAY(elements = {})}
+              case _ guard Expression.isEmptyArray(listHead(call.arguments))
                 equation
-                 if Flags.isSet(Flags.CGRAPH) then
+                  if Flags.isSet(Flags.CGRAPH) then
                     print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: " + Expression.toString(exp) + " = false\n");
-                 end if;
-               then Expression.BOOLEAN(false);
+                  end if;
+                then
+                  Expression.BOOLEAN(false);
+
               // normal call
               case {Expression.CREF(cref = cref)}
                 algorithm
                   // find partner in branches
                   branches := getBranches(graph);
+                  cref := ComponentRef.stripIteratorSubscripts(cref);
+
                   try
-                   cref1 := getEdge(cref,branches);
-                   // print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: Found Branche Partner " +
-                   //   ComponentRef.toString(cref) + ", " + ComponentRef.toString(cref1) + "\n");
-                   if Flags.isSet(Flags.CGRAPH) then
-                     print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: Found Branche Partner " +
-                       ComponentRef.toString(cref) + ", " + ComponentRef.toString(cref1) + "\n");
-                   end if;
-                   result := getRooted(cref,cref1,rooted);
-                   //print("- NFOCConnectionGraph.evalRootedAndIsRootHelper: " +
-                   //   ComponentRef.toString(cref) + " is " + boolString(result) + " rooted\n");
-                   if Flags.isSet(Flags.CGRAPH) then
-                     print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: " + Expression.toString(exp) + " = " + boolString(result) + "\n");
-                   end if;
+                    cref1 := getEdge(cref,branches);
+                    // print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: Found Branche Partner " +
+                    //   ComponentRef.toString(cref) + ", " + ComponentRef.toString(cref1) + "\n");
+                    if Flags.isSet(Flags.CGRAPH) then
+                      print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: Found Branche Partner " +
+                        ComponentRef.toString(cref) + ", " + ComponentRef.toString(cref1) + "\n");
+                    end if;
+                    result := getRooted(cref,cref1,rooted);
+                    //print("- NFOCConnectionGraph.evalRootedAndIsRootHelper: " +
+                    //   ComponentRef.toString(cref) + " is " + boolString(result) + " rooted\n");
+                    if Flags.isSet(Flags.CGRAPH) then
+                      print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: " + Expression.toString(exp) + " = " + boolString(result) + "\n");
+                    end if;
                   else // add an error message:
                     str := ComponentRef.toString(cref);
                     Error.addSourceMessage(Error.OCG_MISSING_BRANCH, {str, str, str}, info);
@@ -1233,16 +1162,19 @@ algorithm
           algorithm
             res := match call.arguments
               // zero size array TODO! FIXME! check how zero size arrays are handled in the NF
-              case {Expression.ARRAY(elements = {})}
-                equation
+              case _ guard Expression.isEmptyArray(listHead(call.arguments))
+                algorithm
                   if Flags.isSet(Flags.CGRAPH) then
                     print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: " + Expression.toString(exp) + " = false\n");
                   end if;
-                then Expression.BOOLEAN(false);
+                then
+                  Expression.BOOLEAN(false);
+
               // normal call
               case {Expression.CREF(cref = cref)}
-                equation
-                  result = List.isMemberOnTrue(cref, roots, ComponentRef.isEqual);
+                algorithm
+                  cref := ComponentRef.stripIteratorSubscripts(cref);
+                  result := List.isMemberOnTrue(cref, roots, ComponentRef.isEqual);
                   if Flags.isSet(Flags.CGRAPH) then
                     print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: " + Expression.toString(exp) + " = " + boolString(result) + "\n");
                   end if;
@@ -1257,17 +1189,24 @@ algorithm
           algorithm
             res := match call.arguments
               // normal call
-              case {uroots as Expression.ARRAY(elements = lst),nodes,message}
-                equation
+              case {uroots,nodes,message}
+                algorithm
                   if Flags.isSet(Flags.CGRAPH) then
-                    print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: Connections.uniqueRootsIndicies(" +
+                    print("- NFOCConnectionGraph.evalConnectionsOperatorsHelper: Connections.uniqueRootsIndices(" +
                       Expression.toString(uroots) + "," +
                       Expression.toString(nodes) + "," +
                       Expression.toString(message) + ")\n");
                   end if;
-                  lst = List.fill(Expression.INTEGER(1), listLength(lst)); // TODO! FIXME! actually implement this correctly
+
+                  dim := Type.nthDimension(Expression.typeOf(uroots), 1);
+
+                  if not Dimension.isKnown(dim) then
+                    Error.addSourceMessage(Error.DIMENSION_NOT_KNOWN,
+                      {Expression.toString(exp)}, info);
+                    fail();
+                  end if;
                 then
-                  Expression.makeArray(Type.INTEGER(), lst);
+                  Expression.fillArray(Dimension.size(dim), Expression.INTEGER(1)); // TODO! FIXME! actually implement this correctly
             end match;
           then
             res;
@@ -1283,7 +1222,7 @@ end evalConnectionsOperatorsHelper;
 protected function getRooted
   input ComponentRef cref1;
   input ComponentRef cref2;
-  input NFHashTable.HashTable rooted;
+  input CrefIndexTable rooted;
   output Boolean result;
 algorithm
   result := matchcontinue(cref1,cref2,rooted)
@@ -1291,14 +1230,12 @@ algorithm
       Integer i1,i2;
     case(_,_,_)
       equation
-        i1 = BaseHashTable.get(cref1,rooted);
-        i2 = BaseHashTable.get(cref2,rooted);
+        i1 = UnorderedMap.getOrFail(cref1,rooted);
+        i2 = UnorderedMap.getOrFail(cref2,rooted);
       then
         intLt(i1,i2);
     // in fail case return true
-    else
-      then
-        true;
+    else true;
   end matchcontinue;
 end getRooted;
 
@@ -1307,42 +1244,23 @@ protected function getEdge
   input ComponentRef cr;
   input Edges edges;
   output ComponentRef ocr;
+protected
+  ComponentRef cref1, cref2;
 algorithm
-  ocr := matchcontinue(cr,edges)
-    local
-      Edges rest;
-      ComponentRef cref1,cref2;
-    case(_,(cref1,cref2)::_)
-      equation
-        cref1 = getEdge1(cr,cref1,cref2);
-      then
-        cref1;
-    case(_,_::rest)
-      then
-        getEdge(cr,rest);
-  end matchcontinue;
-end getEdge;
+  for edge in edges loop
+    (cref1, cref2) := edge;
 
-protected function getEdge1
-"return the Edge partner of a edge, fails if not found"
-  input ComponentRef cr;
-  input ComponentRef cref1;
-  input ComponentRef cref2;
-  output ComponentRef ocr;
-algorithm
-  ocr := matchcontinue(cr,cref1,cref2)
-    case(_,_,_)
-      equation
-        true = ComponentRef.isEqual(cr,cref1);
-      then
-        cref2;
-    else
-      equation
-        true = ComponentRef.isEqual(cr,cref2);
-      then
-        cref1;
-  end matchcontinue;
-end getEdge1;
+    if ComponentRef.isEqual(cr, cref1) then
+      ocr := cref2;
+      return;
+    elseif ComponentRef.isEqual(cr, cref2) then
+      ocr := cref1;
+      return;
+    end if;
+  end for;
+
+  fail();
+end getEdge;
 
 protected function printConnectionStr
 "prints the connection str"
@@ -1804,7 +1722,13 @@ function removeBrokenConnects
   input list<Equation> inEquations;
   input FlatEdges inConnected;
   input FlatEdges inBroken;
+  input IsDeleted isDeleted;
   output list<Equation> outEquations;
+
+  partial function IsDeleted
+    input ComponentRef cref;
+    output Boolean res;
+  end IsDeleted;
 algorithm
   outEquations := match(inEquations, inConnected, inBroken)
     local
@@ -1827,7 +1751,7 @@ algorithm
             case Equation.CONNECT(lhs = Expression.CREF(ty = ty1, cref = lhs),
                                   rhs = Expression.CREF(ty = ty2, cref = rhs), source = source)
               algorithm
-                if not (ComponentRef.isDeleted(lhs) or ComponentRef.isDeleted(rhs)) then
+                if not (isDeleted(lhs) or isDeleted(rhs)) then
                   // check for equality
                   isThere := false;
                   for tpl in inBroken loop
@@ -1919,6 +1843,24 @@ algorithm
     else ConnectionsOperator.NOT_OPERATOR;
   end match;
 end identifyConnectionsOperator;
+
+function newCrefCrefTable
+  output CrefCrefTable table;
+algorithm
+  table := UnorderedMap.new<ComponentRef>(ComponentRef.hash, ComponentRef.isEqual);
+end newCrefCrefTable;
+
+function newCrefIndexTable
+  output CrefIndexTable table;
+algorithm
+  table := UnorderedMap.new<Integer>(ComponentRef.hash, ComponentRef.isEqual);
+end newCrefIndexTable;
+
+function newCrefRootsTable
+  output CrefRootsTable table;
+algorithm
+  table := UnorderedMap.new<DefiniteRoots>(ComponentRef.hash, ComponentRef.isEqual);
+end newCrefRootsTable;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFOCConnectionGraph;

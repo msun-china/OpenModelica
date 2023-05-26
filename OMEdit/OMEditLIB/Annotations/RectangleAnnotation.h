@@ -37,30 +37,37 @@
 
 #include "ShapeAnnotation.h"
 
-class Component;
+class Element;
 class RectangleAnnotation : public ShapeAnnotation
 {
   Q_OBJECT
 public:
   // Used for icon/diagram shape
   RectangleAnnotation(QString annotation, GraphicsView *pGraphicsView);
+  RectangleAnnotation(ModelInstance::Rectangle *pRectangle, bool inherited, GraphicsView *pGraphicsView);
   // Used for shape inside a component
-  RectangleAnnotation(ShapeAnnotation *pShapeAnnotation, Component *pParent);
+  RectangleAnnotation(ShapeAnnotation *pShapeAnnotation, Element *pParent);
+  RectangleAnnotation(ModelInstance::Rectangle *pRectangle, Element *pParent);
   // Used for icon/diagram inherited shape
   RectangleAnnotation(ShapeAnnotation *pShapeAnnotation, GraphicsView *pGraphicsView);
   // Used for default component
-  RectangleAnnotation(Component *pParent);
+  RectangleAnnotation(Element *pParent);
   // Used for OMSimulator FMU
   RectangleAnnotation(GraphicsView *pGraphicsView);
   void parseShapeAnnotation(QString annotation) override;
+  void parseShapeAnnotation();
   QRectF boundingRect() const override;
   QPainterPath shape() const override;
   void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = 0) override;
-  void drawRectangleAnnotaion(QPainter *painter);
+  void drawRectangleAnnotation(QPainter *painter);
   QString getOMCShapeAnnotation() override;
   QString getOMCShapeAnnotationWithShapeName() override;
   QString getShapeAnnotation() override;
   void updateShape(ShapeAnnotation *pShapeAnnotation) override;
+  ModelInstance::Extend *getExtend() const override;
+  void setRectangle(ModelInstance::Rectangle *pRectangle) {mpRectangle = pRectangle;}
+private:
+  ModelInstance::Rectangle *mpRectangle;
 public slots:
   void duplicate() override;
 };

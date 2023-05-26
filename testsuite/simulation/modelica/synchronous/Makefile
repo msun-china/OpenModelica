@@ -5,6 +5,9 @@ boolSubClocks.mos \
 Bug3503.mos \
 EventClock.mos \
 EventClock_cpp.mos \
+EventClockAndClassic.mos \
+EventSubClock.mos \
+MutuallyDependentClocks.mos \
 SamplingWithClocks.mos \
 subSample.mos \
 SynchronousFeatures.ControlledMassBasic.mos \

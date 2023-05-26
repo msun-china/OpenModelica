@@ -545,8 +545,6 @@ function reduce<T>
     input T inElement2;
     output T outElement;
   end ReduceFunc;
-protected
-  list<T> rest;
 algorithm
   outResult := arrayGet(inArray, 1);
   for i in 2:arrayLength(inArray) loop
@@ -725,6 +723,25 @@ algorithm
   end if;
 end appendList;
 
+function join<T>
+  "Returns a new array consisting of the elements from both the given arrays."
+  input array<T> arr1;
+  input array<T> arr2;
+  output array<T> outArray;
+protected
+  Integer len1 = arrayLength(arr1), len2 = arrayLength(arr2);
+algorithm
+  if len1 == 0 then
+    outArray := arrayCopy(arr2);
+  elseif len2 == 0 then
+    outArray := arrayCopy(arr1);
+  else
+    outArray := arrayCreateNoInit(len1 + len2, arr1[1]);
+    copyRange(arr1, outArray, 1, len1, 1);
+    copyRange(arr2, outArray, 1, len2, len1 + 1);
+  end if;
+end join;
+
 function copy<T>
   "Copies all values from inArraySrc to inArrayDest. Fails if inArraySrc is
    larger than inArrayDest.
@@ -750,14 +767,17 @@ function copyN<T>
   input array<T> inArraySrc;
   input array<T> inArrayDest;
   input Integer inN;
+  input Integer srcOffset = 0;
+  input Integer dstOffset = 0;
   output array<T> outArray = inArrayDest;
 algorithm
-  if inN > arrayLength(inArrayDest) or inN > arrayLength(inArraySrc) then
+  if inN + dstOffset > arrayLength(inArrayDest) or inN + srcOffset > arrayLength(inArraySrc) then
     fail();
   end if;
 
   for i in 1:inN loop
-    arrayUpdateNoBoundsChecking(outArray, i, arrayGetNoBoundsChecking(inArraySrc, i));
+    arrayUpdateNoBoundsChecking(outArray, i + dstOffset,
+      arrayGetNoBoundsChecking(inArraySrc, i + srcOffset));
   end for;
 end copyN;
 
@@ -924,6 +944,100 @@ algorithm
   end for;
 end isEqual;
 
+function isEqualOnTrue<T1, T2>
+  "Returns whether the two arrays are equal or not, using the given predicate
+   function to check element equality."
+  input array<T1> arr1;
+  input array<T2> arr2;
+  input PredFunc pred;
+  output Boolean equal;
+
+  partial function PredFunc
+    input T1 e1;
+    input T2 e2;
+    output Boolean equal;
+  end PredFunc;
+algorithm
+  equal := arrayLength(arr1) == arrayLength(arr2);
+
+  if not equal then
+    return;
+  end if;
+
+  for i in 1:arrayLength(arr1) loop
+    if not pred(arrayGetNoBoundsChecking(arr1, i),
+                arrayGetNoBoundsChecking(arr2, i)) then
+      equal := false;
+      return;
+    end if;
+  end for;
+end isEqualOnTrue;
+
+function allEqual<T>
+  input array<T> arr;
+  input PredFunc pred;
+  output Boolean equal = true;
+
+  partial function PredFunc
+    input T e1;
+    input T e2;
+    output Boolean equal;
+  end PredFunc;
+algorithm
+  if arrayEmpty(arr) then
+    return;
+  end if;
+
+  for i in 2:arrayLength(arr) loop
+    if not pred(arrayGetNoBoundsChecking(arr, 1),
+                arrayGetNoBoundsChecking(arr, i)) then
+      equal := false;
+      return;
+    end if;
+  end for;
+end allEqual;
+
+function isLess<T1, T2>
+  "Returns true if arr1 is less than arr2 using a lexicographical comparison."
+  input array<T1> arr1;
+  input array<T2> arr2;
+  input LessFn lessFn;
+  output Boolean res;
+
+  partial function LessFn
+    input T1 e1;
+    input T2 e2;
+    output Boolean res;
+  end LessFn;
+protected
+  Integer len1, len2;
+  T1 e1;
+  T2 e2;
+algorithm
+  len1 := arrayLength(arr1);
+  len2 := arrayLength(arr2);
+
+  // The first pair of elements that's not equal determines whether arr1 < arr2 or not.
+  for i in 1:min(len1, len2) loop
+    e1 := arrayGetNoBoundsChecking(arr1, i);
+    e2 := arrayGetNoBoundsChecking(arr2, i);
+
+    if lessFn(e1, e2) then
+      // arr1 < arr2 if e1 < e2.
+      res := true;
+      return;
+    elseif lessFn(e2, e1) then
+      // arr1 > arr2 if e2 < e1.
+      res := false;
+      return;
+    end if;
+  end for;
+
+  // arr1 < arr2 if arr1 is a prefix of arr2 and all elements in arr1 are equal
+  // to the corresponding elements in arr2.
+  res := len1 < len2;
+end isLess;
+
 function exist<T>
   "Returns true if a certain element exists in the given array as indicated by
    the given predicate function."
@@ -958,6 +1072,300 @@ algorithm
     i := i + 1;
   end for;
 end insertList;
+
+function remove<T>
+  "Returns a new array without the element at the given index."
+  input array<T> arr;
+  input Integer index;
+  output array<T> outArr;
+protected
+  Integer len = arrayLength(arr);
+algorithm
+  if len <= 1 then
+    outArr := listArray({});
+  else
+    outArr := arrayCreateNoInit(len - 1, arr[1]);
+
+    for i in 1:index-1 loop
+      arrayUpdateNoBoundsChecking(outArr, i, arrayGetNoBoundsChecking(arr, i));
+    end for;
+
+    for i in index+1:len-1 loop
+      arrayUpdateNoBoundsChecking(outArr, i - 1, arrayGetNoBoundsChecking(arr, i));
+    end for;
+  end if;
+end remove;
+
+function all<T>
+  input array<T> arr;
+  input PredFunc fn;
+  output Boolean res;
+
+  partial function PredFunc
+    input T e;
+    output Boolean res;
+  end PredFunc;
+algorithm
+  for e in arr loop
+    if not fn(e) then
+      res := false;
+      return;
+    end if;
+  end for;
+
+  res := true;
+end all;
+
+function minElement<T>
+  "Returns the smallest element in the array, or fails if the array is empty."
+  input array<T> arr;
+  input LessFn lessFn;
+  output T res;
+
+  partial function LessFn
+    "Returns true if e1 < e2, otherwise false."
+    input T e1;
+    input T e2;
+    output Boolean res;
+  end LessFn;
+protected
+  T e;
+algorithm
+  res := arr[1];
+
+  for i in 2:arrayLength(arr) loop
+    e := arrayGetNoBoundsChecking(arr, i);
+    if lessFn(e, res) then
+      res := e;
+    end if;
+  end for;
+end minElement;
+
+function maxElement<T>
+  "Returns the largest element in the list, or fails if the list is empty."
+  input array<T> arr;
+  input LessFn lessFn;
+  output T res;
+
+  partial function LessFn
+    "Returns true if e1 < e2, otherwise false."
+    input T e1;
+    input T e2;
+    output Boolean res;
+  end LessFn;
+protected
+  T e;
+algorithm
+  res := arr[1];
+
+  for i in 2:arrayLength(arr) loop
+    e := arrayGetNoBoundsChecking(arr, i);
+    if lessFn(res, e) then
+      res := e;
+    end if;
+  end for;
+end maxElement;
+
+function compare<T1, T2>
+  "Returns -1 if arr1 is shorter than arr2 or 1 if arr1 is longer than arr2.
+   If both arrays are of equal length it applies the given compare function to
+   each pair of array elements and returns the first nonzero value, or 0 if no
+   nonzero value is received."
+  input array<T1> arr1;
+  input array<T2> arr2;
+  input CompFunc compFn;
+  output Integer res;
+
+  partial function CompFunc
+    input T1 e1;
+    input T2 e2;
+    output Integer res;
+  end CompFunc;
+protected
+  Integer l1, l2;
+algorithm
+  l1 := arrayLength(arr1);
+  l2 := arrayLength(arr2);
+  res := if l1 == l2 then 0 elseif l1 > l2 then 1 else -1;
+
+  if res <> 0 then
+    return;
+  end if;
+
+  for i in 1:l1 loop
+    res := compFn(arrayGetNoBoundsChecking(arr1, i),
+                  arrayGetNoBoundsChecking(arr2, i));
+
+    if res <> 0 then
+      return;
+    end if;
+  end for;
+end compare;
+
+function mapFold<TI, TO, ArgT>
+  input array<TI> arr;
+  input FuncType func;
+  input ArgT arg;
+  output array<TO> outArray;
+  output ArgT outArg = arg;
+
+  partial function FuncType
+    input TI e;
+    input ArgT arg;
+    output TO result;
+    output ArgT outArg;
+  end FuncType;
+protected
+  Integer len = arrayLength(arr);
+  TO res;
+algorithm
+  if len == 0 then
+    outArray := listArray({});
+  else
+    (res, outArg) := func(arrayGetNoBoundsChecking(arr, 1), outArg);
+    outArray := arrayCreateNoInit(len, res);
+    arrayUpdateNoBoundsChecking(outArray, 1, res);
+
+    for i in 2:len loop
+      (res, outArg) := func(arrayGetNoBoundsChecking(arr, i), outArg);
+      arrayUpdateNoBoundsChecking(outArray, i, res);
+    end for;
+  end if;
+end mapFold;
+
+function mapBoolAnd<T>
+  "Maps each element of a inList to Boolean type with inFunc.
+   Stops mapping at first occurrence of false return value."
+  input array<T> arr;
+  input MapFunc func;
+  output Boolean res = false;
+
+  partial function MapFunc
+    input T e;
+    output Boolean res;
+  end MapFunc;
+algorithm
+  for e in arr loop
+    if not func(e) then
+      return;
+    end if;
+  end for;
+
+  res := true;
+end mapBoolAnd;
+
+function transpose<T>
+  "Transposes a two-dimensional array."
+  input array<array<T>> arr;
+  output array<array<T>> outArray;
+protected
+  Integer c_len, r_len;
+  T val;
+  array<T> row;
+algorithm
+  if arrayEmpty(arr) then
+    outArray := arr;
+    return;
+  end if;
+
+  row := arrayGetNoBoundsChecking(arr, 1);
+
+  if arrayEmpty(row) then
+    outArray := arr;
+    return;
+  end if;
+
+  val := arrayGetNoBoundsChecking(row, 1);
+
+  c_len := arrayLength(arr);
+  r_len := arrayLength(row);
+  outArray := arrayCreateNoInit(r_len, row);
+
+  for i in 1:r_len loop
+    arrayUpdateNoBoundsChecking(outArray, i, arrayCreateNoInit(c_len, val));
+  end for;
+
+  for r in 1:r_len loop
+    for c in 1:c_len loop
+      // outArray[r, c] := arr[c, r]
+      val := arrayGetNoBoundsChecking(arrayGetNoBoundsChecking(arr, c), r);
+      arrayUpdateNoBoundsChecking(arrayGetNoBoundsChecking(outArray, r), c, val);
+    end for;
+  end for;
+end transpose;
+
+function threadMap<T1, T2, TO>
+  "Creates an array with the result from calling the given function on each pair
+   of elements in two arrays."
+  input array<T1> arr1;
+  input array<T2> arr2;
+  input MapFunc func;
+  output array<TO> outArray;
+
+  partial function MapFunc
+    input T1 e1;
+    input T2 e2;
+    output TO res;
+  end MapFunc;
+protected
+  TO res;
+  Integer len1, len2;
+algorithm
+  if arrayEmpty(arr1) then
+    outArray := listArray({});
+    return;
+  end if;
+
+  len1 := arrayLength(arr1);
+  len2 := arrayLength(arr2);
+
+  if len1 <> len2 then
+    fail();
+  end if;
+
+  res := func(arrayGetNoBoundsChecking(arr1, 1), arrayGetNoBoundsChecking(arr2, 1));
+  outArray := arrayCreateNoInit(len1, res);
+  arrayUpdateNoBoundsChecking(outArray, 1, res);
+
+  for i in 2:len1 loop
+    arrayUpdateNoBoundsChecking(outArray, i,
+      func(arrayGetNoBoundsChecking(arr1, i), arrayGetNoBoundsChecking(arr2, i)));
+  end for;
+end threadMap;
+
+function fromScalar<T>
+  "Creates an array of length 1 containing the given value."
+  input T e;
+  output array<T> arr;
+algorithm
+  arr := arrayCreate(1, e);
+end fromScalar;
+
+function generate<T>
+  "Generates an array of length n and fills it by calling the given generator
+   function for each array element."
+  input Integer n;
+  input Generator generator;
+  output array<T> arr;
+
+  partial function Generator
+    output T e;
+  end Generator;
+protected
+  T e;
+algorithm
+  if n <= 0 then
+    arr := listArray({});
+  else
+    e := generator();
+    arr := arrayCreateNoInit(n, e);
+    arrayUpdateNoBoundsChecking(arr, 1, e);
+
+    for i in 2:n loop
+      arrayUpdateNoBoundsChecking(arr, i, generator());
+    end for;
+  end if;
+end generate;
 
 annotation(__OpenModelica_Interface="util");
 end Array;

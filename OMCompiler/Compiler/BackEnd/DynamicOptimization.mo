@@ -115,7 +115,7 @@ algorithm
    (mayer,lagrange,startTimeE,finalTimeE) := getOptimicaArgs(classAttrs);
     varlst :=  BackendVariable.varList(globalKnownVars);
     _ := addTimeGrid(varlst, globalKnownVars);
-    varlst := listAppend(varlst, BackendVariable.varList(vars));
+    varlst := listAppend(varlst, BackendVariable.varList(vars)) annotation(__OpenModelica_DisableListAppendWarning=true);
 
     (vars, eqnsLst, mayer) := joinObjectFun(makeObject(BackendDAE.optimizationMayerTermName, findMayerTerm, varlst, mayer), vars, eqnsLst);
     (vars, eqnsLst, lagrange) := joinObjectFun(makeObject(BackendDAE.optimizationLagrangeTermName, findLagrangeTerm, varlst, lagrange), vars, eqnsLst);
@@ -240,7 +240,7 @@ protected function makeVar "author: Vitalij Ruge"
 
 algorithm
   cr := ComponentReference.makeCrefIdent(name, DAE.T_REAL_DEFAULT, {});
-  v :=  BackendDAE.VAR(cr, BackendDAE.VARIABLE(), DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), SOME(BackendDAE.AVOID()), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+  v :=  BackendDAE.VAR(cr, BackendDAE.VARIABLE(), DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), SOME(BackendDAE.AVOID()), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
 end makeVar;
 
 protected function addOptimizationVarsEqns1
@@ -264,7 +264,7 @@ algorithm
 
  for elem in constraintLst loop
    try
-     conCrefName := prefConCrefName + ComponentReference.crefModelicaStr(Expression.expCref(elem));
+     conCrefName := prefConCrefName + ComponentReference.printComponentRefStr(Expression.expCref(elem));
    else
      conCrefName := prefConCrefName + intString(i);
      i := i + 1;
@@ -511,7 +511,7 @@ algorithm
       equation
         (var,_) = BackendVariable.getVarSingle(cr, vars);
         true = BackendVariable.isVarOnTopLevelAndInput(var);
-        var = BackendVariable.setHideResult(var, DAE.BCONST(true));
+        var = BackendVariable.setHideResult(var, SOME(DAE.BCONST(true)));
         cr1 = ComponentReference.prependStringCref("$TMP$DER$P", cr);
         //cr1 = ComponentReference.crefPrefixDer(cr);
         e = Expression.crefExp(cr1);
@@ -797,7 +797,7 @@ algorithm
            var_lst_opt := list(vv for vv  guard BackendVariable.isStateVar(vv) in var_lst);
            b3 := listLength(var_lst_opt) == 1;
            var_lst := BackendEquation.equationsLstVars({eqn_}, globalKnownVars);
-           var_lst_opt := listAppend(var_lst_opt, list(vv for vv guard BackendVariable.isInput(vv) in var_lst));
+           var_lst_opt := listAppend(var_lst_opt, list(vv for vv guard BackendVariable.isInput(vv) in var_lst)) annotation(__OpenModelica_DisableListAppendWarning=true);
            //print("\nn = " + intString(listLength(var_lst_opt)));
            if listLength(var_lst_opt) == 1 then
              {var_} := var_lst_opt;

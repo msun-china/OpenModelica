@@ -29,22 +29,29 @@
  */
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
- #define WIN32_LEAN_AND_MEAN
  #include <windows.h>
 #endif
 
-#include "meta_modelica.h"
+#include "meta/meta_modelica.h"
 #include "parse.c"
 
-void* ParserExt_parse(const char* filename, const char* infoname, int acceptedGrammar, int langStd, const char* encoding, int runningTestsuite, const char* libraryPath, void* lveInstance)
+static int set_grammar_flag(int flags, int grammar)
 {
-  int flags = PARSE_MODELICA;
-  if(acceptedGrammar == 2) flags |= PARSE_META_MODELICA;
-  else if(acceptedGrammar == 3) flags |= PARSE_PARMODELICA;
-  else if(acceptedGrammar == 4) flags |= PARSE_OPTIMICA;
-  else if(acceptedGrammar == 5) flags |= PARSE_PDEMODELICA;
+  switch (grammar) {
+    case 2: flags |= PARSE_META_MODELICA; break;
+    case 3: flags |= PARSE_PARMODELICA;   break;
+    case 4: flags |= PARSE_OPTIMICA;      break;
+    case 5: flags |= PARSE_PDEMODELICA;   break;
+  }
 
-  void *res = parseFile(filename, infoname, flags, encoding, langStd, runningTestsuite, libraryPath, lveInstance);
+  return flags;
+}
+
+void* ParserExt_parse(const char* filename, const char* infoname, int acceptedGrammar, int langStd, int strict, const char* encoding, int runningTestsuite, const char* libraryPath, void* lveInstance)
+{
+  int flags = set_grammar_flag(PARSE_MODELICA, acceptedGrammar);
+
+  void *res = parseFile(filename, infoname, flags, encoding, langStd, strict, runningTestsuite, libraryPath, lveInstance);
   if (res == NULL)
     MMC_THROW();
   // printAny(res);
@@ -53,27 +60,19 @@ void* ParserExt_parse(const char* filename, const char* infoname, int acceptedGr
 
 void* ParserExt_parseexp(const char* filename, const char* infoname, int acceptedGrammar, int langStd, int runningTestsuite)
 {
-  int flags = PARSE_EXPRESSION;
-  if(acceptedGrammar == 2) flags |= PARSE_META_MODELICA;
-  else if(acceptedGrammar == 3) flags |= PARSE_PARMODELICA;
-  else if(acceptedGrammar == 4) flags |= PARSE_OPTIMICA;
-  else if(acceptedGrammar == 5) flags |= PARSE_PDEMODELICA;
+  int flags = set_grammar_flag(PARSE_EXPRESSION, acceptedGrammar);
 
-  void *res = parseFile(filename, infoname, flags, "UTF-8", langStd, runningTestsuite, "", 0);
+  void *res = parseFile(filename, infoname, flags, "UTF-8", langStd, 0, runningTestsuite, "", 0);
   if (res == NULL)
     MMC_THROW();
   return res;
 }
 
-void* ParserExt_parsestring(const char* data, const char* filename, int acceptedGrammar, int langStd, int runningTestsuite)
+void* ParserExt_parsestring(const char* data, const char* filename, int acceptedGrammar, int langStd, int strict, int runningTestsuite)
 {
-  int flags = PARSE_MODELICA;
-  if(acceptedGrammar == 2) flags |= PARSE_META_MODELICA;
-  else if(acceptedGrammar == 3) flags |= PARSE_PARMODELICA;
-  else if(acceptedGrammar == 4) flags |= PARSE_OPTIMICA;
-  else if(acceptedGrammar == 5) flags |= PARSE_PDEMODELICA;
+  int flags = set_grammar_flag(PARSE_MODELICA, acceptedGrammar);
 
-  void *res = parseString(data, filename, flags, langStd, runningTestsuite);
+  void *res = parseString(data, filename, flags, langStd, strict, runningTestsuite);
   if (res != NULL) {
     return res;
   } else {
@@ -83,13 +82,9 @@ void* ParserExt_parsestring(const char* data, const char* filename, int accepted
 
 void* ParserExt_parsestringexp(const char* data, const char* filename, int acceptedGrammar, int langStd, int runningTestsuite)
 {
-  int flags = PARSE_EXPRESSION;
-  if(acceptedGrammar == 2) flags |= PARSE_META_MODELICA;
-  else if(acceptedGrammar == 3) flags |= PARSE_PARMODELICA;
-  else if(acceptedGrammar == 4) flags |= PARSE_OPTIMICA;
-  else if(acceptedGrammar == 5) flags |= PARSE_PDEMODELICA;
+  int flags = set_grammar_flag(PARSE_EXPRESSION, acceptedGrammar);
 
-  void *res = parseString(data, filename, flags, langStd, runningTestsuite);
+  void *res = parseString(data, filename, flags, langStd, 0, runningTestsuite);
   if (res != NULL) {
     return res;
   } else {
@@ -99,13 +94,9 @@ void* ParserExt_parsestringexp(const char* data, const char* filename, int accep
 
 void* ParserExt_stringPath(const char* data, const char* filename, int acceptedGrammar, int langStd, int runningTestsuite)
 {
-  int flags = PARSE_PATH;
-  if(acceptedGrammar == 2) flags |= PARSE_META_MODELICA;
-  else if(acceptedGrammar == 3) flags |= PARSE_PARMODELICA;
-  else if(acceptedGrammar == 4) flags |= PARSE_OPTIMICA;
-  else if(acceptedGrammar == 5) flags |= PARSE_PDEMODELICA;
+  int flags = set_grammar_flag(PARSE_PATH, acceptedGrammar);
 
-  void *res = parseString(data, filename, flags, langStd, runningTestsuite);
+  void *res = parseString(data, filename, flags, langStd, 0, runningTestsuite);
   if (res != NULL) {
     return res;
   } else {
@@ -115,13 +106,21 @@ void* ParserExt_stringPath(const char* data, const char* filename, int acceptedG
 
 void* ParserExt_stringCref(const char* data, const char* filename, int acceptedGrammar, int langStd, int runningTestsuite)
 {
-  int flags = PARSE_CREF;
-  if(acceptedGrammar == 2) flags |= PARSE_META_MODELICA;
-  else if(acceptedGrammar == 3) flags |= PARSE_PARMODELICA;
-  else if(acceptedGrammar == 4) flags |= PARSE_OPTIMICA;
-  else if(acceptedGrammar == 5) flags |= PARSE_PDEMODELICA;
+  int flags = set_grammar_flag(PARSE_CREF, acceptedGrammar);
 
-  void *res = parseString(data, filename, flags, langStd, runningTestsuite);
+  void *res = parseString(data, filename, flags, langStd, 0, runningTestsuite);
+  if (res != NULL) {
+    return res;
+  } else {
+    MMC_THROW();
+  }
+}
+
+void* ParserExt_stringMod(const char* data, const char* filename, int acceptedGrammar, int langStd, int runningTestsuite)
+{
+  int flags = set_grammar_flag(PARSE_MODIFIER, acceptedGrammar);
+
+  void *res = parseString(data, filename, flags, langStd, 0, runningTestsuite);
   if (res != NULL) {
     return res;
   } else {
@@ -139,9 +138,9 @@ int ParserExt_checkLVEToolLicense(void** lveInstance, const char* packageName)
   return checkLVEToolLicense(lveInstance, packageName);
 }
 
-void ParserExt_checkLVEToolFeature(void** lveInstance, const char* feature)
+int ParserExt_checkLVEToolFeature(void** lveInstance, const char* feature)
 {
-  checkLVEToolFeature(lveInstance, feature);
+  return checkLVEToolFeature(lveInstance, feature);
 }
 
 void ParserExt_stopLibraryVendorExecutable(void** lveInstance)

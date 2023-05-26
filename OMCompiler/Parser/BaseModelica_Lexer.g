@@ -393,9 +393,19 @@ SESCAPE : esc='\\' ('\\' | '"' | '\'' | '?' | 'a' | 'b' | 'f' | 'n' | 'r' | 't' 
     char chars[2] = {LA(1),'\0'};
     const char *str = chars;
     int len = strlen((char*)$text->chars);
-    c_add_source_message(NULL,2, ErrorType_syntax, ErrorLevel_warning, "Lexer treating \\ as \\\\, since \\\%s is not a valid Modelica escape sequence.",
+    if (((chars[0] & 0xE0) == 0xC0) || ((chars[0] & 0xF0) == 0xE0) || ((chars[0] & 0xF8) == 0xF0) ) {
+      c_add_source_message(NULL,2, ErrorType_syntax, ErrorLevel_warning, "Lexer treating \\ as \\\\, since the next byte is the start of a UTF-8 character and thus not a valid Modelica escape sequence.",
+          &str, 0, $line, $pos+1, $line, $pos+len+1,
+          ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
+    } else if ((chars[0] & 0x80)) {
+      c_add_source_message(NULL,2, ErrorType_syntax, ErrorLevel_warning, "Lexer treating \\ as \\\\, since the next byte is an invalid UTF-8 character and thus not a valid Modelica escape sequence.",
+          &str, 0, $line, $pos+1, $line, $pos+len+1,
+          ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
+    } else {
+      c_add_source_message(NULL,2, ErrorType_syntax, ErrorLevel_warning, "Lexer treating \\ as \\\\, since \\\%s is not a valid Modelica escape sequence.",
           &str, 1, $line, $pos+1, $line, $pos+len+1,
           ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
+    }
   });
 
 fragment
@@ -445,12 +455,7 @@ UNSIGNED_INTEGER :
   | ('.' { $type = DOT; } )
       ( (DIGIT)+ EXPONENT?
           {
-            const char *strs[2] = {(char*)$text->chars,(char*)$text->chars};
-            int len = strlen((char*)$text->chars);
             $type = UNSIGNED_REAL;
-            c_add_source_message(NULL,2, ErrorType_syntax, ErrorLevel_warning, "Treating \%s as 0\%s. This is not standard Modelica and only done for compatibility with old code. Support for this feature may be removed in the future.",
-               strs, 2, $line, $pos+1, $line, $pos+len+1,
-               ModelicaParser_readonly, ModelicaParser_filename_C_testsuiteFriendly);
            }
          | /* Modelica 3.0 element-wise operators! */
          (('+' { $type = PLUS_EW; })

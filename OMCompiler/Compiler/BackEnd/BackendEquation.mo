@@ -175,11 +175,18 @@ public function get
   output BackendDAE.Equation outEquation = ExpandableArray.get(inPos, inEquationArray);
 end get;
 
+public function has
+  "Returns if the element at the given index is occupied or not."
+  input BackendDAE.EquationArray inEquationArray;
+  input Integer inPos "one-based indexing";
+  output Boolean b = ExpandableArray.occupied(inPos, inEquationArray);
+end has;
+
 public function getList "author: Frenkel TUD 2011-05
   returns the equations given by the list of indexes"
   input list<Integer> inIndices "one-based indexing";
   input BackendDAE.EquationArray inEquationArray;
-  output list<BackendDAE.Equation> outEqns;
+  output list<BackendDAE.Equation> outEqns = {};
 algorithm
   outEqns := list(get(inEquationArray, index) for index in inIndices);
 end getList;
@@ -284,8 +291,20 @@ algorithm
   end for;
 end traverseEquationArray_WithUpdate;
 
-public
-function getForEquationIterIdent
+public function sortInitialEqns
+  "author:kabdelhak 2021-9
+   Sorts initial equations to be at the start of the array"
+  input output BackendDAE.EquationArray eqns;
+protected
+  list<BackendDAE.Equation> eqn_lst, init_eqns, sim_eqns;
+algorithm
+  eqn_lst := equationList(eqns);
+  (init_eqns, sim_eqns) := List.splitOnTrue(eqn_lst, isInitialEquation);
+  eqn_lst := listAppend(init_eqns, sim_eqns);
+  eqns := listEquation(eqn_lst);
+end sortInitialEqns;
+
+public function getForEquationIterIdent
  "Get the iterator of a for-equation
   author: rfranke"
   input BackendDAE.Equation inEquation;
@@ -1617,7 +1636,7 @@ public function traverseEquationToScalarResidualForm
   output BackendDAE.Equation outEq;
   output tuple<DAE.FunctionTree, list<BackendDAE.Equation>> outEqs;
 algorithm
-  (outEq,outEqs) := matchcontinue(inEq,inEqs)
+  (outEq,outEqs) := match(inEq,inEqs)
     local
       list<BackendDAE.Equation> eqns,reqn;
       BackendDAE.Equation eqn;
@@ -1629,8 +1648,12 @@ algorithm
         eqns = listAppend(reqn,eqns);
       then (eqn, (funcs, eqns));
 
-    else (inEq,inEqs);
-  end matchcontinue;
+    else
+      equation
+        true = Flags.isSet(Flags.FAILTRACE);
+        Error.addInternalError(getInstanceName() + " failed", sourceInfo());
+      then fail();
+  end match;
 end traverseEquationToScalarResidualForm;
 
 public function convertResidualsIntoSolvedEquations
@@ -1669,7 +1692,7 @@ algorithm
       else
         equation
           true = Flags.isSet(Flags.FAILTRACE);
-          Error.addInternalError("function convertResidualsIntoSolvedEquations failed", sourceInfo());
+          Error.addInternalError(getInstanceName() + " failed", sourceInfo());
         then fail();
     end match;
   end for;
@@ -1815,6 +1838,23 @@ algorithm
   end match;
 end isDynamicEqKind;
 
+public function isBindingEquation
+  input BackendDAE.Equation inEquation;
+  output Boolean outBool;
+algorithm
+  outBool := isBindingEqKind(equationKind(inEquation));
+end isBindingEquation;
+
+public function isBindingEqKind
+  input BackendDAE.EquationKind inEqKind;
+  output Boolean outBool;
+algorithm
+  outBool := match (inEqKind)
+    case (BackendDAE.BINDING_EQUATION()) then true;
+    else false;
+  end match;
+end isBindingEqKind;
+
 public function isDiscreteEquation
   input BackendDAE.Equation inEquation;
   output Boolean outBool;
@@ -1874,10 +1914,32 @@ algorithm
     case BackendDAE.COMPLEX_EQUATION(attr=BackendDAE.EQUATION_ATTRIBUTES(kind=kind)) then kind;
     case BackendDAE.IF_EQUATION(attr=BackendDAE.EQUATION_ATTRIBUTES(kind=kind)) then kind;
     else equation
-      Error.addInternalError("BackendEquation.equationKind failed!", sourceInfo());
+      Error.addInternalError(getInstanceName() + " failed!", sourceInfo());
     then fail();
   end match;
 end equationKind;
+
+public function setEquationKind
+  input output BackendDAE.Equation eq;
+  input output BackendDAE.EquationKind k;
+algorithm
+  eq := match eq
+    local
+      BackendDAE.EquationAttributes a;
+    case BackendDAE.EQUATION(attr=a)          algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.ARRAY_EQUATION(attr=a)    algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.FOR_EQUATION(attr=a)      algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.SOLVED_EQUATION(attr=a)   algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.RESIDUAL_EQUATION(attr=a) algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.WHEN_EQUATION(attr=a)     algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.ALGORITHM(attr=a)         algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.COMPLEX_EQUATION(attr=a)  algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.IF_EQUATION(attr=a)       algorithm a.kind := k; eq.attr := a; then eq;
+    else algorithm
+      Error.addInternalError(getInstanceName() + " failed!", sourceInfo());
+    then fail();
+  end match;
+end setEquationKind;
 
 public function setEvalStageDynamic
   input output BackendDAE.EvaluationStages evalStage;
@@ -2203,7 +2265,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.LESS(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs = Expression.expSub(e1,e2);
       (rhs, _) = ExpressionSimplify.simplify1(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2213,7 +2275,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.LESSEQ(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs = Expression.expSub(e1,e2);
       (rhs, _) = ExpressionSimplify.simplify1(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2223,7 +2285,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.GREATER(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs =  Expression.expSub(e2,e1);
       (rhs, _) = ExpressionSimplify.simplify1(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2233,7 +2295,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.GREATEREQ(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs =  Expression.expSub(e2,e1);
       (rhs, _) = ExpressionSimplify.simplify(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2243,7 +2305,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.EQUAL(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs =  Expression.expSub(e2,e1);
       (rhs, _) = ExpressionSimplify.simplify(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2258,7 +2320,7 @@ algorithm
       end try;
 
       lhs := ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar := BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar := BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       dummyVar := BackendVariable.mergeAliasVars(dummyVar, v, false, knvars);
       eqn := BackendDAE.SOLVED_EQUATION(lhs, e1, Source, BackendDAE.EQ_ATTR_DEFAULT_UNKNOWN);
 
@@ -2921,6 +2983,10 @@ algorithm
       eqn.source = ElementSource.addSymbolicTransformation(eqn.source, inSymOp);
     then eqn;
 
+    case eqn as BackendDAE.FOR_EQUATION() equation
+      eqn.source = ElementSource.addSymbolicTransformation(eqn.source, inSymOp);
+    then eqn;
+
     else equation
       Error.addInternalError("BackendEquation.addOperation failed", sourceInfo());
     then fail();
@@ -3235,6 +3301,14 @@ algorithm
     else fail();
   end match;
 end createResidualExp;
+
+public function hasAnyUnknown
+  input BackendDAE.Equation eqn;
+  input BackendDAE.Variables vars;
+  output Boolean b;
+algorithm
+  b := not listEmpty(equationVars(eqn, vars));
+end hasAnyUnknown;
 
 annotation(__OpenModelica_Interface="backend");
 end BackendEquation;

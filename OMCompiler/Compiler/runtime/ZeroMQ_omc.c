@@ -28,16 +28,14 @@
  *
  */
 
- #if defined(_MSC_VER) || defined(__MINGW32__)
- #define WIN32_LEAN_AND_MEAN
+#if defined(_MSC_VER) || defined(__MINGW32__)
  #include <windows.h>
 #endif
 
 #include <stdio.h>
-#include <meta_modelica.h>
 
 #include "zeromqimpl.c"
-#include "meta_modelica.h"
+#include "meta/meta_modelica.h"
 #include "ModelicaUtilities.h"
 
 extern const char* ZeroMQ_handleRequest(void* mmcZmqSocket)

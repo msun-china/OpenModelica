@@ -39,36 +39,70 @@ import System;
 public
 
 uniontype Version
-record SEMVER
-  Integer major, minor, patch;
-  list<String> prerelease, meta;
-end SEMVER;
-record NONSEMVER
-  String version;
-end NONSEMVER;
+  record SEMVER
+    "Semantic version number MAJOR.MINOR.PATCH, see https://semver.org/."
+    Integer major, minor, patch;
+    list<String> prerelease, meta;
+  end SEMVER;
+  record NONSEMVER
+    "Non-semantic version number"
+    String version;
+  end NONSEMVER;
 end Version;
 
 function parse
+  "Parse version string into SemanticVersion.Version."
   input String s;
+  input Boolean nonsemverAsZeroZeroZero = false;
   output Version v;
 protected
   Integer n;
-  String major, minor, patch, prerelease, meta;
-  list<String> prereleaseLst, metaLst, matches;
-  constant String semverRegex = "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]*|)([+][0-9A-Za-z.-]*|)$";
+  String major, minor, patch, nextString, versions;
+  list<String> prereleaseLst, metaLst, matches, split, versionsLst;
+  constant String semverRegex = "^([0-9][0-9]*\\.?[0-9]*\\.?[0-9]*)([+-][0-9A-Za-z.-]*)?$";
 algorithm
-  (n, matches) := System.regex(s, semverRegex, maxMatches=6, extended=true);
-  if n <> 6 then
-    v := NONSEMVER(s);
+  (n, matches) := System.regex(s, semverRegex, maxMatches=5, extended=true);
+  if n < 2 then
+    if stringLength(s) == 0 then
+      v := NONSEMVER("");
+      return;
+    end if;
+    if nonsemverAsZeroZeroZero then
+      (prereleaseLst, metaLst) := splitPrereleaseAndMeta(s);
+      v := SEMVER(0,0,0,prereleaseLst,metaLst);
+    else
+      v := NONSEMVER(s);
+    end if;
     return;
   end if;
-  {_,major,minor,patch,prerelease,meta} := matches;
-  prereleaseLst := if stringLength(prerelease) > 0 then Util.stringSplitAtChar(Util.stringRest(prerelease), ".") else {};
-  metaLst := if stringLength(meta) > 0 then Util.stringSplitAtChar(Util.stringRest(meta), ".") else {};
+  // OSX regex cannot handle everything in the same regex, so we have manual splitting of prerelease and meta strings
+
+  _::versions::split := matches;
+  versionsLst := Util.stringSplitAtChar(versions, ".");
+  major::versionsLst := versionsLst;
+  if not listEmpty(versionsLst) then
+    minor::versionsLst := versionsLst;
+  else
+    minor := "0";
+  end if;
+  if not listEmpty(versionsLst) then
+    patch::versionsLst := versionsLst;
+  else
+    patch := "0";
+  end if;
+
+  (prereleaseLst, metaLst) := splitPrereleaseAndMeta(if listEmpty(split) then "" else listGet(split, 1));
   v := SEMVER(stringInt(major),stringInt(minor),stringInt(patch),prereleaseLst,metaLst);
 end parse;
 
 function compare
+  "Compare two versions v1 and v2.
+   If v1 and v2 both non-semver or both semver:
+     Return -1 if the first is smallest,
+     1 if the second is smallest,
+     or 0 if they are equal.
+   If v1 non-semver and v2 semver: return -1.
+   If v1 semver and v2 non-semver: return 1."
   input Version v1, v2;
   input Boolean comparePrerelease = true;
   input Boolean compareBuildInformation = false;
@@ -80,20 +114,26 @@ algorithm
     case (_,NONSEMVER()) then 1;
     case (SEMVER(),SEMVER())
       algorithm
-        c := Util.intCompare(v1.major, v2.major);
-        if c <> 0 then
-          return;
-        end if;
-        c := Util.intCompare(v1.minor, v2.minor);
-        if c <> 0 then
-          return;
-        end if;
-        c := Util.intCompare(v1.patch, v2.patch);
-        if c <> 0 then
-          return;
+        if (v1.major==0 and v1.minor==0 and v1.patch==0) or (v2.major==0 and v2.minor==0 and v2.patch==0) then
+          c := 0;
+        else
+          c := Util.intCompare(v1.major, v2.major);
+          if c <> 0 then
+            return;
+          end if;
+          c := Util.intCompare(v1.minor, v2.minor);
+          if c <> 0 then
+            return;
+          end if;
+          c := Util.intCompare(v1.patch, v2.patch);
+          if c <> 0 then
+            return;
+          end if;
         end if;
 
-        c := compareIdentifierList(v1.prerelease, v2.prerelease);
+        if comparePrerelease then
+          c := compareIdentifierList(v1.prerelease, v2.prerelease);
+        end if;
         if c == 0 and compareBuildInformation then
           c := compareIdentifierList(v1.meta, v2.meta);
         end if;
@@ -121,6 +161,7 @@ algorithm
 end toString;
 
 function isPrerelease
+  "Return true if semver version has pre-release information."
   input Version v;
   output Boolean b;
 algorithm
@@ -130,7 +171,60 @@ algorithm
   end match;
 end isPrerelease;
 
+function hasMetaInformation
+  "Return true if semver version has meta information."
+  input Version v;
+  output Boolean b;
+algorithm
+  b := match v
+    case SEMVER(meta={}) then false;
+    case NONSEMVER() then false;
+    else true;
+  end match;
+end hasMetaInformation;
+
+function isSemVer
+  "Return true if version is of semantic versioning type."
+  input Version v;
+  output Boolean b;
+algorithm
+  b := match v
+    case SEMVER() then true;
+    else false;
+  end match;
+end isSemVer;
+
 protected
+
+function splitPrereleaseAndMeta
+  input String s;
+  output list<String> prereleaseLst;
+  output list<String> metaLst;
+protected
+  String meta, prerelease;
+  list<String> split;
+algorithm
+  prereleaseLst := {};
+  metaLst := {};
+
+  if stringEmpty(s) then
+    return;
+  end if;
+
+  if stringGetStringChar(s, 1) == "+" then
+    metaLst := if stringLength(s) > 1 then Util.stringSplitAtChar(Util.stringRest(s), ".") else {};
+    return;
+  end if;
+
+  split := Util.stringSplitAtChar(s, "+");
+  prerelease::split := split;
+  meta := if listEmpty(split) then "" else listGet(split, 1);
+  if stringGetStringChar(prerelease, 1) == "-" then
+    prerelease := Util.stringRest(prerelease);
+  end if;
+  prereleaseLst := if stringLength(prerelease) > 0 then Util.stringSplitAtChar(prerelease, ".") else {};
+  metaLst := if stringLength(meta) > 0 then Util.stringSplitAtChar(meta, ".") else {};
+end splitPrereleaseAndMeta;
 
 function compareIdentifierList
   input list<String> w1, w2;

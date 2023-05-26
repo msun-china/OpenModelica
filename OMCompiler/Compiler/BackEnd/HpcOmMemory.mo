@@ -539,7 +539,7 @@ import Util;
     //print("createCacheMapLevelOptimized0: New cacheLines created: " + intString(createdCL) + "\n");
     writtenCL := List.setDifferenceIntN(availableCLold,availableCL,numCL);
     //print("createCacheMapLevelOptimized0: Written CL_0: " + stringDelimitList(List.map(writtenCL,intString), ",") + " -- numCL: " + intString(numCL) + "\n");
-    writtenCL := listAppend(writtenCL, if intLe(numCL+1, numCL+createdCL) then List.intRange2(numCL+1, numCL+createdCL) else {});
+    writtenCL := listAppend(writtenCL, if intLe(numCL+1, numCL+createdCL) then List.intRange2(numCL+1, numCL+createdCL) else {}) annotation(__OpenModelica_DisableListAppendWarning=true);
     //print("createCacheMapLevelOptimized0: Written CL_1: " + stringDelimitList(List.map(writtenCL,intString), ",") + "\n");
     //print("======================================\n");
     //printCacheMap(cacheMap);
@@ -1430,25 +1430,25 @@ import Util;
     CACHEMAP(cacheLineSize, cacheVariables, cacheLinesFloat, cacheLinesInt, cacheLinesBool) := iCacheMap;
 
     ((partlyFilledCacheLines,fullyFilledSharedCacheLines)) := iSharedCacheLines;
-    cacheLinesFloat := listAppend(cacheLinesFloat, listAppend(Util.tuple31(iThreadCacheLines), Util.tuple31(fullyFilledSharedCacheLines)));
+    cacheLinesFloat := listAppend(cacheLinesFloat, listAppend(Util.tuple31(iThreadCacheLines), Util.tuple31(fullyFilledSharedCacheLines))) annotation(__OpenModelica_DisableListAppendWarning=true);
     //print("HpcOmMemory.createCacheMapFromThreadAndSharedCLs: Thread float cache lines\n");
     //List.map_0(cacheLinesFloat, function printCacheLineMap(iCacheVariables = cacheVariables));
     //print("\n");
-    cacheLinesInt := listAppend(cacheLinesInt, listAppend(Util.tuple32(iThreadCacheLines), Util.tuple32(fullyFilledSharedCacheLines)));
+    cacheLinesInt := listAppend(cacheLinesInt, listAppend(Util.tuple32(iThreadCacheLines), Util.tuple32(fullyFilledSharedCacheLines))) annotation(__OpenModelica_DisableListAppendWarning=true);
     //print("HpcOmMemory.createCacheMapFromThreadAndSharedCLs: Thread int cache lines\n");
     //List.map_0(cacheLinesInt, function printCacheLineMap(iCacheVariables = cacheVariables));
     //print("\n");
-    cacheLinesBool := listAppend(cacheLinesBool, listAppend(Util.tuple33(iThreadCacheLines), Util.tuple33(fullyFilledSharedCacheLines)));
+    cacheLinesBool := listAppend(cacheLinesBool, listAppend(Util.tuple33(iThreadCacheLines), Util.tuple33(fullyFilledSharedCacheLines))) annotation(__OpenModelica_DisableListAppendWarning=true);
     //print("HpcOmMemory.createCacheMapFromThreadAndSharedCLs: Thread bool cache lines\n");
     //List.map_0(cacheLinesBool, function printCacheLineMap(iCacheVariables = cacheVariables));
     //print("\n");
 
-    cacheLinesFloat := listAppend(cacheLinesFloat, List.map(Util.tuple31(partlyFilledCacheLines), getCacheLineMapOfPartlyFilledCacheLine));
+    cacheLinesFloat := listAppend(cacheLinesFloat, List.map(Util.tuple31(partlyFilledCacheLines), getCacheLineMapOfPartlyFilledCacheLine)) annotation(__OpenModelica_DisableListAppendWarning=true);
     //print("HpcOmMemory.createCacheMapFromThreadAndSharedCLs: Partly float cache lines\n");
     //List.map_0(List.map(Util.tuple31(partlyFilledCacheLines), getCacheLineMapOfPartlyFilledCacheLine), function printCacheLineMap(iCacheVariables = cacheVariables));
     //print("\n");
-    cacheLinesInt := listAppend(cacheLinesInt, List.map(Util.tuple32(partlyFilledCacheLines), getCacheLineMapOfPartlyFilledCacheLine));
-    cacheLinesBool := listAppend(cacheLinesBool, List.map(Util.tuple33(partlyFilledCacheLines), getCacheLineMapOfPartlyFilledCacheLine));
+    cacheLinesInt := listAppend(cacheLinesInt, List.map(Util.tuple32(partlyFilledCacheLines), getCacheLineMapOfPartlyFilledCacheLine)) annotation(__OpenModelica_DisableListAppendWarning=true);
+    cacheLinesBool := listAppend(cacheLinesBool, List.map(Util.tuple33(partlyFilledCacheLines), getCacheLineMapOfPartlyFilledCacheLine)) annotation(__OpenModelica_DisableListAppendWarning=true);
 
     oCacheMap := CACHEMAP(cacheLineSize, cacheVariables, cacheLinesFloat, cacheLinesInt, cacheLinesBool);
   end createCacheMapFromThreadAndSharedCLs;
@@ -1796,7 +1796,7 @@ import Util;
           writtenCL = clIdx::writtenCL;
           freeSpace = cacheLineSize-numBytesRequired;
           //print("  -- writing new CL (idx: " + intString(clIdx) + "; freeSpace: " + intString(freeSpace) + ")\n");
-          cacheLineCandidates = listAppend(cacheLineCandidates,{(clIdx,freeSpace)});
+          cacheLineCandidates = List.appendElt((clIdx,freeSpace), cacheLineCandidates);
           cacheMap = CACHEMAP(cacheLineSize,cacheVariables,cacheLinesFloat, cacheLinesInt, cacheLinesBool);
           cacheMapMeta = CACHEMAPMETA(iAllSCVarsMapping, iSimCodeVarTypes, iScVarCLMapping);
           //printCacheMap(cacheMap);
@@ -1958,8 +1958,8 @@ import Util;
 
           currentVarIndices = arrayCreate(4,1);
           //The first array elements are reserved for state and state derivative variables
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(iStateVars, function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_FLOAT), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(iDerivativeVars, function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_FLOAT), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
+          (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable) = SimCodeUtil.addVarToArrayIndexMappings(iStateVars, VARDATATYPE_FLOAT, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
+          (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable) =SimCodeUtil.addVarToArrayIndexMappings(iDerivativeVars, VARDATATYPE_FLOAT, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
 
           stateAndStateDerSize = intAdd(listLength(iStateVars), listLength(iDerivativeVars));
           if(intEq(intMod(stateAndStateDerSize, maxNumElemsFloat), 0)) then
@@ -1987,16 +1987,16 @@ import Util;
           arrayUpdate(currentVarIndices, 3, intMul(listLength(cacheLinesBool), maxNumElemsBool) + 1);
           arrayUpdate(currentVarIndices, 4, 1);
 
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(listReverse(notOptimizedVarsFloat), function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_FLOAT), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(listReverse(notOptimizedVarsInt), function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_INTEGER), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(listReverse(notOptimizedVarsBool), function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_BOOLEAN), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(listReverse(notOptimizedVarsString), function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_STRING), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
+          (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable) = SimCodeUtil.addVarToArrayIndexMappings(listReverse(notOptimizedVarsFloat), VARDATATYPE_FLOAT, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
+          (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable) = SimCodeUtil.addVarToArrayIndexMappings(listReverse(notOptimizedVarsInt), VARDATATYPE_INTEGER, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
+          (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable) = SimCodeUtil.addVarToArrayIndexMappings(listReverse(notOptimizedVarsBool), VARDATATYPE_BOOLEAN, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
+          (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable) = SimCodeUtil.addVarToArrayIndexMappings(listReverse(notOptimizedVarsString), VARDATATYPE_STRING, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
 
           //BaseHashTable.dumpHashTable(varArrayIndexMappingHashTable);
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(iAliasVars, function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_FLOAT), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(iIntAliasVars, function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_INTEGER), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(iBoolAliasVars, function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_BOOLEAN), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
-          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = List.fold(iStringAliasVars, function SimCodeUtil.addVarToArrayIndexMapping(iVarType=VARDATATYPE_STRING), (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
+          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = SimCodeUtil.addVarToArrayIndexMappings(iAliasVars, VARDATATYPE_FLOAT, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
+          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = SimCodeUtil.addVarToArrayIndexMappings(iIntAliasVars, VARDATATYPE_INTEGER, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
+          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = SimCodeUtil.addVarToArrayIndexMappings(iBoolAliasVars, VARDATATYPE_BOOLEAN, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
+          ((currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable)) = SimCodeUtil.addVarToArrayIndexMappings(iStringAliasVars, VARDATATYPE_STRING, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
 
           varSizeFloat = varSizeFloat + intMul(listLength(cacheLinesFloat), maxNumElemsFloat) + listLength(notOptimizedVarsFloat);
           //SimCodeUtil.dumpVarLst(notOptimizedVarsFloat, "convertCacheToVarArrayMapping: Not optimized float vars");
@@ -2084,7 +2084,7 @@ import Util;
           //print("convertCacheMapToMemoryMap2: offset=" + intString(offset) + " array-index=" + intString(iArrayIdx) + " array-position=" + intString(arrayPosition) + "\n");
           currentVarIndices = arrayCreate(4,arrayPosition);
           //print("convertCacheMapToMemoryMap2: number of variables=" + intString(arrayLength(iCacheVariables)) + " arrayPosition=" + intString(arrayPosition) + "\n");
-          (_, varArrayIndexMappingHashTable, varIndexMappingHashTable) = SimCodeUtil.addVarToArrayIndexMapping(arrayGet(iCacheVariables, arrayLength(iCacheVariables) - scVarIdx + 1), iArrayIdx, (currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable));
+          (_, varArrayIndexMappingHashTable, varIndexMappingHashTable) = SimCodeUtil.addVarToArrayIndexMapping(arrayGet(iCacheVariables, arrayLength(iCacheVariables) - scVarIdx + 1), iArrayIdx, currentVarIndices, varArrayIndexMappingHashTable, varIndexMappingHashTable);
           //iPositionMappingList = (realScVarIdx,arrayPosition,iArrayIdx)::iPositionMappingList;
           //for arridx in listRange(arrayLength(iVarIdxOffsets)) loop
           //  _ = arrayUpdate(iVarIdxOffset, intDiv(clSize, size));
@@ -3433,8 +3433,6 @@ import Util;
         then DAE.CREF_QUAL(ident,identType,subscriptLst,componentRef);
       case(DAE.CREF_IDENT(ident,identType,subscriptLst))
         then DAE.CREF_IDENT(ident,identType,{});
-      case(DAE.CREF_ITER(ident,index,identType,subscriptLst))
-        then DAE.CREF_ITER(ident,index,identType,{});
       else iCref;
     end match;
   end removeSubscripts;

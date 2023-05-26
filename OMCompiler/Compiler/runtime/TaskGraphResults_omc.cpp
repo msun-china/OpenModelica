@@ -1,13 +1,19 @@
 #if !defined(_MSC_VER)
 extern "C" {
 #include "openmodelica.h"
-#include "meta_modelica.h"
+#include "meta/meta_modelica.h"
+
 #define ADD_METARECORD_DEFINITIONS static
-#include "OpenModelicaBootstrappingHeader.h"
+#if defined(OMC_BOOTSTRAPPING)
+  #include "../boot/tarball-include/OpenModelicaBootstrappingHeader.h"
+#else
+  #include "../OpenModelicaBootstrappingHeader.h"
+#endif
 }
+
 #include "TaskGraphResultsCmp.cpp"
 #else
-#include "meta_modelica.h"
+#include "meta/meta_modelica.h"
 #include "errorext.h"
 #define TASKGRAPH_VS() c_add_message(NULL, -1, ErrorType_scripting, ErrorLevel_error, "TaskGraphResults not supported on Visual Studio.", NULL, 0);MMC_THROW();
 #endif

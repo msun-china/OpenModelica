@@ -288,7 +288,7 @@ algorithm
           case DAE.CALL(attr=DAE.CALL_ATTR(builtin=true), path=Absyn.IDENT("listAppend"), expLst=(e1 as DAE.CREF())::_)
             guard Expression.expEqual(lhs, e1)
             algorithm
-              if Flags.isSet(Flags.LIST_REVERSE_WRONG_ORDER) and not max(SCodeUtil.commentHasBooleanNamedAnnotation(comment, "__OpenModelica_DisableListAppendWarning") for comment in ElementSource.getCommentsFromSource(source)) then
+              if Flags.isSet(Flags.LIST_REVERSE_WRONG_ORDER) and not max(SCodeUtil.commentHasBooleanNamedAnnotation(comment, "__OpenModelica_DisableListAppendWarning") for comment in ElementSource.getComments(source)) then
                 Error.addSourceMessage(Error.LIST_REVERSE_WRONG_ORDER, {ExpressionDump.printExpStr(e1)}, ElementSource.getElementSourceFileInfo(source));
                 fail();
               end if;
@@ -685,17 +685,17 @@ algorithm
     case (i, e, DAE.PROP(type_ = DAE.T_ARRAY(ty = t, dims = dims)), stmts, _)
       equation
         isArray = Types.isNonscalarArray(t, dims);
-      then DAE.STMT_FOR(t, isArray, i, -1, e, stmts, source);
+      then DAE.STMT_FOR(t, isArray, i, e, stmts, source);
 
     case (i, e, DAE.PROP(type_ = DAE.T_METALIST(ty = t)), stmts, _)
       equation
         t = Types.simplifyType(t);
-      then DAE.STMT_FOR(t, false, i, -1, e, stmts, source);
+      then DAE.STMT_FOR(t, false, i, e, stmts, source);
 
     case (i, e, DAE.PROP(type_ = DAE.T_METAARRAY(ty = t)), stmts, _)
       equation
         t = Types.simplifyType(t);
-      then DAE.STMT_FOR(t, false, i, -1, e, stmts, source);
+      then DAE.STMT_FOR(t, false, i, e, stmts, source);
 
     case (_, e, DAE.PROP(type_ = t), _, _)
       equation
@@ -732,7 +732,7 @@ algorithm
         isArray = Types.isNonscalarArray(t, dims);
         _ = Types.simplifyType(t);
       then
-        DAE.STMT_PARFOR(t, isArray, i, -1, e, stmts, inLoopPrlVars, source);
+        DAE.STMT_PARFOR(t, isArray, i, e, stmts, inLoopPrlVars, source);
 
     case (_, e, DAE.PROP(type_ = t), _, _, _)
       equation

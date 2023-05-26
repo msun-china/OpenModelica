@@ -37,26 +37,38 @@ encapsulated package NFLookup
 
 import Absyn;
 import AbsynUtil;
+import Attributes = NFAttributes;
 import SCode;
 import Dump;
 import ErrorTypes;
 import Global;
 import NFBuiltin;
 import Inst = NFInst;
-import NFClass.Class;
+import Class = NFClass;
 import NFInstNode.InstNode;
 import NFLookupState.LookupState;
 import Type = NFType;
 import ComponentRef = NFComponentRef;
+import InstContext = NFInstContext;
+import InstNodeType = NFInstNode.InstNodeType;
 
 protected
 import NFInstNode.NodeTree;
 import NFInstNode.CachedData;
-import NFComponent.Component;
+import Component = NFComponent;
 import Subscript = NFSubscript;
 import ComplexType = NFComplexType;
-import Config;
 import Error;
+import ErrorExt;
+import UnorderedMap;
+import Modifier = NFModifier;
+import BackendInterface;
+import Settings;
+import Testsuite;
+import AbsynToSCode;
+import NFClassTree.ClassTree;
+import SCodeUtil;
+import System;
 
 public
 type MatchType = enumeration(FOUND, NOT_FOUND, PARTIAL);
@@ -64,14 +76,15 @@ type MatchType = enumeration(FOUND, NOT_FOUND, PARTIAL);
 function lookupClassName
   input Absyn.Path name;
   input InstNode scope;
+  input InstContext.Type context;
   input SourceInfo info;
   input Boolean checkAccessViolations = true;
   output InstNode node;
 protected
   LookupState state;
 algorithm
-  (node, state) := lookupNameWithError(name, scope, info, Error.LOOKUP_ERROR, checkAccessViolations);
-  LookupState.assertClass(state, node, name, info);
+  (node, state) := lookupNameWithError(name, scope, context, info, Error.LOOKUP_ERROR, checkAccessViolations);
+  LookupState.assertClass(state, node, name, context, info);
 end lookupClassName;
 
 function lookupBaseClassName
@@ -83,19 +96,20 @@ protected
   LookupState state;
 algorithm
   try
-    (nodes, state) := lookupNames(name, scope);
+    (nodes, state) := lookupNames(name, scope, NFInstContext.NO_CONTEXT);
   else
     Error.addSourceMessage(Error.LOOKUP_BASECLASS_ERROR,
       {AbsynUtil.pathString(name), InstNode.scopeName(scope)}, info);
     fail();
   end try;
 
-  LookupState.assertClass(state, listHead(nodes), name, info);
+  LookupState.assertClass(state, listHead(nodes), name, NFInstContext.NO_CONTEXT, info);
 end lookupBaseClassName;
 
 function lookupComponent
   input Absyn.ComponentRef cref;
   input InstNode scope "The scope to look in.";
+  input InstContext.Type context;
   input SourceInfo info;
   output ComponentRef foundCref;
   output InstNode foundScope "The scope the cref was found in.";
@@ -104,7 +118,7 @@ protected
   InstNode node;
 algorithm
   try
-    (foundCref, foundScope, state) := lookupCref(cref, scope);
+    (foundCref, foundScope, state) := lookupCref(cref, scope, context);
     node := ComponentRef.node(foundCref);
     false := InstNode.isName(node);
   else
@@ -113,12 +127,13 @@ algorithm
   end try;
 
   state := fixTypenameState(node, state);
-  LookupState.assertComponent(state, node, cref, info);
+  LookupState.assertComponent(state, node, cref, context, info);
 end lookupComponent;
 
 function lookupConnector
   input Absyn.ComponentRef cref;
   input InstNode scope "The scope to look in.";
+  input InstContext.Type context;
   input SourceInfo info;
   output ComponentRef foundCref;
   output InstNode foundScope "The scope the cref was found in.";
@@ -127,7 +142,7 @@ protected
   InstNode node;
 algorithm
   try
-    (foundCref, foundScope, state) := lookupCref(cref, scope);
+    (foundCref, foundScope, state) := lookupCref(cref, scope, context);
   else
     Error.addSourceMessageAndFail(Error.LOOKUP_VARIABLE_ERROR,
       {Dump.printComponentRefStr(cref), InstNode.scopeName(scope)}, info);
@@ -135,7 +150,7 @@ algorithm
 
   node := ComponentRef.node(foundCref);
   state := fixTypenameState(node, state);
-  LookupState.assertComponent(state, node, cref, info);
+  LookupState.assertComponent(state, node, cref, context, info);
 end lookupConnector;
 
 function fixTypenameState
@@ -161,6 +176,7 @@ function lookupLocalComponent
    scope in the case where the cref refers to an outer component."
   input Absyn.ComponentRef cref;
   input InstNode scope "The scope to look in.";
+  input InstContext.Type context;
   input SourceInfo info;
   output ComponentRef foundCref;
   output InstNode foundScope "The scope the cref was found in.";
@@ -168,13 +184,14 @@ protected
   LookupState state;
   InstNode node;
 algorithm
-  (foundCref, foundScope, state) := lookupLocalCref(cref, scope, info);
-  LookupState.assertComponent(state, ComponentRef.node(foundCref), cref, info);
+  (foundCref, foundScope, state) := lookupLocalCref(cref, scope, context, info);
+  LookupState.assertComponent(state, ComponentRef.node(foundCref), cref, context, info);
 end lookupLocalComponent;
 
 function lookupFunctionName
   input Absyn.ComponentRef cref;
   input InstNode scope "The scope to look in.";
+  input InstContext.Type context;
   input SourceInfo info;
   output ComponentRef foundCref;
   output InstNode foundScope;
@@ -183,7 +200,7 @@ protected
   InstNode node;
 algorithm
   try
-    (foundCref, foundScope, state) := lookupCref(cref, scope);
+    (foundCref, foundScope, state) := lookupCref(cref, scope, context);
     node := ComponentRef.node(foundCref);
     false := InstNode.isName(node);
   else
@@ -192,19 +209,20 @@ algorithm
   end try;
 
   (foundCref, state) := fixExternalObjectCall(node, foundCref, state);
-  LookupState.assertFunction(state, node, cref, info);
+  LookupState.assertFunction(state, node, cref, context, info);
 end lookupFunctionName;
 
 function lookupFunctionNameSilent
   input Absyn.ComponentRef cref;
   input InstNode scope "The scope to look in.";
+  input InstContext.Type context;
   output ComponentRef foundCref;
   output InstNode foundScope;
 protected
   LookupState state;
   InstNode node;
 algorithm
-  (foundCref, foundScope, state) := lookupCref(cref, scope);
+  (foundCref, foundScope, state) := lookupCref(cref, scope, context);
   node := ComponentRef.node(foundCref);
   (foundCref, state) := fixExternalObjectCall(node, foundCref, state);
   true := LookupState.isFunction(state, node);
@@ -257,13 +275,15 @@ function lookupImport
 protected
   LookupState state;
 algorithm
-  (element, state) := lookupNameWithError(name, InstNode.topScope(scope), info, Error.LOOKUP_IMPORT_ERROR);
+  (element, state) := lookupNameWithError(name, InstNode.topScope(scope),
+    NFInstContext.NO_CONTEXT, info, Error.LOOKUP_IMPORT_ERROR);
   LookupState.assertImport(state, element, name, info);
 end lookupImport;
 
 function lookupCrefWithError
   input Absyn.ComponentRef cref;
   input InstNode scope;
+  input InstContext.Type context;
   input SourceInfo info;
   input ErrorTypes.Message errMsg;
   output ComponentRef foundCref;
@@ -271,7 +291,7 @@ function lookupCrefWithError
   output LookupState state;
 algorithm
   try
-    (foundCref, foundScope, state) := lookupCref(cref, scope);
+    (foundCref, foundScope, state) := lookupCref(cref, scope, context);
   else
     Error.addSourceMessage(errMsg,
       {Dump.printComponentRefStr(cref), InstNode.scopeName(scope)}, info);
@@ -285,28 +305,33 @@ function lookupCref
    of the cref was found will also be returned."
   input Absyn.ComponentRef cref;
   input InstNode scope "The scope to look in.";
+  input InstContext.Type context;
   output ComponentRef foundCref;
   output InstNode foundScope "The scope where the first part of the cref was found.";
   output LookupState state;
 protected
   InstNode node;
+  Boolean in_enclosing;
 algorithm
   (foundCref, foundScope, state) := match cref
     case Absyn.ComponentRef.CREF_IDENT()
       algorithm
-        (_, foundCref, foundScope, state) := lookupSimpleCref(cref.name, cref.subscripts, scope);
+        (_, foundCref, foundScope, in_enclosing, state) := lookupSimpleCref(cref.name, cref.subscripts, scope, context);
+        state := LookupState.checkCrefVariability(foundCref, in_enclosing, context, state);
       then
         (foundCref, foundScope, state);
 
     case Absyn.ComponentRef.CREF_QUAL()
       algorithm
-        (node, foundCref, foundScope, state) := lookupSimpleCref(cref.name, cref.subscripts, scope);
-        (foundCref, foundScope, state) := lookupCrefInNode(cref.componentRef, node, foundCref, foundScope, state);
+        (node, foundCref, foundScope, in_enclosing, state) := lookupSimpleCref(cref.name, cref.subscripts, scope, context);
+        (foundCref, foundScope, state) :=
+          lookupCrefInNode(cref.componentRef, node, foundCref, foundScope, state, context);
+        state := LookupState.checkCrefVariability(foundCref, in_enclosing, context, state);
       then
         (foundCref, foundScope, state);
 
     case Absyn.ComponentRef.CREF_FULLYQUALIFIED()
-      then lookupCref(cref.componentRef, InstNode.topScope(scope));
+      then lookupCref(cref.componentRef, InstNode.topScope(scope), context);
 
     case Absyn.ComponentRef.WILD()
       then (ComponentRef.WILD(), scope, LookupState.PREDEF_COMP());
@@ -320,6 +345,7 @@ function lookupLocalCref
   "Looks up a cref in the local scope without going into any enclosing scopes."
   input Absyn.ComponentRef cref;
   input InstNode scope "The scope to look in.";
+  input InstContext.Type context;
   input SourceInfo info;
   output ComponentRef foundCref;
   output InstNode foundScope "The scope where the first part of the cref was found.";
@@ -345,7 +371,7 @@ algorithm
         state := LookupState.nodeState(node);
         foundCref := ComponentRef.fromAbsyn(node, cref.subscripts);
         (foundCref, foundScope, state) :=
-          lookupCrefInNode(cref.componentRef, node, foundCref, foundScope, state);
+          lookupCrefInNode(cref.componentRef, node, foundCref, foundScope, state, context);
       then
         (foundCref, foundScope, state);
 
@@ -375,9 +401,15 @@ algorithm
       true := InstNode.isInner(innerNode);
       return;
     else
-      // Continue looking in the instance parent's scope.
-      prev_scope := cur_scope;
-      cur_scope := InstNode.derivedParent(cur_scope);
+      if InstNode.isRootClass(cur_scope) then
+        // Stop looking if we reach the root class.
+        prev_scope := InstNode.topScope(cur_scope);
+        cur_scope := InstNode.EMPTY_NODE();
+      else
+        // Otherwise continue looking in the instance parent's scope.
+        prev_scope := cur_scope;
+        cur_scope := InstNode.instanceParent(cur_scope);
+      end if;
     end try;
   end while;
 
@@ -400,26 +432,57 @@ end lookupLocalSimpleName;
 function lookupSimpleName
   input String name;
   input InstNode scope;
+  input InstContext.Type context;
   output InstNode node;
 protected
   InstNode cur_scope = scope;
+  Boolean require_builtin = false;
+  Boolean loaded = false;
 algorithm
   // Look for the name in each enclosing scope, until it's either found or we
   // run out of scopes.
   for i in 1:Global.recursionDepthLimit loop
     try
       node := lookupLocalSimpleName(name, cur_scope);
-      return;
-    else
-      // TODO: Handle encapsulated scopes.
-      // If the scope has the same name as we're looking for we can just return it.
-      if name == InstNode.name(cur_scope) and InstNode.isClass(cur_scope) then
-        node := cur_scope;
-        return;
+
+      if require_builtin then
+        true := InstNode.isBuiltin(node);
       end if;
 
-      // Otherwise, continue in the enclosing scope.
-      cur_scope := InstNode.parentScope(cur_scope);
+      return;
+    else
+      // If the scope is encapsulated, continue looking among the builtin
+      // classes in the top scope.
+      if InstNode.isEncapsulated(cur_scope) then
+        // Do parentScope first to avoid an infinite loop if we're already in the top scope.
+        cur_scope := InstNode.topScope(InstNode.parentScope(cur_scope));
+        require_builtin := true;
+      elseif name == InstNode.name(cur_scope) and InstNode.isClass(cur_scope) then
+        // If the scope has the same name as we're looking for we can just return it.
+        node := cur_scope;
+        return;
+      else
+        if InstNode.isTopScope(cur_scope) then
+          // If the name couldn't be found in any scope...
+          if InstContext.inAnnotation(context) then
+            // If we're in an annotation, check in the special scope where
+            // annotation classes are defined.
+            cur_scope := InstNode.annotationScope(cur_scope);
+          elseif not loaded and not require_builtin then
+            // If we haven't already tried and we're not trying to find a
+            // builtin name, try to load a library with that name and then try
+            // to look it up in the top scope again.
+            loaded := true;
+            loadLibrary(name, cur_scope);
+          else
+            // Nothing more to try, just fail.
+            fail();
+          end if;
+        else
+          // Otherwise, continue in the enclosing scope.
+          cur_scope := InstNode.parentScope(cur_scope);
+        end if;
+      end if;
     end try;
   end for;
 
@@ -431,6 +494,7 @@ end lookupSimpleName;
 function lookupNameWithError
   input Absyn.Path name;
   input InstNode scope;
+  input InstContext.Type context;
   input SourceInfo info;
   input ErrorTypes.Message errorType;
   input Boolean checkAccessViolations = true;
@@ -438,7 +502,7 @@ function lookupNameWithError
   output LookupState state;
 algorithm
   try
-    (node, state) := lookupName(name, scope, checkAccessViolations);
+    (node, state) := lookupName(name, scope, context, checkAccessViolations);
   else
     Error.addSourceMessage(errorType, {AbsynUtil.pathString(name), InstNode.scopeName(scope)}, info);
     fail();
@@ -448,6 +512,7 @@ end lookupNameWithError;
 function lookupName
   input Absyn.Path name;
   input InstNode scope;
+  input InstContext.Type context;
   input Boolean checkAccessViolations;
   output InstNode node;
   output LookupState state;
@@ -455,26 +520,46 @@ algorithm
   (node, state) := match name
     // Simple name, look it up in the given scope.
     case Absyn.Path.IDENT()
-      then lookupFirstIdent(name.name, scope);
+      then lookupFirstIdent(name.name, scope, context);
 
     // Qualified name, look up first part in the given scope and look up the
     // rest of the name in the found element.
     case Absyn.Path.QUALIFIED()
       algorithm
-        (node, state) := lookupFirstIdent(name.name, scope);
+        (node, state) := lookupFirstIdent(name.name, scope, context);
       then
-        lookupLocalName(name.path, node, state, checkAccessViolations, InstNode.refEqual(node, scope));
+        lookupLocalName(name.path, node, state, context, checkAccessViolations, isSelfReference(node, scope));
 
     // Fully qualified path, start from top scope.
     case Absyn.Path.FULLYQUALIFIED()
-      then lookupName(name.path, InstNode.topScope(scope), checkAccessViolations);
+      then lookupName(name.path, InstNode.topScope(scope), context, checkAccessViolations);
 
   end match;
 end lookupName;
 
+function isSelfReference
+  input InstNode node;
+  input InstNode scope;
+  output Boolean res;
+protected
+  InstNode parent = scope;
+algorithm
+  while not InstNode.isEmpty(parent) loop
+    if InstNode.refEqual(node, parent) then
+      res := true;
+      return;
+    end if;
+
+    parent := InstNode.instanceParent(parent);
+  end while;
+
+  res := false;
+end isSelfReference;
+
 function lookupNames
   input Absyn.Path name;
   input InstNode scope;
+  input InstContext.Type context;
   output list<InstNode> nodes;
   output LookupState state;
 algorithm
@@ -485,7 +570,7 @@ algorithm
     // Simple name, look it up in the given scope.
     case Absyn.Path.IDENT()
       algorithm
-        (node, state) := lookupFirstIdent(name.name, scope);
+        (node, state) := lookupFirstIdent(name.name, scope, context);
       then
         ({node}, state);
 
@@ -493,13 +578,13 @@ algorithm
     // rest of the name in the found element.
     case Absyn.Path.QUALIFIED()
       algorithm
-        (node, state) := lookupFirstIdent(name.name, scope);
+        (node, state) := lookupFirstIdent(name.name, scope, context);
       then
-        lookupLocalNames(name.path, node, {node}, state, InstNode.refEqual(node, scope));
+        lookupLocalNames(name.path, node, {node}, state, context, isSelfReference(node, scope));
 
     // Fully qualified path, start from top scope.
     case Absyn.Path.FULLYQUALIFIED()
-      then lookupNames(name.path, InstNode.topScope(scope));
+      then lookupNames(name.path, InstNode.topScope(scope), context);
 
   end match;
 end lookupNames;
@@ -508,6 +593,7 @@ function lookupFirstIdent
   "Looks up the first part of a name."
   input String name;
   input InstNode scope;
+  input InstContext.Type context;
   output InstNode node;
   output LookupState state;
 algorithm
@@ -517,7 +603,7 @@ algorithm
     state := LookupState.PREDEF_CLASS();
   else
     // Otherwise, check each scope until the name is found.
-    node := lookupSimpleName(name, scope);
+    node := lookupSimpleName(name, scope, context);
     state := LookupState.nodeState(node);
   end try;
 end lookupFirstIdent;
@@ -528,6 +614,7 @@ function lookupLocalName
   input Absyn.Path name;
   input output InstNode node;
   input output LookupState state;
+  input InstContext.Type context;
   input Boolean checkAccessViolations = true;
   input Boolean selfReference = false;
 protected
@@ -542,7 +629,13 @@ algorithm
   end if;
 
   if not selfReference then
-    node := Inst.instPackage(node);
+    node := Inst.instPackage(node, context);
+
+    // allow lookup in partial nodes if -d=nfAPI is on
+    if InstNode.isPartial(node) and not InstContext.inRelaxed(context) then
+      state := LookupState.ERROR(LookupState.PARTIAL_CLASS());
+      return;
+    end if;
   end if;
 
   // Look up the path in the scope.
@@ -567,7 +660,7 @@ algorithm
           state := LookupState.ERROR(LookupState.IMPORT());
         else
           state := LookupState.next(node, state, checkAccessViolations);
-          (node, state) := lookupLocalName(name.path, node, state, checkAccessViolations);
+          (node, state) := lookupLocalName(name.path, node, state, context, checkAccessViolations);
         end if;
       then
         ();
@@ -587,6 +680,7 @@ function lookupLocalNames
   input InstNode scope;
   input output list<InstNode> nodes;
   input output LookupState state;
+  input InstContext.Type context;
   input Boolean selfReference = false;
 protected
   InstNode node = scope;
@@ -602,7 +696,16 @@ algorithm
   // If the given node extends from itself, like 'extends Modelica.Icons.***' in
   // the MSL, then it's already being instantiated here.
   if not selfReference then
-    node := Inst.instPackage(node);
+    node := Inst.instPackage(node, context);
+
+    // PartialModelicaServices is mistakenly partial in MSL versions older than
+    // 3.2.3. We can't just check for Modelica 3.2 since that will break e.g. 3.2.2,
+    // so just disable the check specifically for PartialModelicaServices instead.
+    if InstNode.isPartial(node) and not InstContext.inRelaxed(context) and
+       not InstNode.name(node) == "PartialModelicaServices" then
+      state := LookupState.ERROR(LookupState.PARTIAL_CLASS());
+      return;
+    end if;
   end if;
 
   // Look up the path in the scope.
@@ -619,7 +722,7 @@ algorithm
         node := lookupLocalSimpleName(name.name, node);
         state := LookupState.next(node, state);
       then
-        lookupLocalNames(name.path, node, node :: nodes, state);
+        lookupLocalNames(name.path, node, node :: nodes, state, context);
 
     else
       algorithm
@@ -638,8 +741,6 @@ algorithm
     case "Integer" then NFBuiltin.INTEGER_NODE;
     case "Boolean" then NFBuiltin.BOOLEAN_NODE;
     case "String" then NFBuiltin.STRING_NODE;
-    case "Clock" then NFBuiltin.CLOCK_NODE;
-    case "polymorphic" then NFBuiltin.POLYMORPHIC_NODE;
   end match;
 end lookupSimpleBuiltinName;
 
@@ -650,7 +751,6 @@ function lookupSimpleBuiltinCref
   output ComponentRef cref;
   output LookupState state;
 algorithm
-
   (node, cref, state) := match name
     case "time"
       then (NFBuiltin.TIME, NFBuiltin.TIME_CREF, LookupState.PREDEF_COMP());
@@ -660,8 +760,6 @@ algorithm
       then (NFBuiltinFuncs.INTEGER_NODE, NFBuiltinFuncs.INTEGER_CREF, LookupState.FUNC());
     case "String"
       then (NFBuiltinFuncs.STRING_NODE, NFBuiltinFuncs.STRING_CREF, LookupState.FUNC());
-    case "Clock" guard Config.synchronousFeaturesAllowed()
-      then (NFBuiltinFuncs.CLOCK_NODE, NFBuiltinFuncs.CLOCK_CREF, LookupState.FUNC());
   end match;
 
   if not listEmpty(subs) then
@@ -674,12 +772,16 @@ function lookupSimpleCref
   input String name;
   input list<Absyn.Subscript> subs;
   input InstNode scope;
+  input InstContext.Type context;
   output InstNode node;
   output ComponentRef cref;
   output InstNode foundScope = scope;
+  output Boolean inEnclosingScope = false;
   output LookupState state;
 protected
-  Boolean is_import;
+  Boolean is_import, require_builtin = false;
+  Boolean loaded = false;
+  Boolean is_enclosing = false;
 algorithm
   try
     (node, cref, state) := lookupSimpleBuiltinCref(name, subs);
@@ -701,6 +803,10 @@ algorithm
             then Class.lookupElement(name, InstNode.getClass(foundScope.innerNode));
         end match;
 
+        if require_builtin then
+          true := InstNode.isBuiltin(node);
+        end if;
+
         if is_import then
           foundScope := InstNode.parent(node);
         elseif InstNode.isInnerOuterNode(node) then
@@ -714,8 +820,33 @@ algorithm
         cref := ComponentRef.fromAbsyn(node, subs);
         return;
       else
-        // Look in the next enclosing scope.
-        foundScope := InstNode.parentScope(foundScope);
+        // Stop if the current scope is encapsulated.
+        if InstNode.isEncapsulated(foundScope) then
+          foundScope := InstNode.topScope(InstNode.parentScope(foundScope));
+          require_builtin := true;
+        else
+          if InstNode.isTopScope(foundScope) then
+            // If the name couldn't be found in any scope...
+            if InstContext.inAnnotation(context) then
+              // If we're in an annotation, check in the special scope where
+              // annotation classes are defined.
+              foundScope := InstNode.annotationScope(foundScope);
+            elseif not loaded and not require_builtin then
+              // If we haven't already tried and we're not trying to find a
+              // builtin name, try to load a library with that name and then try
+              // to look it up in the top scope again.
+              loaded := true;
+              loadLibrary(name, foundScope);
+            else
+              // Nothing more to try, just fail.
+              fail();
+            end if;
+          else
+            // Look in the next enclosing scope.
+            inEnclosingScope := not InstNode.isImplicit(foundScope);
+            foundScope := InstNode.parentScope(foundScope);
+          end if;
+        end if;
       end try;
     end for;
 
@@ -776,30 +907,49 @@ function lookupCrefInNode
   input output ComponentRef foundCref;
   input output InstNode foundScope;
   input output LookupState state;
+  input InstContext.Type context;
 protected
   InstNode scope;
-  InstNode n;
+  InstNode n, cls_node;
   String name;
   Class cls;
-  Boolean is_import;
+  Boolean is_import, scope_is_class;
 algorithm
   if LookupState.isError(state) then
     return;
   end if;
 
-  scope := match node
-    case InstNode.CLASS_NODE() then Inst.instPackage(node);
-    else node;
-  end match;
+  scope := node;
+  scope_is_class := InstNode.isClass(scope);
+
+  if scope_is_class then
+    scope := Inst.instPackage(node, context);
+
+    if InstNode.isPartial(scope) and not InstContext.inRelaxed(context) then
+      state := LookupState.ERROR(LookupState.PARTIAL_CLASS());
+      return;
+    end if;
+  elseif InstNode.isGeneratedInner(scope) and Component.isDefinition(InstNode.component(scope)) then
+    // The scope is a generated inner component that hasn't been instantiated,
+    // it needs to be instantiated to continue lookup.
+    Inst.instComponent(scope, NFAttributes.DEFAULT_ATTR, Modifier.NOMOD(), true, 0, NFInstContext.CLASS);
+  end if;
 
   name := AbsynUtil.crefFirstIdent(cref);
-  cls := InstNode.getClass(scope);
+  cls_node := InstNode.classScope(scope);
+
+  if InstNode.isEmpty(cls_node) then
+    foundCref := ComponentRef.fromAbsynCref(cref, foundCref);
+    return;
+  end if;
+
+  cls := InstNode.getClass(cls_node);
 
   try
     (n, is_import) := Class.lookupElement(name, cls);
   else
     true := InstNode.isComponent(node);
-    true := Class.isExpandableConnectorClass(cls);
+    true := Class.isExpandableConnectorClass(cls) or InstContext.inInstanceAPI(context);
     foundCref := ComponentRef.fromAbsynCref(cref, foundCref);
     return;
   end try;
@@ -811,17 +961,24 @@ algorithm
   end if;
 
   (n, foundCref, foundScope) := resolveInnerCref(n, foundCref, foundScope);
-  state := LookupState.next(n, state);
+  foundCref := ComponentRef.fromAbsyn(n, AbsynUtil.crefFirstSubs(cref), foundCref);
+
+  if scope_is_class and not InstContext.inRelaxed(context) and
+     LookupState.isNonConstantComponent(n) then
+    // An element found in a non-package must be encapsulated. So if we find a
+    // non-constant component in a class it's an error, since packages may only
+    // contain constant components and components can't be encapsulated.
+    state := LookupState.ERROR(LookupState.NON_ENCAPSULATED());
+    return;
+  else
+    state := LookupState.next(n, state);
+  end if;
 
   (foundCref, foundScope, state) := match cref
-    case Absyn.ComponentRef.CREF_IDENT()
-      then (ComponentRef.fromAbsyn(n, cref.subscripts, foundCref), foundScope, state);
+    case Absyn.ComponentRef.CREF_IDENT() then (foundCref, foundScope, state);
 
     case Absyn.ComponentRef.CREF_QUAL()
-      algorithm
-        foundCref := ComponentRef.fromAbsyn(n, cref.subscripts, foundCref);
-      then
-        lookupCrefInNode(cref.componentRef, n, foundCref, foundScope, state);
+      then lookupCrefInNode(cref.componentRef, n, foundCref, foundScope, state, context);
   end match;
 end lookupCrefInNode;
 
@@ -868,18 +1025,18 @@ function generateInner
   input InstNode topScope;
   output InstNode innerNode;
 protected
-  CachedData cache;
+  InstNodeType node_ty;
   String name;
   Option<InstNode> inner_node_opt;
-  InstNode inner_node;
+  InstNode inner_node, parent_node;
 algorithm
-  cache := InstNode.getInnerOuterCache(topScope);
+  node_ty := InstNode.nodeType(topScope);
 
-  () := match cache
-    case CachedData.TOP_SCOPE()
+  () := match node_ty
+    case InstNodeType.TOP_SCOPE()
       algorithm
         name := InstNode.name(outerNode);
-        inner_node_opt := NodeTree.getOpt(cache.addedInner, name);
+        inner_node_opt := UnorderedMap.get(name, node_ty.generatedInners);
 
         if isSome(inner_node_opt) then
           // Found an already generated node, return it.
@@ -887,16 +1044,15 @@ algorithm
         else
           // Otherwise, generate a new inner node and add it to the cache.
           innerNode := makeInnerNode(outerNode);
-          innerNode := InstNode.setParent(cache.rootClass, innerNode);
-          cache.addedInner := NodeTree.add(cache.addedInner, name, innerNode);
-          InstNode.setInnerOuterCache(topScope, cache);
+          innerNode := InstNode.setNodeType(InstNodeType.GENERATED_INNER(), innerNode);
+          UnorderedMap.add(name, innerNode, node_ty.generatedInners);
         end if;
       then
         ();
 
     else
       algorithm
-        Error.assertion(false, getInstanceName() + " got top node with missing cache", sourceInfo());
+        Error.assertion(false, getInstanceName() + " got invalid top node", sourceInfo());
       then
         fail();
 
@@ -951,6 +1107,69 @@ algorithm
           fail();
   end match;
 end makeInnerNode;
+
+function loadLibrary
+  "Tries to load the default version of a library and add it to the top scope."
+  input String name;
+  input InstNode scope;
+protected
+  String version;
+algorithm
+  ErrorExt.setCheckpoint(getInstanceName());
+
+  try
+    version := loadLibrary_work(name, scope);
+    Error.addMessage(Error.NOTIFY_IMPLICIT_LOAD, {name, version});
+    System.loadModelCallBack(name);
+    ErrorExt.delCheckpoint(getInstanceName());
+  else
+    ErrorExt.rollBack(getInstanceName());
+  end try;
+end loadLibrary;
+
+function loadLibrary_work
+  input String name;
+  input InstNode scope;
+  output String version = "(default)";
+protected
+  String modelica_path, cls_name;
+  Absyn.Program aprog;
+  SCode.Element scls;
+  Class cls;
+  InstNode lib_node;
+  list<InstNode> new_libs = {};
+algorithm
+  // Try to load the library.
+  modelica_path := Settings.getModelicaPath(Testsuite.isRunning());
+  (aprog, true) := BackendInterface.appendLibrary(Absyn.Path.IDENT(name), modelica_path);
+
+  // Multiple libraries might have been loaded due to uses-annotations.
+  // Create nodes for the ones not yet defined in the top scope.
+  for c in aprog.classes loop
+    try
+      lookupLocalSimpleName(AbsynUtil.getClassName(c), scope);
+    else
+      scls := AbsynToSCode.translateClass(c);
+      lib_node := InstNode.new(scls, scope);
+      new_libs := lib_node :: new_libs;
+
+      // If this is the library we were looking for, try to find out which
+      // version it is so we can tell the user.
+      if name == SCodeUtil.getElementName(scls) then
+        try
+          Absyn.Exp.STRING(value = version) :=
+            SCodeUtil.getElementNamedAnnotation(scls, "version");
+        else
+        end try;
+      end if;
+    end try;
+  end for;
+
+  // Append the new libraries to the scope.
+  cls := InstNode.getClass(scope);
+  cls := Class.classTreeApply(cls, function ClassTree.appendClasses(clsNodes = new_libs));
+  InstNode.updateClass(cls, scope);
+end loadLibrary_work;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFLookup;

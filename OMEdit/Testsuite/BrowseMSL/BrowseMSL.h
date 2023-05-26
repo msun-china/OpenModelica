@@ -37,13 +37,27 @@
 
 #include <QObject>
 
+/*!
+ * \brief The BrowseMSL class
+ * Browses the items in the Libraries tree.
+ */
 class BrowseMSL: public QObject
 {
   Q_OBJECT
 
 private slots:
+  void initTestCase();
+  /*!
+   * \brief electricalAnalogBasic
+   * Browses the Modelica.Electrical.Analog.Basic
+   */
   void electricalAnalogBasic();
+  /*!
+   * \brief mediaAir
+   * Browses the Modelica.Media.Air
+   */
   void mediaAir();
+  void cleanupTestCase();
 };
 
 #endif // BROWSEMSL_H

@@ -29,31 +29,33 @@
  *
  */
 
-encapsulated package NFClass
+encapsulated uniontype NFClass
 
+import Attributes = NFAttributes;
+import Component = NFComponent;
+import Dimension = NFDimension;
+import Expression = NFExpression;
+import NFClassTree.ClassTree;
 import NFInstNode.InstNode;
 import NFModifier.Modifier;
+import NFSections.Sections;
 import NFStatement.Statement;
+import Restriction = NFRestriction;
 import SCode.Element;
 import Type = NFType;
-import NFComponent.Component;
-import Dimension = NFDimension;
-import NFClassTree.ClassTree;
-import NFSections.Sections;
-import Restriction = NFRestriction;
-import Expression = NFExpression;
 
 protected
-import NFBinding.Binding;
-import ComplexType = NFComplexType;
-import System;
 import AbsynUtil;
-import SCodeUtil;
+import Binding = NFBinding;
+import Class = NFClass;
+import ComplexType = NFComplexType;
 import IOStream;
+import SCodeUtil;
+import System;
 
 public
 
-constant Class.Prefixes DEFAULT_PREFIXES = Class.Prefixes.PREFIXES(
+constant Prefixes DEFAULT_PREFIXES = Prefixes.PREFIXES(
   SCode.Encapsulated.NOT_ENCAPSULATED(),
   SCode.Partial.NOT_PARTIAL(),
   SCode.Final.NOT_FINAL(),
@@ -61,7 +63,6 @@ constant Class.Prefixes DEFAULT_PREFIXES = Class.Prefixes.PREFIXES(
   SCode.Replaceable.NOT_REPLACEABLE()
 );
 
-uniontype Class
   uniontype Prefixes
     record PREFIXES
       SCode.Encapsulated encapsulatedPrefix;
@@ -76,6 +77,16 @@ uniontype Class
       input Prefixes prefs2;
       output Boolean isEqual = valueEq(prefs1, prefs2);
     end isEqual;
+
+    function isPartial
+      input Prefixes prefs;
+      output Boolean isPartial = SCodeUtil.partialBool(prefs.partialPrefix);
+    end isPartial;
+
+    function isEncapsulated
+      input Prefixes prefs;
+      output Boolean isEncapsulated = SCodeUtil.encapsulatedBool(prefs.encapsulatedPrefix);
+    end isEncapsulated;
   end Prefixes;
 
   record NOT_INSTANTIATED end NOT_INSTANTIATED;
@@ -83,30 +94,33 @@ uniontype Class
   record PARTIAL_CLASS
     ClassTree elements;
     Modifier modifier;
-    Class.Prefixes prefixes;
+    Modifier ccMod;
+    Prefixes prefixes;
   end PARTIAL_CLASS;
 
   record PARTIAL_BUILTIN
     Type ty;
     ClassTree elements;
     Modifier modifier;
-    Class.Prefixes prefixes;
+    Prefixes prefixes;
     Restriction restriction;
   end PARTIAL_BUILTIN;
 
   record EXPANDED_CLASS
     ClassTree elements;
     Modifier modifier;
-    Class.Prefixes prefixes;
+    Modifier ccMod;
+    Prefixes prefixes;
     Restriction restriction;
   end EXPANDED_CLASS;
 
   record EXPANDED_DERIVED
     InstNode baseClass;
     Modifier modifier;
+    Modifier ccMod;
     array<Dimension> dims;
-    Class.Prefixes prefixes;
-    Component.Attributes attributes;
+    Prefixes prefixes;
+    Attributes attributes;
     Restriction restriction;
   end EXPANDED_DERIVED;
 
@@ -114,6 +128,7 @@ uniontype Class
     Type ty;
     ClassTree elements;
     Sections sections;
+    Prefixes prefixes;
     Restriction restriction;
   end INSTANCED_CLASS;
 
@@ -143,7 +158,7 @@ uniontype Class
     ClassTree tree;
   algorithm
     tree := ClassTree.fromSCode(elements, isClassExtends, scope);
-    cls := PARTIAL_CLASS(tree, Modifier.NOMOD(), prefixes);
+    cls := PARTIAL_CLASS(tree, Modifier.NOMOD(), Modifier.NOMOD(), prefixes);
   end fromSCode;
 
   function fromEnumeration
@@ -167,7 +182,8 @@ uniontype Class
     ClassTree tree;
   algorithm
     tree := ClassTree.fromRecordConstructor(fields, out);
-    cls := INSTANCED_CLASS(Type.UNKNOWN(), tree, Sections.EMPTY(), Restriction.RECORD_CONSTRUCTOR());
+    cls := INSTANCED_CLASS(Type.UNKNOWN(), tree, Sections.EMPTY(),
+      DEFAULT_PREFIXES, Restriction.RECORD_CONSTRUCTOR());
   end makeRecordConstructor;
 
   function initExpandedClass
@@ -175,7 +191,7 @@ uniontype Class
   algorithm
     cls := match cls
       case PARTIAL_CLASS()
-        then EXPANDED_CLASS(cls.elements, cls.modifier, cls.prefixes, Restriction.UNKNOWN());
+        then EXPANDED_CLASS(cls.elements, cls.modifier, cls.ccMod, cls.prefixes, Restriction.UNKNOWN());
     end match;
   end initExpandedClass;
 
@@ -196,7 +212,13 @@ uniontype Class
   algorithm
     cls := match cls
       case INSTANCED_CLASS()
-        then INSTANCED_CLASS(cls.ty, cls.elements, sections, cls.restriction);
+        then INSTANCED_CLASS(cls.ty, cls.elements, sections, cls.prefixes, cls.restriction);
+
+      case TYPED_DERIVED()
+        algorithm
+          InstNode.classApply(cls.baseClass, setSections, sections);
+        then
+          cls;
     end match;
   end setSections;
 
@@ -208,6 +230,23 @@ uniontype Class
   algorithm
     (node, isImport) := ClassTree.lookupElement(name, classTree(cls));
   end lookupElement;
+
+  function tryLookupElement
+    input String name;
+    input Class cls;
+    output Option<InstNode> node;
+    output Boolean isImport;
+  protected
+    InstNode n;
+  algorithm
+    try
+      (n, isImport) := ClassTree.lookupElement(name, classTree(cls));
+      node := SOME(n);
+    else
+      node := NONE();
+      isImport := false;
+    end try;
+  end tryLookupElement;
 
   function lookupComponentIndex
     input String name;
@@ -245,6 +284,17 @@ uniontype Class
     input Class cls;
     output Option<Expression> value = Binding.typedExp(lookupAttributeBinding(name, cls));
   end lookupAttributeValue;
+
+  function isOnlyBuiltin
+    input Class cls;
+    output Boolean builtin;
+  algorithm
+    builtin := match cls
+      case PARTIAL_BUILTIN() then true;
+      case INSTANCED_BUILTIN() then true;
+      else false;
+    end match;
+  end isOnlyBuiltin;
 
   function isBuiltin
     input Class cls;
@@ -318,6 +368,18 @@ uniontype Class
       else Modifier.NOMOD();
     end match;
   end getModifier;
+
+  function getCCModifier
+    input Class cls;
+    output Modifier modifier;
+  algorithm
+    modifier := match cls
+      case PARTIAL_CLASS() then cls.ccMod;
+      case EXPANDED_CLASS() then cls.ccMod;
+      case EXPANDED_DERIVED() then cls.ccMod;
+      else Modifier.NOMOD();
+    end match;
+  end getCCModifier;
 
   function setModifier
     input Modifier modifier;
@@ -435,13 +497,26 @@ uniontype Class
     end match;
   end getDimensions;
 
+  function dimensionCount
+    input Class cls;
+    output Integer count;
+  algorithm
+    count := match cls
+      case EXPANDED_DERIVED() then arrayLength(cls.dims);
+      case INSTANCED_CLASS() then Type.dimensionCount(cls.ty);
+      case INSTANCED_BUILTIN() then Type.dimensionCount(cls.ty);
+      case TYPED_DERIVED() then Type.dimensionCount(cls.ty);
+      else 0;
+    end match;
+  end dimensionCount;
+
   function getAttributes
     input Class cls;
-    output Component.Attributes attr;
+    output Attributes attr;
   algorithm
     attr := match cls
       case EXPANDED_DERIVED() then cls.attributes;
-      else NFComponent.DEFAULT_ATTR;
+      else NFAttributes.DEFAULT_ATTR;
     end match;
   end getAttributes;
 
@@ -475,11 +550,7 @@ uniontype Class
       case PARTIAL_BUILTIN() then cls.ty;
       case EXPANDED_DERIVED() then getType(InstNode.getClass(cls.baseClass), cls.baseClass);
       case INSTANCED_CLASS() then cls.ty;
-      case INSTANCED_BUILTIN()
-        then match cls.ty
-          case Type.POLYMORPHIC("") then Type.POLYMORPHIC(InstNode.name(clsNode));
-          else cls.ty;
-        end match;
+      case INSTANCED_BUILTIN() then cls.ty;
       case TYPED_DERIVED() then cls.ty;
       else Type.UNKNOWN();
     end match;
@@ -578,6 +649,18 @@ uniontype Class
     output Boolean isFunction = Restriction.isFunction(restriction(cls));
   end isFunction;
 
+  function isEnumeration
+    input Class cls;
+    output Boolean isEnum;
+  algorithm
+    isEnum := match cls
+      case PARTIAL_BUILTIN(ty = Type.ENUMERATION()) then true;
+      case EXPANDED_DERIVED() then isEnumeration(InstNode.getClass(cls.baseClass));
+      case TYPED_DERIVED() then isEnumeration(InstNode.getClass(cls.baseClass));
+      else false;
+    end match;
+  end isEnumeration;
+
   function isExternalFunction
     input Class cls;
     output Boolean isExtFunc;
@@ -616,6 +699,9 @@ uniontype Class
       case PARTIAL_BUILTIN() then cls.prefixes;
       case EXPANDED_CLASS() then cls.prefixes;
       case EXPANDED_DERIVED() then cls.prefixes;
+      case INSTANCED_CLASS() then cls.prefixes;
+      case TYPED_DERIVED() then getPrefixes(InstNode.getClass(cls.baseClass));
+      else DEFAULT_PREFIXES;
     end match;
   end getPrefixes;
 
@@ -641,15 +727,13 @@ uniontype Class
 
   function isEncapsulated
     input Class cls;
-    output Boolean isEncapsulated;
-  algorithm
-    isEncapsulated := match cls
-      case PARTIAL_CLASS() then SCodeUtil.encapsulatedBool(cls.prefixes.encapsulatedPrefix);
-      case EXPANDED_CLASS() then SCodeUtil.encapsulatedBool(cls.prefixes.encapsulatedPrefix);
-      case EXPANDED_DERIVED() then SCodeUtil.encapsulatedBool(cls.prefixes.encapsulatedPrefix);
-      else false;
-    end match;
+    output Boolean isEncapsulated = Prefixes.isEncapsulated(getPrefixes(cls));
   end isEncapsulated;
+
+  function isPartial
+    input Class cls;
+    output Boolean isPartial = Prefixes.isPartial(getPrefixes(cls));
+  end isPartial;
 
   function lastBaseClass
     input output InstNode node;
@@ -673,6 +757,23 @@ uniontype Class
       else cmts;
     end match;
   end getDerivedComments;
+
+  function constrainingClassPath
+    "Returns the path of the constraining class for a given class, either the
+     declared constraining class or the path of the class itself if there's no
+     declared constraining class."
+    input InstNode clsNode;
+    output Absyn.Path path;
+  protected
+    InstNode cls_node = lastBaseClass(clsNode);
+    Prefixes prefs = getPrefixes(InstNode.getClass(cls_node));
+  algorithm
+    path := match prefs
+      case Prefixes.PREFIXES(replaceablePrefix = SCode.Replaceable.REPLACEABLE(
+        cc = SOME(SCode.ConstrainClass.CONSTRAINCLASS(constrainingClass = path)))) then path;
+      else InstNode.enclosingScopePath(cls_node);
+    end match;
+  end constrainingClassPath;
 
   function hasOperator
     input String name;
@@ -708,7 +809,7 @@ uniontype Class
     ty as Type.COMPLEX(complexTy = ComplexType.RECORD(ty_node)) := getType(cls, clsNode);
     fields := ClassTree.getComponents(classTree(cls));
     args := list(Binding.getExp(Component.getImplicitBinding(InstNode.component(f))) for f in fields);
-    exp := Expression.makeRecord(InstNode.scopePath(ty_node), ty, args);
+    exp := Expression.makeRecord(InstNode.fullPath(ty_node), ty, args);
   end makeRecordExp;
 
   function toFlatStream
@@ -718,15 +819,15 @@ uniontype Class
   protected
     String name;
   algorithm
-    name := AbsynUtil.pathString(InstNode.scopePath(clsNode));
+    name := Util.makeQuotedIdentifier(AbsynUtil.pathString(InstNode.scopePath(clsNode)));
 
     s := match cls
       case INSTANCED_CLASS()
         algorithm
           s := IOStream.append(s, Restriction.toString(cls.restriction));
-          s := IOStream.append(s, " '");
+          s := IOStream.append(s, " ");
           s := IOStream.append(s, name);
-          s := IOStream.append(s, "'\n");
+          s := IOStream.append(s, "\n");
 
           for comp in ClassTree.getComponents(cls.elements) loop
             s := IOStream.append(s, "  ");
@@ -734,9 +835,8 @@ uniontype Class
             s := IOStream.append(s, ";\n");
           end for;
 
-          s := IOStream.append(s, "end '");
+          s := IOStream.append(s, "end ");
           s := IOStream.append(s, name);
-          s := IOStream.append(s, "'");
         then
           s;
 
@@ -751,11 +851,10 @@ uniontype Class
       case TYPED_DERIVED()
         algorithm
           s := IOStream.append(s, Restriction.toString(cls.restriction));
-          s := IOStream.append(s, " '");
+          s := IOStream.append(s, " ");
           s := IOStream.append(s, name);
-          s := IOStream.append(s, "' = '");
-          s := IOStream.append(s, AbsynUtil.pathString(InstNode.scopePath(cls.baseClass)));
-          s := IOStream.append(s, "'");
+          s := IOStream.append(s, " = ");
+          s := IOStream.append(s, Util.makeQuotedIdentifier(AbsynUtil.pathString(InstNode.scopePath(cls.baseClass))));
         then
           s;
 
@@ -775,7 +874,6 @@ uniontype Class
     str := IOStream.string(s);
     IOStream.delete(s);
   end toFlatString;
-end Class;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFClass;

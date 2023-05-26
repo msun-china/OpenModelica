@@ -43,19 +43,71 @@ protected
   import Equation = NFEquation;
   import Expression = NFExpression;
   import ExpandExp = NFExpandExp;
+  import NFInstNode.InstNode;
+  import Record = NFRecord;
+  import Variable = NFVariable;
+  import Algorithm = NFAlgorithm;
+  import Statement = NFStatement;
+  import Binding = NFBinding;
+  import Subscript = NFSubscript;
+  import Dimension = NFDimension;
+  import Util;
+  import Type = NFType;
+  import NFPrefixes.Variability;
 
 public
   function verify
     input FlatModel flatModel;
   algorithm
+    for var in flatModel.variables loop
+      verifyVariable(var);
+    end for;
+
     for eq in flatModel.equations loop
       verifyEquation(eq);
     end for;
+
+    for ieq in flatModel.initialEquations loop
+      verifyEquation(ieq);
+    end for;
+
+    for alg in flatModel.algorithms loop
+      verifyAlgorithm(alg);
+    end for;
+
+    for ialg in flatModel.initialAlgorithms loop
+      verifyAlgorithm(ialg);
+    end for;
+
+    // check for discrete real variables not assigned in when equations (#5836)
+    checkDiscreteReal(flatModel);
 
     execStat(getInstanceName());
   end verify;
 
 protected
+  function verifyVariable
+    input Variable var;
+  algorithm
+    verifyBinding(var.binding);
+
+    for attr in var.typeAttributes loop
+      verifyBinding(Util.tuple22(attr));
+    end for;
+
+    for v in var.children loop
+      verifyVariable(v);
+    end for;
+  end verifyVariable;
+
+  function verifyBinding
+    input Binding binding;
+  algorithm
+    if Binding.isBound(binding) then
+      checkSubscriptBounds(Binding.getTypedExp(binding), Binding.getInfo(binding));
+    end if;
+  end verifyBinding;
+
   function verifyEquation
     input Equation eq;
   algorithm
@@ -68,6 +120,8 @@ protected
 
       else ();
     end match;
+
+    Equation.applyExp(eq, function checkSubscriptBounds(info = Equation.info(eq)));
   end verifyEquation;
 
   function verifyWhenEquation
@@ -104,9 +158,7 @@ protected
     for eq in eql loop
       crefs := match eq
         case Equation.EQUALITY()       then whenEquationEqualityCrefs(eq.lhs, crefs);
-        case Equation.CREF_EQUALITY()  then eq.lhs :: crefs;
         case Equation.ARRAY_EQUALITY() then whenEquationEqualityCrefs(eq.lhs, crefs);
-        case Equation.REINIT()         then whenEquationEqualityCrefs(eq.cref, crefs);
         case Equation.IF()             then whenEquationIfCrefs(eq.branches, eq.source, crefs);
         else crefs;
       end match;
@@ -179,7 +231,7 @@ protected
     output list<ComponentRef> outCrefs = {};
   protected
     Expression exp;
-    list<Expression> expl;
+    array<Expression> expl;
   algorithm
     for cref in crefs loop
       exp := Expression.fromCref(cref);
@@ -196,6 +248,328 @@ protected
     outCrefs := List.sort(outCrefs, ComponentRef.isGreater);
     outCrefs := List.sortedUnique(outCrefs, ComponentRef.isEqual);
   end expandCrefSet;
+
+  function verifyAlgorithm
+    input Algorithm alg;
+  algorithm
+    Algorithm.apply(alg, verifyStatement);
+  end verifyAlgorithm;
+
+  function verifyStatement
+    input Statement stmt;
+  algorithm
+    Statement.applyExp(stmt, function checkSubscriptBounds(info = Statement.info(stmt)));
+  end verifyStatement;
+
+  function checkSubscriptBounds
+    input Expression exp;
+    input SourceInfo info;
+  algorithm
+    Expression.apply(exp, function checkSubscriptBounds_traverser(info = info));
+  end checkSubscriptBounds;
+
+  function checkSubscriptBounds_traverser
+    input Expression exp;
+    input SourceInfo info;
+  algorithm
+    () := match exp
+      case Expression.CREF()
+        algorithm
+          checkSubscriptBoundsCref(exp.cref, info);
+        then
+          ();
+
+      else ();
+    end match;
+  end checkSubscriptBounds_traverser;
+
+  function checkSubscriptBoundsCref
+    input ComponentRef cref;
+    input SourceInfo info;
+  algorithm
+    () := match cref
+      local
+        list<Dimension> dims;
+        list<Subscript> subs;
+        Dimension d;
+        Integer int_sub, index;
+
+      case ComponentRef.CREF(subscripts = subs as _ :: _, ty = Type.ARRAY(dimensions = dims))
+        algorithm
+          index := 1;
+
+          for s in subs loop
+            d :: dims := dims;
+
+            if Subscript.isScalarLiteral(s) and Dimension.isKnown(d) then
+              int_sub := Subscript.toInteger(s);
+
+              if int_sub < 1 or int_sub > Dimension.size(d) then
+                Error.addSourceMessage(Error.ARRAY_INDEX_OUT_OF_BOUNDS,
+                  {Subscript.toString(s), String(index),
+                   Dimension.toString(d), ComponentRef.firstName(cref)}, info);
+                fail();
+              end if;
+            end if;
+
+            index := index + 1;
+          end for;
+
+          checkSubscriptBoundsCref(cref.restCref, info);
+        then
+          ();
+
+      else ();
+    end match;
+  end checkSubscriptBoundsCref;
+
+  function checkDiscreteReal
+    "author: kabdelhak 2020-06
+    Checks if all discrete real variables are defined by a when-statement.
+    Linear with respect to the number of equations and variables. It traverses
+    each equation and collects all relevant component references and afterwards
+    checks if any discrete real variables were not defined by a when-statement.
+    Ticket: #5836"
+    input FlatModel flatModel;
+  protected
+    UnorderedSet<ComponentRef> discrete_reals;
+    list<Variable> illegal_discrete_vars = {};
+    String err_str = "";
+  algorithm
+    discrete_reals := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
+
+    // collect all lhs crefs that are discrete and real from equations
+    for eqn in flatModel.equations loop
+      checkDiscreteRealEquation(eqn, discrete_reals, false);
+    end for;
+
+    // collect all lhs crefs that are discrete and real from algorithms
+    for alg in flatModel.algorithms loop
+      for statement in alg.statements loop
+        checkDiscreteRealStatement(statement, discrete_reals, false);
+      end for;
+    end for;
+
+    // check if all discrete real variables are assigned in when bodys
+    for variable in flatModel.variables loop
+      // check variability and not type for discrete variables
+      // remove all subscripts to handle arrays
+      variable.name := ComponentRef.stripSubscriptsAll(variable.name);
+      if Variable.variability(variable) == Variability.DISCRETE and Type.isReal(Type.arrayElementType(variable.ty)) and
+         not UnorderedSet.contains(variable.name, discrete_reals) then
+        illegal_discrete_vars := variable :: illegal_discrete_vars;
+      end if;
+    end for;
+
+    // report error if there are any
+    if not listEmpty(illegal_discrete_vars) then
+      for var in illegal_discrete_vars loop
+        Error.addSourceMessage(Error.DISCRETE_REAL_UNDEFINED, {ComponentRef.toString(var.name)}, var.info);
+      end for;
+      fail();
+    end if;
+  end checkDiscreteReal;
+
+protected
+  function checkDiscreteRealBranch
+    "author: kabdelhak 2020-06
+    collects all single discrete real crefs on the LHS of the body eqns of a
+    when (or nested if inside when) branch."
+    input Equation.Branch branch;
+    input output UnorderedSet<ComponentRef> discreteReals;
+    input Boolean when_found;
+  algorithm
+    () := match branch
+      case Equation.BRANCH() guard(when_found)
+        algorithm
+          for eqn in branch.body loop
+            checkDiscreteRealEquation(eqn, discreteReals, when_found);
+          end for;
+        then
+          ();
+
+      else ();
+    end match;
+  end checkDiscreteRealBranch;
+
+  function checkDiscreteRealEquation
+    "author: kabdelhak 2020-06
+    collects all single discrete real crefs on the LHS of a branch which is
+    part of a when eqn body. Only use to analyze when equation bodys!"
+    input Equation body_eqn;
+    input UnorderedSet<ComponentRef> discreteReals;
+    input Boolean when_found;
+  algorithm
+    () := match body_eqn
+      local
+        Expression lhs;
+        Type ty;
+        ComponentRef cref;
+        InstNode cls;
+        list<Equation> body;
+        list<Equation.Branch> branches;
+
+      case Equation.EQUALITY(lhs = lhs)
+        guard(when_found)
+        algorithm
+          checkDiscreteRealExp(lhs, discreteReals);
+        then
+          ();
+
+      case Equation.ARRAY_EQUALITY(lhs = lhs)
+        guard(when_found)
+        algorithm
+          checkDiscreteRealExp(lhs, discreteReals);
+        then
+          ();
+
+      // traverse nested if equations. It suffices if the variable is defined in ANY branch.
+      case Equation.IF(branches = branches)
+        algorithm
+          for branch in branches loop
+            checkDiscreteRealBranch(branch, discreteReals, when_found);
+          end for;
+        then
+          ();
+
+      // traverse when body
+      case Equation.WHEN(branches = branches)
+        algorithm
+          for branch in branches loop
+            checkDiscreteRealBranch(branch, discreteReals, true);
+          end for;
+        then
+          ();
+
+      // what if LHS is indexed? :(
+      case Equation.FOR(body = body)
+        algorithm
+          for eqn in body loop
+            checkDiscreteRealEquation(eqn, discreteReals, when_found);
+          end for;
+        then
+          ();
+
+      else ();
+    end match;
+  end checkDiscreteRealEquation;
+
+  function checkDiscreteRealStatement
+    "author: kabdelhak 2020-06
+    collects all single discrete real crefs on the LHS of a statement which is
+    part of a when algorithm body."
+    input Statement statement;
+    input UnorderedSet<ComponentRef> discreteReals;
+    input Boolean when_found;
+  algorithm
+    () := match statement
+      local
+        Expression lhs;
+        list<tuple<Expression, list<Statement>>> branches;
+        list<Statement> body;
+
+      case Statement.WHEN(branches = branches)
+        algorithm
+          for branch in branches loop
+            (_, body) := branch;
+            for statement in body loop
+              checkDiscreteRealStatement(statement, discreteReals, true);
+            end for;
+          end for;
+        then
+          ();
+
+      case Statement.ASSIGNMENT(lhs = lhs) guard(when_found)
+        algorithm
+          checkDiscreteRealExp(lhs, discreteReals);
+        then
+          ();
+
+      // traverse nested if Algorithms. It suffices if the variable is defined in ANY branch.
+      case Statement.IF(branches = branches)
+        algorithm
+          for branch in branches loop
+            (_, body) := branch;
+            for stmt in body loop
+              checkDiscreteRealStatement(stmt, discreteReals, when_found);
+            end for;
+          end for;
+        then
+          ();
+
+      // what if the LHS is indexed? :(
+      case Statement.FOR(body = body)
+        algorithm
+          for statement in body loop
+            checkDiscreteRealStatement(statement, discreteReals, when_found);
+          end for;
+        then
+          ();
+
+      else ();
+    end match;
+  end checkDiscreteRealStatement;
+
+  function checkDiscreteRealExp
+    "author: kabdelhak 2020-06
+    collects all single discrete real crefs of an expression which represents the LHS."
+    input Expression exp;
+    input UnorderedSet<ComponentRef> discreteReals;
+  algorithm
+    () := match exp
+      local
+         Type ty;
+         ComponentRef cref;
+         list<Expression> elements;
+         InstNode cls;
+
+      // only add if it is a real variable, we cannot check for discrete here
+      // since only the variable has variablity information
+      // Type.isDiscrete does always return false for REAL
+      case Expression.CREF(ty = ty, cref = cref)
+        guard(Type.isReal(Type.arrayElementType(ty)))
+        algorithm
+          // remove all subscripts to handle arrays
+          UnorderedSet.add(ComponentRef.stripSubscriptsAll(cref), discreteReals);
+        then
+          ();
+
+      case Expression.CREF(ty = ty as Type.COMPLEX(cls = cls), cref = cref)
+        guard(Type.isRecord(ty))
+        algorithm
+          checkDiscreteRealRecord(cref, cls, discreteReals);
+        then
+          ();
+
+      case Expression.TUPLE(elements = elements)
+        algorithm
+          for element in elements loop
+            checkDiscreteRealExp(element, discreteReals);
+          end for;
+        then
+          ();
+
+      else ();
+    end match;
+  end checkDiscreteRealExp;
+
+  function checkDiscreteRealRecord
+    input ComponentRef cref;
+    input InstNode cls;
+    input UnorderedSet<ComponentRef> discreteReals;
+  protected
+    ComponentRef element;
+    list<InstNode> inputs;
+  algorithm
+    // remove all subscripts to handle arrays
+    UnorderedSet.add(ComponentRef.stripSubscriptsAll(cref), discreteReals);
+    // also add all record elements
+    (inputs, _, _) := Record.collectRecordParams(cls);
+    for node in inputs loop
+      element := ComponentRef.prefixCref(node, InstNode.getType(node), {}, cref);
+      UnorderedSet.add(ComponentRef.stripSubscriptsAll(element), discreteReals);
+    end for;
+  end checkDiscreteRealRecord;
 
   annotation(__OpenModelica_Interface="frontend");
 end NFVerifyModel;

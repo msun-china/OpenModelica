@@ -49,6 +49,39 @@ constant Integer CHAR_SPACE = 32;
 constant Integer CHAR_DASH = 45;
 constant Integer CHAR_DOT = 46;
 
+constant String HEADLINE_1 = "################################################################################";
+constant String HEADLINE_2 = "========================================";
+constant String HEADLINE_3 = "----------------------------------------";
+constant String HEADLINE_4 = "****************************************";
+
+public function headline_1
+  input String title;
+  output String header;
+algorithm
+  header := HEADLINE_1 + "\n\n\t" + title + "\n\n" + HEADLINE_1 + "\n";
+end headline_1;
+
+public function headline_2
+  input String title;
+  output String header;
+algorithm
+  header := HEADLINE_2 + "\n" + title + "\n" + HEADLINE_2 + "\n";
+end headline_2;
+
+public function headline_3
+  input String title;
+  output String header;
+algorithm
+  header := title + "\n" + HEADLINE_3 + "\n";
+end headline_3;
+
+public function headline_4
+  input String title;
+  output String header;
+algorithm
+  header := title + "\n" + HEADLINE_4 + "\n";
+end headline_4;
+
 public function findChar
   "Searches for a given character in the given string, returning the index of
    the character if found. If not found returns NO_POS. The start and end
@@ -385,6 +418,46 @@ function endsWithNewline
 algorithm
   b := CHAR_NEWLINE == MetaModelica.Dangerous.stringGetNoBoundsChecking(str, stringLength(str));
 end endsWithNewline;
+
+function convertCharNonAsciiToHex "Converts a single character string to a hex representation if it is not valid unicode"
+  input output String s;
+protected
+  Integer i;
+  constant String hex[:] = array("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F");
+algorithm
+  i := stringCharInt(s);
+  if i < 128 then
+    return;
+  end if;
+  s := "0x" + hex[intDiv(i, 16)+1] + hex[intMod(i, 16)+1];
+end convertCharNonAsciiToHex;
+
+function stripBOM
+  input output String s;
+  output String bom = "";
+algorithm
+  if stringLength(s) < 3 then
+    return;
+  end if;
+  if stringGet(s,1) == 239 and
+     stringGet(s,2) == 187 and
+     stringGet(s,3) == 191 then
+    s := substring(s, 4, stringLength(s));
+    bom := substring(s, 1, 3);
+  end if;
+end stripBOM;
+
+function stripFileExtension
+  input output String filename;
+protected
+  Integer pos;
+algorithm
+  pos := rfindChar(filename, CHAR_DOT);
+
+  if pos <> NO_POS then
+    filename := substring(filename, 1, pos-1);
+  end if;
+end stripFileExtension;
 
 annotation(__OpenModelica_Interface="util");
 end StringUtil;

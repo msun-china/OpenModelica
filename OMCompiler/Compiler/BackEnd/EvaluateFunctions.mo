@@ -383,8 +383,7 @@ algorithm
 
   //traverse the eqSystem for function calls
   (eqLst, shared, addEqs, _, changed, callSign) := List.mapFold5(eqLst, evalFunctions_findFuncs, sharedIn, {}, 1, changed, callSign);
-  eqLst := listAppend(eqLst, addEqs);
-  eqs := BackendEquation.listEquation(eqLst);
+  eqs := BackendEquation.listEquation(listAppend(eqLst, addEqs));
   eqSysOut := BackendDAEUtil.setEqSystEqs(eqSysIn, eqs);
 
   tplOut := (shared, sysIdx+1, changed, callSign);
@@ -498,7 +497,7 @@ algorithm
 
         // get the input exps from the call
         exps = List.map2(exps0, evaluateConstantFunctionCallExp, funcsIn, evalConstArgsOnly);
-        scalarExp = List.map1(exps, expandComplexEpressions, funcsIn);
+        scalarExp = List.map1(exps, expandComplexExpressions, funcsIn);
         allInputExps = List.flatten(scalarExp);
           //print("allInputExps\n"+stringDelimitList(List.map(allInputExps,ExpressionDump.printExpStr),"\n")+"\n");
 
@@ -750,7 +749,7 @@ algorithm
 
         // get the input exps from the call
         exps = List.map2(expsIn, evaluateConstantFunctionCallExp, funcsIn, false);
-        scalarExp = List.map1(exps,expandComplexEpressions,funcsIn);//these exps are evaluated as well
+        scalarExp = List.map1(exps,expandComplexExpressions,funcsIn);//these exps are evaluated as well
         allInputExps = List.flatten(scalarExp);
           //print("allInputExps\n"+stringDelimitList(List.map(allInputExps,ExpressionDump.printExpStr),"\n")+"\n");
 
@@ -947,7 +946,7 @@ algorithm
   end matchcontinue;
 end evaluateConstantFunction;
 
-protected function expandComplexEpressions "gets the complex contents or if its not complex, then the exp itself, if its a call, get the scalar outputs.
+protected function expandComplexExpressions "gets the complex contents or if its not complex, then the exp itself, if its a call, get the scalar outputs.
 it would be possible to evaluate the exp before.
 author:Waurich TUD 2014-05"
   input DAE.Exp e;
@@ -988,7 +987,7 @@ algorithm
         //print(ExpressionDump.dumpExpStr(e,0)+"\n");
       then {e};
   end matchcontinue;
-end expandComplexEpressions;
+end expandComplexExpressions;
 
 protected function expandComplexElementsToCrefs "gets the complex contents or if its not complex, then the element itself and converts them to crefs.
 author:Waurich TUD 2014-05"
@@ -1284,9 +1283,7 @@ algorithm
         funcProts = List.map2(constComplexCrefs,generateProtectedElements,allOutputs,lhsExpIn);
         funcSOutputs = List.map2(varScalarCrefs,generateOutputElements,allOutputs,lhsExpIn);
         funcSProts = List.map2(constScalarCrefs,generateProtectedElements,allOutputs,lhsExpIn);
-        funcProts = listAppend(funcProts,funcSProts);
-        funcOutputs = listAppend(funcOutputs,funcSOutputs);
-        varOutputs =  listAppend(funcOutputs,funcProts);
+        varOutputs = List.flatten({funcOutputs, funcSOutputs, funcProts, funcSProts});
         //varOutputs = List.map2(varScalarCrefs,generateOutputElements,allOutputs,lhsExpIn);
         varScalarCrefs1 = List.map(varScalarCrefs,ComponentReference.crefStripFirstIdent);
         varScalarCrefs1 = List.map1(varScalarCrefs1,ComponentReference.joinCrefsR,lhsCref);
@@ -1560,7 +1557,7 @@ algorithm
         // Update the path.
         s := AbsynUtil.pathLastIdent(funcOut.path);
         s := s + "_eval" + intString(idx);
-        funcOut.path := AbsynUtil.pathReplaceIdent(AbsynUtil.makeNotFullyQualified(funcOut.path), s);
+        funcOut.path := AbsynUtil.pathSetLastIdent(AbsynUtil.makeNotFullyQualified(funcOut.path), s);
 
         // Update the type.
         funcOut.type_ := updateFunctionType(funcOut.type_, outputs, origOutputs);
@@ -1624,6 +1621,7 @@ protected
 algorithm
   (varScalarCrefs,funcAlgs) := varPart;
   (constScalarCrefs,constScalarExps,constComplCrefs,constComplExps,constScalarCrefsOut) := constPart;
+
   funcAlgs := List.filterOnTrue(funcAlgs,DAEUtil.isAlgorithm);// get only the algs, not protected vars or stuff
   // generate the additional equations for the constant scalar values and the constant complex ones
   lhsExps1 := List.map(constScalarCrefsOut,Expression.crefExp);
@@ -1839,6 +1837,15 @@ algorithm
     case({},{},_)
       then
         eqsIn;
+
+    // ignore wildcards
+    // solves ticket #8381
+    case ((lhs as DAE.CREF(componentRef = DAE.WILD()))::lrest,rhs::rrest,_)
+      equation
+        eqs = generateConstEqs(lrest,rrest,eqsIn);
+    then
+      eqs;
+
     case(lhs::lrest,rhs::rrest,_)
       equation
         eq = BackendDAE.EQUATION(lhs,rhs,DAE.emptyElementSource,BackendDAE.EQ_ATTR_DEFAULT_DYNAMIC);
@@ -2152,11 +2159,11 @@ algorithm
           stmtsNew = if isCon then stmtsNew else {stmt};
           stmts2 = if intEq(size,0) then {DAE.STMT_ASSIGN(typ,exp2,exp1,DAE.emptyElementSource)} else stmtsNew;
           stmts1 = List.map(addEqs,equationToStatement);
-          stmts2 = listAppend(stmts2,stmts1);
+          stmts1 = listAppend(stmts2,stmts1);
           if Flags.isSet(Flags.EVAL_FUNC_DUMP) then
-            print("evaluated Tuple-statements to (incl. addEqs):\n"+stringDelimitList(List.map(stmts2,DAEDump.ppStatementStr),"\n")+"\n");
+            print("evaluated Tuple-statements to (incl. addEqs):\n"+stringDelimitList(List.map(stmts1,DAEDump.ppStatementStr),"\n")+"\n");
           end if;
-       then listReverse(stmts2);
+       then listReverse(stmts1);
 
       case(DAE.STMT_FOR(statementLst=stmts1))
         equation
@@ -2510,17 +2517,15 @@ algorithm
     then
       exp::expsIn;
   case(DAE.STMT_TUPLE_ASSIGN(expExpLst=expLst),_)
-    equation
-      expLst = listAppend(expLst,expsIn);
-    then expLst;
+    then listAppend(expLst, expsIn);
   case(DAE.STMT_ASSIGN_ARR(lhs=exp),_)
     then exp::expsIn;
   case(DAE.STMT_IF(statementLst=stmtLst1,else_=else_),_)
     equation
       stmtLstLst = getDAEelseStatemntLsts(else_,{});
       stmtLst2 = List.flatten(stmtLstLst);
-      stmtLst1 = listAppend(stmtLst1,stmtLst2);
-      expLst = List.fold(stmtLst1,getStatementLHS,expsIn);
+      stmtLst2 = listAppend(stmtLst1,stmtLst2);
+      expLst = List.fold(stmtLst2,getStatementLHS,expsIn);
     then expLst;
   case(DAE.STMT_FOR(statementLst=stmtLst1),_)
     equation
@@ -2710,8 +2715,7 @@ algorithm
     equation
       ((rhs,lhs,addEqs,funcs,idx,_,_)) = evaluateConstantFunction(inExp,lhs,funcs,idx,{});
       stmts = List.map(addEqs,equationToStmt);
-      stmts = listAppend(stmts,stmtsIn);
-    then (rhs,true,(lhs,funcs,idx,stmts));
+    then (rhs,true,(lhs,funcs,idx,listAppend(stmts, stmtsIn)));
 
   case (DAE.UNBOX(exp=rhs),_)
     equation
@@ -2873,7 +2877,7 @@ algorithm
       subsLst := List.map(subs,List.create);
       for sub in subsIn loop
         subsLst1 := List.map1r(subsLst,listAppend,sub);
-        subFold := listAppend(subFold,subsLst1);
+        subFold := listAppend(subFold,subsLst1) annotation(__OpenModelica_DisableListAppendWarning=true);
       end for;
       if listEmpty(subsIn) then subFold := subsLst; end if;
     then expandDimension(rest,subFold);
@@ -3399,8 +3403,7 @@ algorithm
   ssVarLst := List.filterOnTrue(varLst, varSSisPreferOrHigher);
   ssVars := List.map(ssVarLst,BackendVariable.varCref);
     //print("ssVars\n"+stringDelimitList(List.map(ssVars,ComponentReference.printComponentRefStr),"\n")+"\n\n");
-  derVars := listAppend(derVars, ssVars);
-  derVars := List.unique(derVars);
+  derVars := List.unique(listAppend(derVars, ssVars));
   (vars, _) := BackendVariable.traverseBackendDAEVarsWithUpdate(vars, setVarKindForStates, derVars);
   sysOut := BackendDAEUtil.setEqSystVars(sysIn, vars);
 end updateVarKinds_eqSys;
@@ -3477,6 +3480,8 @@ algorithm
 
     case BackendDAE.COMPLEX_EQUATION(left = DAE.TUPLE(lhs), right = DAE.TUPLE(rhs))
       algorithm
+        lhs := List.mapFlat(lhs, Expression.getComplexContents);
+        rhs := List.mapFlat(rhs, Expression.getComplexContents);
         eq :: eqs := list(makeBackendEquation(lh, rh) threaded for lh in lhs, rh in rhs);
       then
         (eq, listAppend(eqs, addEqsIn));

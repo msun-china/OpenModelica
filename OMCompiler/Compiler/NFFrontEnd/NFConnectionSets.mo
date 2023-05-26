@@ -47,7 +47,7 @@ package ConnectionSets
 
   redeclare function extends EntryHash
   algorithm
-    hash := Connector.hash(entry, mod);
+    hash := Connector.hash(entry);
   end EntryHash;
 
   redeclare function extends EntryEqual
@@ -70,19 +70,12 @@ package ConnectionSets
       listLength(connections.connections) + listLength(connections.flows));
 
     // Add flow variable to the sets, unless disabled by flag.
-    // Do this here if NF_SCALARIZE to use fast addList for scalarized flows.
-    if not Flags.isSet(Flags.DISABLE_SINGLE_FLOW_EQ) and Flags.isSet(Flags.NF_SCALARIZE) then
-      sets := List.fold(connections.flows, addConnector, sets);
+    if not Flags.isSet(Flags.DISABLE_SINGLE_FLOW_EQ) then
+      sets := List.fold(connections.flows, addSingleConnector, sets);
     end if;
 
     // Add the connections.
     sets := List.fold1(connections.connections, addConnection, connections.broken, sets);
-
-    // Add remaining flow variables to the sets, unless disabled by flag.
-    // Do this after addConnection if not NF_SCALARIZE to get array dims right.
-    if not Flags.isSet(Flags.DISABLE_SINGLE_FLOW_EQ) and not Flags.isSet(Flags.NF_SCALARIZE) then
-      sets := List.fold(connections.flows, addSingleConnector, sets);
-    end if;
   end fromConnections;
 
   function addScalarConnector
@@ -97,7 +90,7 @@ package ConnectionSets
     input Connector conn;
     input output ConnectionSets.Sets sets;
   algorithm
-    sets := addList(Connector.split(conn), sets);
+    sets := addList(Connector.scalarize(conn), sets);
   end addConnector;
 
   function addSingleConnector
@@ -105,9 +98,7 @@ package ConnectionSets
     input Connector conn;
     input output ConnectionSets.Sets sets;
   algorithm
-    for c in Connector.split(conn) loop
-      sets := find(c, sets);
-    end for;
+    sets := find(conn, sets);
   end addSingleConnector;
 
   function addConnection
@@ -117,33 +108,15 @@ package ConnectionSets
     input BrokenEdges broken;
     input output ConnectionSets.Sets sets;
   protected
-    Connector lhs, rhs, c2;
-    list<Connector> lhsl, rhsl;
+    list<Connection> conns;
   algorithm
-    Connection.CONNECTION(lhs = lhs, rhs = rhs) := connection;
-    lhsl := Connector.split(lhs);
-    rhsl := Connector.split(rhs);
+    if not listEmpty(broken) and isBroken(connection.lhs, connection.rhs, broken) then
+      return;
+    end if;
 
-    for c1 in lhsl loop
-      c2 :: rhsl := rhsl;
-
-      // Connections involving deleted conditional connectors are filtered out
-      // when collecting the connections, but if the connectors themselves
-      // contain connectors that have been deleted we need to remove them here.
-      if not (Connector.isDeleted(c1) or Connector.isDeleted(c2)) then
-        // TODO: Check variability of connectors. It's an error if either
-        //       connector is constant/parameter while the other isn't.
-
-        if listEmpty(broken) then
-          sets := merge(c1, c2, sets);
-        elseif isBroken(c1, c2, broken) then
-          // do nothing
-          // print("Ignore broken: connect(" + Connector.toString(c1) + ", " + Connector.toString(c2) + ")\n");
-        else
-          sets := merge(c1, c2, sets);
-        end if;
-      end if;
-    end for;
+    // TODO: Check variability of connectors. It's an error if either
+    //       connector is constant/parameter while the other isn't.
+    sets := merge(connection.lhs, connection.rhs, sets);
   end addConnection;
 
   function isBroken
@@ -163,6 +136,7 @@ package ConnectionSets
       if ComponentRef.isPrefix(lhs, cr1) and ComponentRef.isPrefix(rhs, cr2) or
          ComponentRef.isPrefix(lhs, cr2) and ComponentRef.isPrefix(rhs, cr1)
       then
+        // print("Ignore broken: connect(" + Connector.toString(c1) + ", " + Connector.toString(c2) + ")\n");
         b := true;
         break;
       end if;

@@ -50,6 +50,21 @@ void ModelicaFormatMessage(const char* string,...) {
   va_end(args);
 }
 
+void ModelicaWarning(const char* string) {
+  ModelicaFormatWarning("%s", string);
+}
+
+extern void ModelicaVFormatWarning(const char*string, va_list args) {
+  va_warningStreamPrint(LOG_STDOUT, 0, string, args);
+}
+
+void ModelicaFormatWarning(const char* string,...) {
+  va_list args;
+  va_start(args, string);
+  ModelicaVFormatWarning(string, args);
+  va_end(args);
+}
+
 MODELICA_NORETURN void OpenModelica_Simulation_ModelicaError(const char* string) MODELICA_NORETURNATTR;
 void OpenModelica_Simulation_ModelicaError(const char* string) {
   throwStreamPrint(NULL, "%s", string);
@@ -65,10 +80,12 @@ void (*OpenModelica_ModelicaVFormatError)(const char*,va_list) MODELICA_NORETURN
 
 void ModelicaError(const char* string) {
   OpenModelica_ModelicaError(string);
+  abort();  // Silence invalid noreturn warning. This is never reached.
 }
 
 void ModelicaVFormatError(const char*string, va_list args) {
   OpenModelica_ModelicaVFormatError(string,args);
+  abort();  // Silence invalid noreturn warning. This is never reached.
 }
 
 void ModelicaFormatError(const char* string, ...) {
@@ -76,6 +93,7 @@ void ModelicaFormatError(const char* string, ...) {
   va_start(args, string);
   OpenModelica_ModelicaVFormatError(string,args);
   va_end(args);
+  abort();  // Silence invalid noreturn warning. This is never reached.
 }
 
 char* ModelicaAllocateString(size_t len) {
@@ -90,6 +108,14 @@ char* ModelicaAllocateStringWithErrorReturn(size_t len) {
   char *res = omc_alloc_interface.malloc_string(len+1);
   if (res != NULL) {
     res[len] = '\0';
+  }
+  return res;
+}
+
+char* ModelicaDuplicateString(const char *str) {
+  char *res = omc_alloc_interface.malloc_strdup(str);
+  if (!res) {
+    ModelicaFormatError("%s:%d: ModelicaAllocateString failed", __FILE__, __LINE__);
   }
   return res;
 }

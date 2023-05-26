@@ -75,7 +75,7 @@ import ExpressionSolve;
 import ExpressionSimplify;
 import Error;
 import Flags;
-import GC;
+import GCExt;
 import HashTableExpToIndex;
 import HpcOmTaskGraph;
 import List;
@@ -87,6 +87,7 @@ import SCode;
 import SynchronousFeatures;
 import Tearing;
 import Types;
+import UnorderedMap;
 import Util;
 import Values;
 
@@ -133,7 +134,6 @@ algorithm
   _ := BackendDAEUtil.traverseBackendDAEExpsNoCopyWithUpdate(dae, simplifyInStreamWork, vars);
 end simplifyInStream;
 
-
 protected function simplifyInStreamWork
   input DAE.Exp inExp;
   input list<BackendDAE.Variables> inVars;
@@ -157,7 +157,7 @@ protected function simplifyInStreamWork2
   output DAE.Exp outExp;
   output list<BackendDAE.Variables> outVars = inVars;
 algorithm
-  outExp := match(inExp)
+  outExp := match inExp
     local
       DAE.Type tp;
       DAE.ComponentRef cr;
@@ -165,72 +165,44 @@ algorithm
       Option<DAE.Exp> eMin, eMax;
 
     // positiveMax(cref, eps) = 0 if variable(cref).max <= 0
-    // positiveMax(cref, eps) = cref if variable(cref).min >= 0
-    case DAE.CALL(path=Absyn.IDENT("$OMC$PositiveMax"),expLst={e as DAE.CREF(componentRef=cr), expr})
-    algorithm
-      (eMin, eMax) := simplifyInStreamWorkExpresion(cr, outVars);
-      if simplifyInStreamWorkSimplify(eMax, true) then  // var.max <= 0.0
-        tp := ComponentReference.crefTypeFull(cr);
-        ret := Expression.createZeroExpression(tp);
-      elseif simplifyInStreamWorkSimplify(eMin, false) then // var.min >= 0.0
-        ret := e;
-      else
-        tp := ComponentReference.crefTypeFull(cr);
-        ret := Expression.makePureBuiltinCall("max", {e, expr}, tp);
-      end if;
-    then
-       ret;
+    // positiveMax(cref, eps) = cref if variable(cref).min >= eps
+    case DAE.CALL(path = Absyn.IDENT("$OMC$PositiveMax"), expLst = {e as DAE.CREF(componentRef = cr), expr}) algorithm
+      (eMin, eMax) := simplifyInStreamGetMinMaxAttributes(cr, outVars);
+      tp := ComponentReference.crefTypeFull(cr);
+      ret := if Util.applyOptionOrDefault(eMax, Expression.isNegativeOrZero, false) then Expression.createZeroExpression(tp)
+        elseif Util.applyOptionOrDefault(eMin, function Expression.isGreaterOrEqual(exp2 = expr), false) then e
+        else Expression.makePureBuiltinCall("max", {e, expr}, tp);
+    then ret;
 
-    //positiveMax(-cref, eps) = 0 if variable(cref).min >= 0
-    //positiveMax(-cref, eps) = -cref if variable(cref).max <= 0
-    case DAE.CALL(path=Absyn.IDENT("$OMC$PositiveMax"),expLst={e as DAE.UNARY(DAE.UMINUS(tp), DAE.CREF(componentRef=cr)), expr})
-    algorithm
-      (eMin, eMax) := simplifyInStreamWorkExpresion(cr, outVars);
-      if simplifyInStreamWorkSimplify(eMin, false) then // var.min >= 0.0
-        ret := Expression.createZeroExpression(tp);
-      elseif simplifyInStreamWorkSimplify(eMax, true) then  // var.max <= 0.0
-        ret := e;
-      else
-        ret := Expression.makePureBuiltinCall("max", {e, expr}, tp);
-      end if;
-    then
-       ret;
+    // positiveMax(-cref, eps) = 0 if variable(cref).min >= 0
+    // positiveMax(-cref, eps) = -cref if variable(cref).max <= -eps
+    case DAE.CALL(path = Absyn.IDENT("$OMC$PositiveMax"), expLst = {e as DAE.UNARY(DAE.UMINUS(tp), DAE.CREF(componentRef = cr)), expr}) algorithm
+      (eMin, eMax) := simplifyInStreamGetMinMaxAttributes(cr, outVars);
+      ret := if Util.applyOptionOrDefault(eMin, Expression.isPositiveOrZero, false) then Expression.createZeroExpression(tp)
+        elseif Util.applyOptionOrDefault(eMax, function Expression.isGreaterOrEqual(exp1 = expr), false) then e
+        else Expression.makePureBuiltinCall("max", {e, expr}, tp);
+    then ret;
 
-    //positiveMax(cref, eps) = cref where cref >= 0
-    case DAE.CALL(path=Absyn.IDENT("$OMC$PositiveMax"),expLst={e, _}) guard Expression.isPositiveOrZero(e)
-    then e;
+    // positiveMax(cref, eps) = max(cref,eps) in the general case
+    case DAE.CALL(path = Absyn.IDENT("$OMC$PositiveMax"), expLst = {e, expr})
+    then Expression.makePureBuiltinCall("max", {e, expr}, Expression.typeof(e));
 
-    // e.g. positiveMax(cref, eps) = max(cref,eps) = eps where cref < 0
-    case DAE.CALL(path=Absyn.IDENT("$OMC$PositiveMax"),expLst={e, expr})
-      //print("\nsimplifyInStreamWork: ");
-      //print(ExpressionDump.printExpStr(inExp));
-      //print(" <-> ");
-      //print(ExpressionDump.printExpStr(e));
-    then
-      Expression.makePureBuiltinCall("max", {e, expr}, Expression.typeof(e));
-
-    case DAE.CALL(path=Absyn.IDENT("$OMC$inStreamDiv"),expLst={e, expr})
-      algorithm
-          e := ExpressionSimplify.simplify(e);
-          ret := match(e)
-                  local
-                    DAE.Exp a,b;
-
-                  case DAE.BINARY(a, DAE.DIV(), b)
-                  guard Expression.isZero(a) and Expression.isZero(b)
-                  then expr;
-
-                  else e;
-
-                 end match;
-      then
-         ret;
+    case DAE.CALL(path = Absyn.IDENT("$OMC$inStreamDiv"), expLst = {e, expr}) algorithm
+      e := ExpressionSimplify.simplify(e);
+      ret := match e
+        local
+          DAE.Exp a,b;
+        case DAE.BINARY(a, DAE.DIV(), b) guard Expression.isZero(a) and Expression.isZero(b)
+        then expr;
+        else e;
+      end match;
+    then ret;
 
     else inExp;
   end match;
 end simplifyInStreamWork2;
 
-protected function simplifyInStreamWorkExpresion
+protected function simplifyInStreamGetMinMaxAttributes
   input DAE.ComponentRef cr;
   input list<BackendDAE.Variables> inVars;
   output Option<DAE.Exp> outMin = NONE();
@@ -247,38 +219,7 @@ algorithm
       // search
     end try;
   end for;
-end simplifyInStreamWorkExpresion;
-
-protected function simplifyInStreamWorkSimplify
-  input Option<DAE.Exp> bound;
-  input Boolean neg;
-  output Boolean isZero;
-algorithm
-  isZero := match bound
-    local
-      Real r;
-      Boolean b;
-      DAE.Exp expr;
-
-    case SOME(DAE.RCONST(r))
-      then if neg then r<= 0.0 else r >= 0.0;
-
-    case SOME(expr)
-      //guard Expression.isConst(expr)
-      algorithm
-       expr := ExpressionSimplify.simplify(expr);
-       b := match expr
-            case DAE.RCONST(r)
-              then if neg then r<= 0.0 else r >= 0.0;
-            else
-              false;
-            end match;
-      then
-        b;
-
-    else false;
-  end match;
-end simplifyInStreamWorkSimplify;
+end simplifyInStreamGetMinMaxAttributes;
 
 // =============================================================================
 // simplify time independent function calls
@@ -440,17 +381,13 @@ protected function traverseZeroCrossingExps<T>
     output DAE.Exp outExp;
     output T outA;
   end FuncExpType;
+protected
+  DAE.Exp relation;
 algorithm
-  (zc, arg) := match zc
-    local
-      DAE.Exp relation1, relation2;
-      list<Integer> occurEquLst;
-
-    case BackendDAE.ZERO_CROSSING(relation1, occurEquLst)
-      equation
-        (relation2, arg) = Expression.traverseExpBottomUp(relation1, func, arg);
-      then (if referenceEq(relation1, relation2) then BackendDAE.ZERO_CROSSING(relation2, occurEquLst) else zc, arg);
-  end match;
+  (relation, arg) := Expression.traverseExpBottomUp(zc.relation_, func, arg);
+  if not referenceEq(relation, zc.relation_) then
+    zc.relation_ := relation;
+  end if;
 end traverseZeroCrossingExps;
 
 protected function toplevelInputOrUnfixed
@@ -768,6 +705,10 @@ algorithm
       DAE.ComponentRef cr;
       Option<DAE.VariableAttributes> attr,new_attr;
 
+    // Don't replace with function calls
+    case (BackendDAE.VAR(bindExp=SOME(DAE.CALL())),_)
+      then(inVar,inTpl);
+
     case (v as BackendDAE.VAR(varName=cr,bindExp=SOME(e),values=attr),(repl,numrepl))
       equation
         (e1,true) = BackendVarTransform.replaceExp(e, repl, NONE());
@@ -912,12 +853,7 @@ public function removeEqualRHS "author: Frenkel TUD 2011-04
   input BackendDAE.BackendDAE dae;
   output BackendDAE.BackendDAE odae;
 algorithm
-  if Flags.getConfigBool(Flags.CSE_CALL) or Flags.getConfigBool(Flags.CSE_EACHCALL) then
-    // skip this module if cse module is activated
-    odae := dae;
-  else
-    odae := BackendDAEUtil.mapEqSystem(dae,removeEqualFunctionCallsWork);
-  end if;
+  odae := BackendDAEUtil.mapEqSystem(dae,removeEqualFunctionCallsWork);
 end removeEqualRHS;
 
 protected function removeEqualFunctionCallsWork "author: Frenkel TUD 2011-04
@@ -1408,7 +1344,7 @@ algorithm
   usedfuncs := BackendDAEUtil.traverseBackendDAEExpsVars(inShared.aliasVars, func, usedfuncs);
   usedfuncs := BackendDAEUtil.traverseBackendDAEExpsEqns(inShared.removedEqs, func, usedfuncs);
   usedfuncs := BackendDAEUtil.traverseBackendDAEExpsEqns(inShared.initialEqs, func, usedfuncs);
-  usedfuncs := removeUnusedFunctionsSymJacs(inShared.symjacs, funcs, usedfuncs);
+  usedfuncs := removeUnusedFunctionsSymJacs(inShared, funcs, usedfuncs);
 
   outFunctionTree := usedfuncs;
 end removeUnusedFunctions;
@@ -1471,19 +1407,18 @@ algorithm
 end copyRecordConstructorAndExternalObjConstructorDestructor;
 
 protected function removeUnusedFunctionsSymJacs
-  input BackendDAE.SymbolicJacobians inSymJacs;
+  input BackendDAE.Shared inShared;
   input DAE.FunctionTree inFunctions;
   input DAE.FunctionTree inUsedFunctions;
   output DAE.FunctionTree outUsedFunctions = inUsedFunctions;
+protected
+  BackendDAE.BackendDAE bdae;
+  DAE.FunctionTree usedfuncs;
+  BackendDAE.Shared shared;
 algorithm
-  for sjac in inSymJacs loop
+  for sjac in inShared.symjacs loop
     _ := match(sjac)
-      local
-        BackendDAE.BackendDAE bdae;
-        DAE.FunctionTree usedfuncs;
-        BackendDAE.Shared shared;
-
-      case (SOME((bdae, _, _, _, _, _)), _, _)
+      case (SOME((bdae, _, _, _, _, _)), _, _, _)
         equation
           bdae = BackendDAEUtil.setFunctionTree(bdae, inFunctions);
           shared = bdae.shared;
@@ -1495,6 +1430,26 @@ algorithm
       else ();
     end match;
   end for;
+
+  // Collect function if there is a data recon structure.
+  () := match inShared.dataReconciliationData
+    case NONE() then ();
+
+    case SOME(BackendDAE.DATA_RECON(symbolicJacobian =
+                      BackendDAE.GENERIC_JACOBIAN(jacobian=SOME((bdae, _, _, _, _, _)))))
+      algorithm
+        bdae := BackendDAEUtil.setFunctionTree(bdae, inFunctions);
+        shared := bdae.shared;
+        usedfuncs := removeUnusedFunctions(bdae.eqs, shared, {}, shared.functionTree, inUsedFunctions);
+        outUsedFunctions := DAE.AvlTreePathFunction.join(outUsedFunctions, usedfuncs);
+      then ();
+
+    // If data isSome and we have non generic jacobian what do we do?
+    else algorithm
+      Error.addInternalError(getInstanceName()
+                  + ": Unexpected data reconciliation jacobian structure. ", sourceInfo());
+      then fail();
+  end match;
 end removeUnusedFunctionsSymJacs;
 
 protected function checkUnusedFunctions
@@ -1686,9 +1641,9 @@ algorithm
         systs = if b then SynchronousFeatures.partitionIndependentBlocksSplitBlocks(i, syst, eqPartMap, rixs, mT, rmT, throwNoError, funcs, isInitial) else {syst};
         // print("Number of partitioned systems: " + intString(listLength(systs)) + "\n");
         // List.map1_0(systs, BackendDump.dumpEqSystem, "System");
-        GC.free(eqPartMap);
-        GC.free(varPartMap);
-        GC.free(rixs);
+        GCExt.free(eqPartMap);
+        GCExt.free(varPartMap);
+        GCExt.free(rixs);
       then (systs,shared);
     else
       equation
@@ -2248,7 +2203,7 @@ algorithm
     local
       BackendDAE.Variables vars, globalKnownVars;
       BackendDAE.EquationArray eqns, initialEqs;
-      list<BackendDAE.Equation> eqnslst, asserts;
+      list<BackendDAE.Equation> eqnslst, asserts, initial_asserts;
       BackendDAE.EqSystem syst;
       BackendDAE.Shared shared;
       Boolean systChanged;
@@ -2265,8 +2220,12 @@ algorithm
         // traverse the initial equations
         eqnslst := BackendEquation.equationList(initialEqs);
         // traverse equations in reverse order, than branch equations of if equaitions need no reverse
-        ((eqnslst,asserts,true)) := List.fold31(listReverse(eqnslst), simplifyIfEquationsFinder, globalKnownVars, {},{},systChanged);
-        shared.initialEqs := BackendEquation.listEquation(eqnslst);
+        ((eqnslst,initial_asserts,true)) := List.fold31(listReverse(eqnslst), simplifyIfEquationsFinder, globalKnownVars, {},{},systChanged);
+
+        // ticket #5599
+        // leave initial asserts in the initial equation block
+        // this just removes the surrounding unnecessary if condition
+        shared.initialEqs := BackendEquation.listEquation(listAppend(initial_asserts, eqnslst));
 
         syst := BackendDAEUtil.clearEqSyst(syst);
         syst := BackendEquation.requationsAddDAE(asserts, syst);
@@ -2303,9 +2262,9 @@ algorithm
         explst = ExpressionSimplify.simplifyList(explst);
         // simplify if equation
         (acc,asserts1) = simplifyIfEquation(explst,eqnslstlst,eqnslst,{},{},source,globalKnownVars,acc,attr);
-        asserts = listAppend(asserts,asserts1);
+        asserts1 = listAppend(asserts,asserts1);
       then
-        (acc, asserts, true);
+        (acc, asserts1, true);
 
     case (eqn,globalKnownVars)
       equation
@@ -2394,7 +2353,7 @@ algorithm
         eqnslst = listReverse(theneqns1);
         // simplify nested if equations
         ((elseenqs1,asserts,_)) = List.fold31(listReverse(elseenqs), simplifyIfEquationsFinder, globalKnownVars, {},{},false);
-        elseenqs1 = listAppend(elseenqs1,asserts);
+        elseenqs1 = listAppend(elseenqs1,asserts) annotation(__OpenModelica_DisableListAppendWarning=true);
         (eqnslst,elseenqs1,asserts) = simplifyIfEquationAsserts(explst,eqnslst,elseenqs1,{},{},{});
         eqns = simplifyIfEquation1(explst,eqnslst,elseenqs1,source,globalKnownVars,inEqns,inEqAttr);
       then
@@ -2413,7 +2372,7 @@ algorithm
         eqnslst = listReverse(theneqns1);
         // simplify nested if equations
         ((elseenqs1,asserts,_)) = List.fold31(listReverse(eqns), simplifyIfEquationsFinder, globalKnownVars, {},{},false);
-        elseenqs1 = listAppend(elseenqs1,asserts);
+        elseenqs1 = listAppend(elseenqs1,asserts) annotation(__OpenModelica_DisableListAppendWarning=true);
         (eqnslst,elseenqs1,asserts) = simplifyIfEquationAsserts(explst,eqnslst,elseenqs1,{},{},{});
         eqns = simplifyIfEquation1(explst,eqnslst,elseenqs1,source,globalKnownVars,inEqns,inEqAttr);
       then
@@ -2429,7 +2388,7 @@ algorithm
       equation
         // simplify nested if equations
         ((eqns,asserts,_)) = List.fold31(listReverse(eqns), simplifyIfEquationsFinder, globalKnownVars, {},{},false);
-        eqns = listAppend(eqns,asserts);
+        eqns = listAppend(eqns,asserts) annotation(__OpenModelica_DisableListAppendWarning=true);
         (eqns,asserts) = simplifyIfEquation(explst,eqnslst,elseenqs,e::conditions1,eqns::theneqns1,source,globalKnownVars,inEqns,inEqAttr);
       then
         (eqns,asserts);
@@ -3459,11 +3418,12 @@ algorithm
       algorithm
         repl := BackendVarTransform.emptyReplacements();
         repl := BackendVariable.traverseBackendDAEVars(globalKnownVars, removeConstantsFinder, repl);
+
+        (globalKnownVars, (repl, _)) := BackendVariable.traverseBackendDAEVarsWithUpdate(globalKnownVars, replaceFinalVarTraverser, (repl, 0));
+
         if Flags.isSet(Flags.DUMP_CONST_REPL) then
           BackendVarTransform.dumpReplacements(repl);
         end if;
-
-        (globalKnownVars, (repl, _)) := BackendVariable.traverseBackendDAEVarsWithUpdate(globalKnownVars, replaceFinalVarTraverser, (repl, 0));
 
         lsteqns := BackendEquation.equationList(shared.initialEqs);
         (lsteqns, b) := BackendVarTransform.replaceEquations(lsteqns, repl, NONE());
@@ -3535,7 +3495,7 @@ end removeConstantsFinder;
 
 
 // =============================================================================
-// reaplace edge and change with (b and not pre(b)) and (v <> pre(v)
+// reaplace edge and change with (b and not pre(b)) and (v <> pre(v))
 //
 // =============================================================================
 
@@ -3893,6 +3853,8 @@ protected function expandDerExp "
   input output DAE.Exp exp;
   input output BackendDAE.Variables vars;
   input Mutable<BackendDAE.Shared> inShared;
+protected
+  Boolean failed = false;
 algorithm
   (exp,vars) := matchcontinue exp
     local
@@ -3907,7 +3869,7 @@ algorithm
     case DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={DAE.CREF(componentRef=cr)})})
       equation
         str = ComponentReference.crefStr(cr);
-        str = stringAppendList({"The model includes derivatives of order > 1 for: ", str, ". That is not supported. Real d", str, " = der(", str, ") *might* result in a solvable model"});
+        str = stringAppendList({"The model includes derivatives of order > 1 for: ", str, ". That is not supported. Adding 'Real d", str, " = der(", str, ");' *might* result in a solvable model"});
         Error.addMessage(Error.INTERNAL_ERROR, {str});
       then fail();
     // case for arrays
@@ -3923,24 +3885,38 @@ algorithm
         (exp,vars) = Expression.traverseExpBottomUp(e2, function expandDerExp(inShared=inShared), vars);
       then (exp,vars);
     case (e1 as DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={DAE.CREF(componentRef=cr)}))
-      equation
-        (v, _) = BackendVariable.getVarSingle(cr, vars);
-        (vars, e1) = updateStatesVar(vars, v, e1);
+      algorithm
+        (v, _) := BackendVariable.getVarSingle(cr, vars);
+        try
+          (vars, e1) := updateStatesVar(vars, v, e1);
+        else
+          failed := true;
+          fail();
+        end try;
       then (e1, vars);
     case (e1 as DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={DAE.CREF(componentRef=cr)}))
       equation
+        false = failed;
         (varlst, _) = BackendVariable.getVar(cr, vars);
         vars = updateStatesVars(vars, varlst, false);
       then (e1, vars);
     case (DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={e1}))
       equation
+        false = failed;
         (e2, shared) = Differentiate.differentiateExpTime(e1, vars, Mutable.access(inShared));
+        false = Expression.isZero(e2);
         Mutable.update(inShared, shared);
         (e2, _) = ExpressionSimplify.simplify(e2);
         (_, vars) = Expression.traverseExpBottomUp(e2, derCrefsExp, vars);
       then (e2, vars);
     else (exp,vars);
   end matchcontinue;
+
+  // FIXME dumb hack to make matchcontinue fail
+  // I don't want to rewrite the damn thing
+  if failed then
+    fail();
+  end if;
 end expandDerExp;
 
 protected function derCrefsExp "helper for statesExp"
@@ -3975,32 +3951,28 @@ protected function updateStatesVar "
   input BackendDAE.Variables inVars;
   input BackendDAE.Var var;
   input DAE.Exp iExp;
-  output BackendDAE.Variables outVars;
-  output DAE.Exp oExp;
+  output BackendDAE.Variables outVars = inVars;
+  output DAE.Exp oExp = iExp;
+protected
+  BackendDAE.Var var1;
+  DAE.Exp arg;
 algorithm
-  (outVars, oExp) := matchcontinue(inVars, var, iExp)
-    local
-      BackendDAE.Variables vars;
-      BackendDAE.Var var1;
-    case(_, _, _)
-      equation
-        true = BackendVariable.isVarDiscrete(var) "do not change discrete vars to states, because they have no derivative" ;
-      then (inVars, DAE.RCONST(0.0));
-    case(_, _, _)
-      equation
-        false = BackendVariable.isVarDiscrete(var) "do not change discrete vars to states, because they have no derivative" ;
-        false = BackendVariable.isStateVar(var) and not BackendVariable.varStateSelectForced(var);
-        var1 = BackendVariable.setVarKind(var, BackendDAE.STATE(1, NONE(), true));
-        vars = BackendVariable.addVar(var1, inVars);
-      then (vars, iExp);
-    case(_, _, _)
-      equation
-        /* Might be part of a different equation-system...
-        str = "BackendDAECreate.updateStatesVars failed for: " + ComponentReference.printComponentRefStr(cr);
-        Error.addMessage(Error.INTERNAL_ERROR, {str});
-        */
-      then (inVars, iExp);
-  end matchcontinue;
+  if BackendVariable.isVarNonDifferentiable(var) then
+    DAE.CALL(expLst = {arg}) := iExp;
+    Error.addSourceMessageAndFail(Error.DER_OF_NONDIFFERENTIABLE_EXP,
+      {ExpressionDump.printExpStr(arg)}, var.source.info);
+  elseif BackendVariable.isVarDiscrete(var) then
+    oExp := DAE.RCONST(0.0);
+  elseif not BackendVariable.isStateVar(var) or BackendVariable.varStateSelectForced(var) then
+    var1 := BackendVariable.setVarKind(var, BackendDAE.STATE(1, NONE(), true));
+    outVars := BackendVariable.addVar(var1, inVars);
+    oExp := iExp;
+  else
+    /* Might be part of a different equation-system...
+    str = "BackendDAECreate.updateStatesVars failed for: " + ComponentReference.printComponentRefStr(cr);
+    Error.addMessage(Error.INTERNAL_ERROR, {str});
+    */
+  end if;
 end updateStatesVar;
 
 protected function updateStatesVars "
@@ -4225,8 +4197,8 @@ algorithm
             BackendDump.dumpAdjacencyMatrixT(mT);
           end if;
 
-          GC.free(w_vars);
-          GC.free(w_eqns);
+          GCExt.free(w_vars);
+          GCExt.free(w_eqns);
         then BackendDAEUtil.clearEqSyst(syst1);
     end match;
     new_systlst := syst :: new_systlst;
@@ -5606,23 +5578,20 @@ public function listAllIterationVariables0 "author: lochel"
   input list<BackendDAE.EqSystem> inEqs;
   output list<String> outWarnings;
   output list<DAE.ComponentRef> outComponentRef;
+protected
+  list<String> warnings;
+  list<DAE.ComponentRef> crefs;
+  list<list<String>> warnings_accum = {};
+  list<list<DAE.ComponentRef>> crefs_accum = {};
 algorithm
-  (outWarnings, outComponentRef) := match(inEqs)
-    local
-      BackendDAE.EqSystem eq;
-      list<BackendDAE.EqSystem> eqs;
-      list<String> warning;
-      list<String> warningList;
-      list<DAE.ComponentRef> creflist1,creflist2;
+  for eq in inEqs loop
+    (warnings, crefs) := listAllIterationVariables1(eq);
+    warnings_accum := warnings :: warnings_accum;
+    crefs_accum := crefs :: crefs_accum;
+  end for;
 
-    case ({})
-    then ({},{});
-
-    case (eq::eqs) equation
-      (warning, creflist1)  = listAllIterationVariables1(eq);
-      (warningList, creflist2) = listAllIterationVariables0(eqs);
-    then (listAppend(warning, warningList), listAppend(creflist1, creflist2));
-  end match;
+  outWarnings := List.flattenReverse(warnings_accum);
+  outComponentRef := List.flattenReverse(crefs_accum);
 end listAllIterationVariables0;
 
 protected function listAllIterationVariables1 "author: lochel"
@@ -5638,103 +5607,68 @@ algorithm
   (outWarning, outComponentRef) := listAllIterationVariables2(comps, vars);
 end listAllIterationVariables1;
 
-protected function listAllIterationVariables2 "author: lochel"
-  input BackendDAE.StrongComponents inComps;
-  input BackendDAE.Variables inVars;
-  output list<String> outWarning;
-  output list<DAE.ComponentRef> outComponentRef;
+protected function listAllIterationVariables2
+  input BackendDAE.StrongComponents comps;
+  input BackendDAE.Variables vars;
+  output list<String> warnings = {};
+  output list<DAE.ComponentRef> componentRefs = {};
+protected
+  list<Integer> var_idxs, var_idxs2;
+
+  constant String NONLINEAR_SYSTEM = "Iteration variables of nonlinear equation system:\n";
+  constant String ANALYTIC_JACOBIAN = "Iteration variables of equation system with analytic Jacobian:\n";
+  constant String NO_ANALYTIC_JACOBIAN = "Iteration variables of equation system without analytic Jacobian:\n";
+  constant String TORN_LINEAR = "Iteration variables of torn linear equation system:\n";
+  constant String TORN_NONLINEAR = "Iteration variables of torn nonlinear equation system:\n";
 algorithm
-  (outWarning, outComponentRef) := matchcontinue(inComps, inVars)
-    local
-      BackendDAE.StrongComponents rest;
-      list<BackendDAE.Var> varlst;
-      list<Integer> vlst,vlst2;
-      Boolean linear;
-      String str;
-      String warning;
-      list<String> warningList;
-      list<DAE.ComponentRef> crefList;
+  for comp in listReverse(comps) loop
+    (warnings, componentRefs) := match comp
+      case BackendDAE.EQUATIONSYSTEM(jacType = BackendDAE.JAC_NONLINEAR())
+        then listAllIterationVariables3(comp.vars, vars, NONLINEAR_SYSTEM, warnings, componentRefs);
 
-    case ({}, _)
-    then ({}, {});
+      case BackendDAE.EQUATIONSYSTEM(jacType = BackendDAE.JAC_GENERIC())
+        then listAllIterationVariables3(comp.vars, vars, ANALYTIC_JACOBIAN, warnings, componentRefs);
 
-    case (BackendDAE.EQUATIONSYSTEM(vars=vlst, jacType=BackendDAE.JAC_NONLINEAR())::rest, _) equation
-      varlst = List.map1r(vlst, BackendVariable.getVarAt, inVars);
-      false = listEmpty(varlst);
-      crefList = List.map(varlst, BackendVariable.varCref); // create cref list of the iterationVars
+      case BackendDAE.EQUATIONSYSTEM(jacType = BackendDAE.JAC_NO_ANALYTIC())
+        then listAllIterationVariables3(comp.vars, vars, NO_ANALYTIC_JACOBIAN, warnings, componentRefs);
 
-      warning = "Iteration variables of nonlinear equation system:\n" + warnAboutVars(varlst);
-      warningList = listAllIterationVariables2(rest, inVars);
-    then (warning::warningList, crefList);
+      case BackendDAE.TORNSYSTEM(strictTearingSet = BackendDAE.TEARINGSET(tearingvars = var_idxs),
+                                 casualTearingSet = NONE())
+        then listAllIterationVariables3(var_idxs, vars,
+          if comp.linear then TORN_LINEAR else TORN_NONLINEAR, warnings, componentRefs);
 
-     case (BackendDAE.EQUATIONSYSTEM(vars=vlst, jacType=BackendDAE.JAC_GENERIC())::rest, _) equation
-      varlst = List.map1r(vlst, BackendVariable.getVarAt, inVars);
-      false = listEmpty(varlst);
-      crefList = List.map(varlst, BackendVariable.varCref); // create cref list of the iterationVars
+      case BackendDAE.TORNSYSTEM(strictTearingSet = BackendDAE.TEARINGSET(tearingvars = var_idxs),
+                                 casualTearingSet = SOME(BackendDAE.TEARINGSET(tearingvars = var_idxs2)))
+        then
+          listAllIterationVariables3(List.union(var_idxs, var_idxs2), vars,
+            if comp.linear then TORN_LINEAR else TORN_NONLINEAR, warnings, componentRefs);
 
-      warning = "Iteration variables of equation system with analytic Jacobian:\n" + warnAboutVars(varlst);
-      warningList = listAllIterationVariables2(rest, inVars);
-    then (warning::warningList, crefList);
-
-    case (BackendDAE.EQUATIONSYSTEM(vars=vlst, jacType=BackendDAE.JAC_NO_ANALYTIC())::rest, _) equation
-      varlst = List.map1r(vlst, BackendVariable.getVarAt, inVars);
-      false = listEmpty(varlst);
-      crefList = List.map(varlst, BackendVariable.varCref); // create cref list of the iterationVars
-
-      warning = "Iteration variables of equation system without analytic Jacobian:\n" + warnAboutVars(varlst);
-      warningList = listAllIterationVariables2(rest, inVars);
-    then (warning::warningList, crefList);
-
-    case (BackendDAE.TORNSYSTEM(strictTearingSet=BackendDAE.TEARINGSET(tearingvars=vlst), casualTearingSet=NONE(), linear=linear)::rest, _) equation
-      varlst = List.map1r(vlst, BackendVariable.getVarAt, inVars);
-      false = listEmpty(varlst);
-      crefList = List.map(varlst, BackendVariable.varCref); // create cref list of the iterationVars
-
-      str = if linear then "linear" else "nonlinear";
-      warning = "Iteration variables of torn " + str + " equation system:\n" + warnAboutVars(varlst);
-      warningList = listAllIterationVariables2(rest, inVars);
-    then (warning::warningList, crefList);
-
-    case (BackendDAE.TORNSYSTEM(strictTearingSet=BackendDAE.TEARINGSET(tearingvars=vlst), casualTearingSet=SOME(BackendDAE.TEARINGSET(tearingvars=vlst2)), linear=linear)::rest, _) equation
-      vlst = List.unique(listAppend(vlst,vlst2));
-      varlst = List.map1r(vlst, BackendVariable.getVarAt, inVars);
-      false = listEmpty(varlst);
-      crefList = List.map(varlst, BackendVariable.varCref); // create cref list of the iterationVars
-
-      str = if linear then "linear" else "nonlinear";
-      warning = "Iteration variables of torn " + str + " equation system:\n" + warnAboutVars(varlst);
-      warningList = listAllIterationVariables2(rest, inVars);
-    then (warning::warningList, crefList);
-
-    case (_::rest, _) equation
-      (warningList, crefList) = listAllIterationVariables2(rest, inVars);
-    then (warningList, crefList);
-  end matchcontinue;
+      else (warnings, componentRefs);
+    end match;
+  end for;
 end listAllIterationVariables2;
 
-protected function warnAboutVars "author: lochel"
-  input list<BackendDAE.Var> inVars;
-  output String outString;
+protected function listAllIterationVariables3
+  input list<Integer> varIndices;
+  input BackendDAE.Variables allVars;
+  input String message;
+  input output list<String> warnings;
+  input output list<DAE.ComponentRef> crefs;
+protected
+  list<BackendDAE.Var> vars;
 algorithm
-  outString := match(inVars)
-    local
-      BackendDAE.Var v;
-      list<BackendDAE.Var> vars;
-      String crStr;
-      String str;
+  if not listEmpty(varIndices) then
+    vars := list(BackendVariable.getVarAt(allVars, v) for v in varIndices);
+    crefs := List.append_reverse(list(BackendVariable.varCref(v) for v in vars), crefs);
+    warnings := (message + warnAboutVars(vars)) :: warnings;
+  end if;
+end listAllIterationVariables3;
 
-    case ({})
-    then "";
-
-    case (v::{}) equation
-      crStr = "  " + BackendDump.varString(v);
-    then crStr;
-
-    case (v::vars) equation
-      crStr = BackendDump.varString(v);
-      str = "  " + crStr + "\n" + warnAboutVars(vars);
-    then str;
-  end match;
+protected function warnAboutVars
+  input list<BackendDAE.Var> vars;
+  output String str;
+algorithm
+  str := stringDelimitList(list("  " + BackendDump.varString(v) for v in vars), "\n");
 end warnAboutVars;
 
 public function addTimeAsState
@@ -5750,7 +5684,7 @@ protected
 algorithm
   (BackendDAE.DAE(eqs, shared), _) := BackendDAEUtil.mapEqSystemAndFold(inDAE, addTimeAsState1, 0);
   orderedVars := BackendVariable.emptyVars();
-  var := BackendDAE.VAR(DAE.crefTimeState, BackendDAE.STATE(1, NONE(), true), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
+  var := BackendDAE.VAR(DAE.crefTimeState, BackendDAE.STATE(1, NONE(), true), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false);
   var := BackendVariable.setVarFixed(var, true);
   var := BackendVariable.setVarStartValue(var, DAE.CREF(DAE.crefTime, DAE.T_REAL_DEFAULT));
   orderedVars := BackendVariable.addVar(var, orderedVars);
@@ -5853,6 +5787,12 @@ protected
   array<list<Integer>> mapEqnIncRow;
   array<Integer> mapIncRowEqn;
   Integer systemNumber=0, numberOfSystems;
+
+  list<Integer> eqIndLst, eqIndexLst = {};
+  UnorderedMap<DAE.ComponentRef, DAE.Exp> der_replacement;
+  BackendDAE.Var derVar;
+
+  constant Boolean debug = false;
 algorithm
   daeOut := daeIn;
 
@@ -5876,7 +5816,7 @@ algorithm
     //get output variables
     BackendDAE.EQSYSTEM(orderedVars = vars) := syst;
     varLst := BackendVariable.varList(vars);
-    varLst := List.filterOnTrue(varLst,BackendVariable.isOutputVar);
+    varLst := List.filterOnTrue(varLst,BackendVariable.isVarOnTopLevelAndOutput);
 
     if not listEmpty(varLst) then
 
@@ -5884,13 +5824,13 @@ algorithm
       //-------------------------------------
       outputVarIndxs := BackendVariable.getVarIndexFromVars(varLst,vars);
       outputTasks := List.map(List.map1(outputVarIndxs,Array.getIndexFirst,varCompMapping),Util.tuple31);
-        //print("outputTasks "+stringDelimitList(List.map(outputTasks,intString),", ")+"\n");
+      if debug then print("outputTasks "+stringDelimitList(List.map(outputTasks,intString),", ")+"\n"); end if;
 
       //get all necessary components to calculate the outputs
       predecessors := HpcOmTaskGraph.getAllSuccessors(outputTasks,taskGraphT);
       predecessors := List.sort(predecessors,intGt);
       compsNew := List.map1(listAppend(outputTasks,predecessors),List.getIndexFirst,comps);
-         //print("predecessors of outputs "+stringDelimitList(List.map(predecessors,intString),", ")+"\n");
+      if debug then print("predecessors of outputs "+stringDelimitList(List.map(predecessors,intString),", ")+"\n"); end if;
 
       //get equations from the new reduced set of comps
       eqLstNew := BackendDAEUtil.getStrongComponentEquations(compsNew,eqs,vars);
@@ -5901,13 +5841,13 @@ algorithm
       varVisited := arrayCreate(BackendVariable.varsSize(vars),-1);
       while not listEmpty(eqLstNew) loop
         eq::eqLstNew := eqLstNew;
-          //print("eq: "+BackendDump.equationString(eq)+"\n");
+        if debug then print("eq: "+BackendDump.equationString(eq)+"\n"); end if;
         crefs := BackendEquation.equationCrefs(eq);
         crefs := List.filter1OnTrue(crefs,BackendVariable.isState,vars);
         (states,stateIndxs) := BackendVariable.getVarLst(crefs,vars);
         (stateIndxs,states) := List.filter1OnTrueSync(stateIndxs,stateVarIsNotVisited,varVisited,states);//not yet visited
         if not listEmpty(stateIndxs) then
-            //print("states "+stringDelimitList(List.map(states,BackendDump.varString),"\n ")+"\n");
+          if debug then print("states "+stringDelimitList(List.map(states,BackendDump.varString),"\n ")+"\n"); end if;
           List.map2_0(stateIndxs,Array.updateIndexFirst,1,varVisited);
           //add the new tasks which are necessary for the states
           stateTasks1 := List.map(List.map1(stateIndxs,Array.getIndexFirst,varCompMapping),Util.tuple31);
@@ -5923,26 +5863,27 @@ algorithm
       //get all necessary components to calculate the outputs and the state derivatives
       predecessors := HpcOmTaskGraph.getAllSuccessors(listAppend(outputTasks,stateTasks),taskGraphT);
       tasks := List.sort(listAppend(predecessors,listAppend(outputTasks,stateTasks)),intGt);
-        //print("predecessors of outputs and states "+stringDelimitList(List.map(tasks,intString),", ")+"\n");
+      if debug then print("predecessors of outputs and states "+stringDelimitList(List.map(tasks,intString),", ")+"\n"); end if;
       compsNew := List.map1(tasks,List.getIndexFirst,comps);
       compsNew := List.unique(compsNew);
-        print("There have been "+intString(listLength(comps))+" SCCs and now there are "+intString(listLength(compsNew))+" SCCs.\n");
+      if debug then print("There have been "+intString(listLength(comps))+" SCCs and now there are "+intString(listLength(compsNew))+" SCCs.\n"); end if;
 
       //get vars and equations from the new reduced set of comps and make a equationIdxMap
       eqLstNew := {};
       varLstNew := {};
       for comp in compsNew loop
-        (varLst,_,eqLst,_) := BackendDAEUtil.getStrongComponentVarsAndEquations(comp,vars,eqs);
+        (varLst,_,eqLst,eqIndLst) := BackendDAEUtil.getStrongComponentVarsAndEquations(comp,vars,eqs);
         varLstNew := listAppend(varLst,varLstNew);
         eqLstNew := listAppend(eqLst,eqLstNew);
+        eqIndexLst := listAppend(eqIndLst,eqIndexLst);
       end for;
 
       // causalize again
       syst.orderedVars := BackendVariable.listVar1(listReverse(varLstNew));
       syst.orderedEqs := BackendEquation.listEquation(listReverse(eqLstNew));
 
-      syst.m :=NONE();
-      syst.mT :=NONE();
+      syst.m := NONE();
+      syst.mT := NONE();
       syst.matching := BackendDAE.NO_MATCHING();
       (m,mT) := BackendDAEUtil.adjacencyMatrix(syst,BackendDAE.NORMAL(),NONE(),BackendDAEUtil.isInitializationDAE(shared));
       syst.m := SOME(m);
@@ -5960,16 +5901,41 @@ algorithm
       (syst, _, _, mapEqnIncRow, mapIncRowEqn) := BackendDAEUtil.getAdjacencyMatrixScalar(syst, BackendDAE.NORMAL(), SOME(funcTree), BackendDAEUtil.isInitializationDAE(shared));
       syst := BackendDAETransform.strongComponentsScalar(syst,shared,mapEqnIncRow,mapIncRowEqn);
       syst.removedEqs := BackendEquation.emptyEqns();
+
+      systsNew := syst::systsNew;
+
+      // find unneeded vars and equations
+      vars := BackendVariable.deleteVars(syst.orderedVars, vars);
+      eqs := BackendEquation.deleteList(eqs, eqIndexLst);
     else
-      Error.addCompilerNotification("No output variables in this system ("+String(systemNumber)+"/"+String(numberOfSystems)+")");
+      if debug then print("No output variables in this system ("+intString(systemNumber)+"/"+intString(numberOfSystems)+")\n"); end if;
     end if;
 
-    systsNew := syst::systsNew;
+    // make unneeded state derivatives and add them to unneeded vars
+    der_replacement := UnorderedMap.new<DAE.Exp>(ComponentReference.hashComponentRef, ComponentReference.crefEqual);
+    for state in BackendVariable.varList(vars) loop
+      if BackendVariable.isStateVar(state) then
+        derVar := BackendVariable.makeVar(ComponentReference.prependStringCref("$DER_REM_", state.varName));
+        UnorderedMap.add(state.varName, Expression.crefExp(derVar.varName), der_replacement);
+        vars := BackendVariable.addVar(derVar, vars);
+      end if;
+    end for;
+
+    // replace unneeded der() calls with derivative crefs
+    eqs := BackendEquation.traverseEquationArray_WithUpdate(eqs, function BackendEquation.traverseExpsOfEquation(inFunc = replaceDerCallOutputsOnly), der_replacement);
+
+    // make unneeded vars parameters and equations initial equations
+    (vars, _) := BackendVariable.traverseBackendDAEVarsWithUpdate(vars, BackendVariable.makeParamOutputsOnly, false);
+    (eqs, _) := BackendEquation.traverseEquationArray_WithUpdate(eqs,BackendEquation.setEquationKind, BackendDAE.INITIAL_EQUATION());
+
+    // add unneeded variables and equations
+    shared.globalKnownVars := BackendVariable.addVariables(vars, shared.globalKnownVars);
+    shared.initialEqs := BackendEquation.addList(BackendEquation.equationList(eqs), shared.initialEqs);
   end for;
 
-   //alias vars are not necessary anymore
-   shared.aliasVars := BackendVariable.emptyVars();
-   daeOut := BackendDAE.DAE(systsNew,shared);
+  // alias vars are not necessary anymore
+  shared.aliasVars := BackendVariable.emptyVars();
+  daeOut := BackendDAE.DAE(systsNew,shared);
 end evaluateOutputsOnly;
 
 protected function stateVarIsNotVisited"checks if the indexed entry in the array is less than 0"
@@ -5980,6 +5946,18 @@ algorithm
   b := intLt(arrayGet(varArr,idx),0);
 end stateVarIsNotVisited;
 
+protected function replaceDerCallOutputsOnly
+  input output DAE.Exp exp;
+  input output UnorderedMap<DAE.ComponentRef, DAE.Exp> der_replacement;
+algorithm
+  exp := match exp
+    local
+      DAE.ComponentRef cr;
+    case DAE.CALL(path = Absyn.IDENT("der"), expLst = {DAE.CREF(cr)})
+      then UnorderedMap.getOrDefault(cr, der_replacement, exp);
+    else exp;
+  end match;
+end replaceDerCallOutputsOnly;
 
 // =============================================================================
 // section for initOptModule >>inlineHomotopy<<
@@ -6212,7 +6190,7 @@ algorithm
 
   if homotopyLoopBeginning > 0 then
     // Add homotopy lambda to system
-    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
+    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false);
     system.orderedVars := BackendVariable.addVar(lambda, system.orderedVars);
     lambdaIdx := BackendVariable.varsSize(system.orderedVars);
 
@@ -6398,7 +6376,7 @@ algorithm
 
   if hasAnyHomotopy then
     // Add homotopy lambda to system
-    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
+    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false);
     system.orderedVars := BackendVariable.addVar(lambda, system.orderedVars);
   end if;
   comps := listReverse(newComps);

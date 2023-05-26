@@ -42,22 +42,21 @@
 extern "C" {
 #endif
 
-typedef enum SYNC_TIMER_TYPE {
-  SYNC_BASE_CLOCK, SYNC_SUB_CLOCK
-} SYNC_TIMER_TYPE;
-
-typedef struct SYNC_TIMER {
-  long idx;
-  SYNC_TIMER_TYPE type;
-  double activationTime;
-} SYNC_TIMER;
-
+/**
+ * @brief Type of Clock fireing
+ *
+ */
+typedef enum {
+  NO_TIMER_FIRED,   /**< No clock was fired*/
+  TIMER_FIRED,      /**< A clockwas fired that didn't fire an event */
+  TIMER_FIRED_EVENT /**< A clock was fired that triggered an event */
+} fire_timer_t;
 
 void initSynchronous(DATA* data, threadData_t *threadData, modelica_real startTime);
 void checkForSynchronous(DATA *data, SOLVER_INFO* solverInfo);
-void fireClock(DATA* data, threadData_t *threadData, long idx, double curTime);
-int handleTimers(DATA *data, threadData_t *threadData, SOLVER_INFO* solverInfo);
-
+modelica_boolean handleBaseClock(DATA* data, threadData_t *threadData, long idx, double curTime);
+fire_timer_t handleTimers(DATA* data, threadData_t *threadData, SOLVER_INFO* solverInfo);
+int handleTimersFMI(DATA* data, threadData_t *threadData, double currentTime, int *nextTimerDefined, double *nextTimerActivationTime);
 
 #ifdef __cplusplus
 }

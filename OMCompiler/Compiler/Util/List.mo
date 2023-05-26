@@ -100,7 +100,7 @@ import Array;
 import MetaModelica.Dangerous.{listReverseInPlace, arrayGetNoBoundsChecking, arrayUpdateNoBoundsChecking, arrayCreateNoInit};
 import MetaModelica.Dangerous;
 import DoubleEnded;
-import GC;
+import GCExt;
 
 public function create<T>
   "Creates a list from an element."
@@ -129,6 +129,21 @@ algorithm
     i := i + 1;
   end while;
 end fill;
+
+public function repeat<T>
+  "Returns a list of n replications of input lst.
+     Example: fill({2, 1}, 3) => {2, 1, 2, 1, 2, 1}"
+  input list<T> inElement;
+  input Integer inCount;
+  output list<T> outList = {};
+protected
+  Integer i = 0;
+algorithm
+  while i < inCount loop
+    outList := listAppend(inElement, outList);
+    i := i + 1;
+  end while;
+end repeat;
 
 public function intRange
   "Returns a list of n integers from 1 to inStop.
@@ -268,6 +283,44 @@ algorithm
     else false;
   end match;
 end isEqualOnTrue;
+
+public function compare<T1, T2>
+  "Returns -1 if list1 is shorter than list2 or 1 if list1 is longer than list2.
+   If both lists are of equal length it applies the given compare function to
+   each pair of list elements and returns the first nonzero value, or 0 if no
+   nonzero value is received."
+  input list<T1> list1;
+  input list<T2> list2;
+  input CompFunc compareFn;
+  output Integer res;
+
+  partial function CompFunc
+    input T1 e1;
+    input T2 e2;
+    output Integer res;
+  end CompFunc;
+protected
+  Integer l1, l2;
+  T2 e2;
+  list<T2> rest_e2;
+algorithm
+  l1 := listLength(list1);
+  l2 := listLength(list2);
+  res := if l1 == l2 then 0 elseif l1 > l2 then 1 else -1;
+  if res <> 0 then
+    return;
+  end if;
+
+  rest_e2 := list2;
+  for e1 in list1 loop
+    e2 :: rest_e2 := rest_e2;
+    res := compareFn(e1, e2);
+
+    if res <> 0 then
+      return;
+    end if;
+  end for;
+end compare;
 
 public function isPrefixOnTrue<T1, T2>
   "Checks if the first list is a prefix of the second list, i.e. that all
@@ -675,6 +728,21 @@ algorithm
  element := listGet(inList, index);
 end getIndexFirst;
 
+public function getAtIndexLst<T>
+  "zero based"
+  input list<T> lst;
+  input list<Integer> positions;
+  input Boolean zeroBased = false;
+  output list<T> olst = {};
+protected
+  array<T> arr = listArray(lst);
+  Integer shift = if zeroBased then 1 else 0;
+algorithm
+  for pos in listReverse(positions) loop
+    olst := arr[pos+shift] :: olst;
+  end for;
+end getAtIndexLst;
+
 public function firstN<T>
   "Returns the first N elements of a list, or fails if there are not enough
    elements in the list."
@@ -835,7 +903,7 @@ end sortedDuplicates;
 public function sortedListAllUnique<T>
   "The input is a sorted list. The functions checks if all elements are unique."
   input list<T> lst;
-  input CompareFunc compare;
+  input CompareFunc compareFn;
   output Boolean allUnique = false;
 
   partial function CompareFunc
@@ -854,7 +922,7 @@ algorithm
       case {_} then {};
       case e1::(rest as e2::_)
         algorithm
-          if compare(e1,e2) then
+          if compareFn(e1,e2) then
             return;
           end if;
         then rest;
@@ -1055,7 +1123,7 @@ algorithm
       outSorted := v :: outSorted;
     end for;
   end for;
-  GC.free(a1);
+  GCExt.free(a1);
 end countingSort;
 
 public function unique<T>
@@ -1073,7 +1141,7 @@ algorithm
 end unique;
 
 public function uniqueIntN
-  "Takes a list of integes and returns a list with duplicates removed, so that
+  "Takes a list of integers and returns a list with duplicates removed, so that
    each element in the new list is unique. O(listLength(inList))"
   input list<Integer> inList;
   input Integer inN;
@@ -1090,7 +1158,7 @@ algorithm
 
     arrayUpdate(arr, i, false);
   end for;
-  GC.free(arr);
+  GCExt.free(arr);
 end uniqueIntN;
 
 public function uniqueIntNArr
@@ -1669,7 +1737,7 @@ algorithm
     a := addPos(inList1, a, 1);
     a := addPos(inList2, a, 1);
     outResult := intersectionIntVec(a, inList1);
-    GC.free(a);
+    GCExt.free(a);
   else
     outResult := {};
   end if;
@@ -1789,7 +1857,7 @@ algorithm
         outDifference := i :: outDifference;
       end if;
     end for;
-    GC.free(a);
+    GCExt.free(a);
   end if;
 end setDifferenceIntN;
 
@@ -1857,7 +1925,7 @@ algorithm
         outUnion := i :: outUnion;
       end if;
     end for;
-    GC.free(a);
+    GCExt.free(a);
   end if;
 end unionIntN;
 
@@ -3257,7 +3325,7 @@ algorithm
 end mapBoolOr;
 
 public function mapBoolAnd<TI>
-  "Maps each element of a inList to Boolean type with inFunc. Stops mapping at first occurrence of true return value."
+  "Maps each element of a inList to Boolean type with inFunc. Stops mapping at first occurrence of false return value."
   input list<TI> inList;
   input MapFunc inFunc;
   output Boolean res = false;
@@ -3276,7 +3344,7 @@ algorithm
 end mapBoolAnd;
 
 public function mapMapBoolAnd<TI,TI2>
-  "Maps each element of a inList to Boolean type with inFunc. Stops mapping at first occurrence of true return value."
+  "Maps each element of a inList to Boolean type with inFunc. Stops mapping at first occurrence of false return value."
   input list<TI> inList;
   input MapFunc inFunc;
   input MapBFunc inBFunc;
@@ -4349,31 +4417,6 @@ algorithm
   outList := listReverseInPlace(outList);
 end map4Fold;
 
-public function mapFoldTuple<TI, TO, FT>
-  "Takes a list, an extra argument and a function. The function will be applied
-  to each element in the list, and the extra argument will be passed to the
-  function and updated. The input and outputs of the function are joined as
-  tuples."
-  input list<TI> inList;
-  input FuncType inFunc;
-  input FT inArg;
-  output list<TO> outList = {};
-  output FT outArg = inArg;
-
-  partial function FuncType
-    input tuple<TI, FT> inTuple;
-    output tuple<TO, FT> outTuple;
-  end FuncType;
-protected
-  TO res;
-algorithm
-  for e in inList loop
-    ((res, outArg)) := inFunc((e, outArg));
-    outList := res :: outList;
-  end for;
-  outList := listReverseInPlace(outList);
-end mapFoldTuple;
-
 public function mapFoldList<TI, TO, FT>
   "Takes a list of lists, an extra argument, and a function.  The function will
   be applied to each element in the list, and the extra argument will be passed
@@ -4431,49 +4474,6 @@ algorithm
   end for;
   outListList := listReverseInPlace(outListList);
 end map3FoldList;
-
-public function mapFoldListTuple<TI, TO, FT>
-  "Takes a list of lists, an extra argument and a function. The function will be
-  applied to each element in the list, and the extra argument will be passed to
-  the function and updated. The input and outputs of the function are joined as
-  tuples."
-  input list<list<TI>> inListList;
-  input FuncType inFunc;
-  input TO inFoldArg;
-  output list<list<TO>> outListList = {};
-  output TO outFoldArg = inFoldArg;
-
-  partial function FuncType
-    input tuple<TI, FT> inTuple;
-    output tuple<TO, FT> outTuple;
-  end FuncType;
-protected
-  list<TO> res;
-algorithm
-  for lst in inListList loop
-    (res, outFoldArg) := mapFoldTuple(lst, inFunc, outFoldArg);
-    outListList := res :: outListList;
-  end for;
-  outListList := listReverseInPlace(outListList);
-end mapFoldListTuple;
-
-public function foldcallN<FT>
-  "Takes a value and a function operating on the value n times.
-     Example: foldcallN(1, intAdd, 4) => 4"
-  input Integer n;
-  input FoldFunc inFoldFunc;
-  input FT inStartValue;
-  output FT outResult = inStartValue;
-
-  partial function FoldFunc
-    input FT inFoldArg;
-    output FT outFoldArg;
-  end FoldFunc;
-algorithm
-  for i in 1:n loop
-    outResult := inFoldFunc(outResult);
-  end for;
-end foldcallN;
 
 public function reduce<T>
   "Takes a list and a function operating on two elements of the list.
@@ -4581,52 +4581,30 @@ algorithm
   outList := listReverseInPlace(outList);
 end thread3;
 
-public function threadTuple<T1, T2>
-  "Takes two lists and threads (interleaves) the arguments into a list of tuples
+public function zip<T1, T2>
+  "Takes two lists and zips the arguments together into a list of tuples
    consisting of the two element types.
-     Example: threadTuple({1, 2, 3}, {true, false, true}) =>
+     Example: zip({1, 2, 3}, {true, false, true}) =>
               {(1, true), (2, false), (3, true)}"
   input list<T1> inList1;
   input list<T2> inList2;
   output list<tuple<T1, T2>> outTuples;
 algorithm
   outTuples := list((e1, e2) threaded for e1 in inList1, e2 in inList2);
-end threadTuple;
-
-public function zip<T1, T2>
-  "Takes two lists and returns a list of two-element tuples contaning the
-  elements in the same order. Fails if the lists are not of the same length.
-  Example: zip({1, 3}, {2, 4}) =>  {(1, 2), (3, 4)}"
-  input list<T1> inList1;
-  input list<T2> inList2;
-  output list<tuple<T1, T2>> outTuples = {};
-protected
-  list<T2> dummyList = inList2;
-  T2 t2;
-algorithm
-  if intEq(listLength(inList1),listLength(inList2)) then
-    for t1 in inList1 loop
-      t2::dummyList := dummyList;
-      outTuples := (t1, t2)::outTuples;
-    end for;
-  else fail();
-  end if;
-  outTuples := listReverse(outTuples);
 end zip;
 
-public function zip2<T1, T2>
-  "Takes a lists and a single elem and returns a list of two-element tuples contaning the
-  elements in the same order. Fails if the lists are not of the same length.
-  Example: zip2(1, {2, 4, -1}) =>  {(1, 2), (1, 4), (1, -1)}"
-  input T1 inElem;
-  input list<T2> inList2;
-  output list<tuple<T1, T2>> outTuples = {};
+public function zip3<T1, T2, T3>
+  "Takes three lists and zips the arguments together into a list of tuples
+   consisting of the three element types.
+     Example: zip3({1, 2, 3}, {true, false, true}, {4.0, 5.0, 6.0}) =>
+              {(1, true, 4.0), (2, false, 5.0), (3, true, 6.0)}"
+  input list<T1> l1;
+  input list<T2> l2;
+  input list<T3> l3;
+  output list<tuple<T1, T2, T3>> res;
 algorithm
-  for t2 in inList2 loop
-    outTuples := (inElem, t2)::outTuples;
-  end for;
-  outTuples := listReverse(outTuples);
-end zip2;
+  res := list((e1, e2, e3) threaded for e1 in l1, e2 in l2, e3 in l3);
+end zip3;
 
 public function unzip<T1, T2>
   "Takes a list of two-element tuples and splits the tuples into two separate
@@ -4646,6 +4624,25 @@ algorithm
   outList1 := listReverseInPlace(outList1);
   outList2 := listReverseInPlace(outList2);
 end unzip;
+
+public function unzip3<T1, T2, T3>
+  "Takes a list of three-element tuples and splits them into separate lists."
+  input list<tuple<T1, T2, T3>> tuples;
+  output list<T1> l1 = {};
+  output list<T2> l2 = {};
+  output list<T3> l3 = {};
+protected
+  T1 e1;
+  T2 e2;
+  T3 e3;
+algorithm
+  for t in listReverse(tuples) loop
+    (e1, e2, e3) := t;
+    l1 := e1 :: l1;
+    l2 := e2 :: l2;
+    l3 := e3 :: l3;
+  end for;
+end unzip3;
 
 public function unzipReverse<T1, T2>
   "Like unzip, but returns the lists in reverse order."
@@ -4692,44 +4689,6 @@ algorithm
   end for;
   outList := listReverseInPlace(outList);
 end unzipSecond;
-
-public function thread3Tuple<T1, T2, T3>
-  "Takes three lists and threads (interleaves) the arguments into a list of tuples
-   consisting of the three element types."
-  input list<T1> inList1;
-  input list<T2> inList2;
-  input list<T3> inList3;
-  output list<tuple<T1, T2, T3>> outTuples;
-algorithm
-  outTuples := list((e1, e2, e3) threaded for e1 in inList1, e2 in inList2, e3 in inList3);
-end thread3Tuple;
-
-public function thread4Tuple<T1, T2, T3, T4>
-  "Takes three lists and threads (interleaves) the arguments into a list of tuples
-   consisting of the four element types."
-  input list<T1> inList1;
-  input list<T2> inList2;
-  input list<T3> inList3;
-  input list<T4> inList4;
-  output list<tuple<T1, T2, T3, T4>> outTuples;
-algorithm
-  outTuples := list((e1, e2, e3, e4) threaded for e1 in inList1, e2 in inList2,
-      e3 in inList3, e4 in inList4);
-end thread4Tuple;
-
-public function thread5Tuple<T1, T2, T3, T4, T5>
-  "Takes three lists and threads (interleaves) the arguments into a list of tuples
-   consisting of the five element types."
-  input list<T1> inList1;
-  input list<T2> inList2;
-  input list<T3> inList3;
-  input list<T4> inList4;
-  input list<T5> inList5;
-  output list<tuple<T1, T2, T3, T4, T5>> outTuples;
-algorithm
-  outTuples := list((e1, e2, e3, e4, e5) threaded for e1 in inList1, e2 in inList2,
-      e3 in inList3, e4 in inList4, e5 in inList5);
-end thread5Tuple;
 
 public function threadMap<T1, T2, TO>
   "Takes two lists and a function and threads (interleaves) and maps the
@@ -4848,18 +4807,6 @@ algorithm
   outList1 := listReverseInPlace(outList1);
   outList2 := listReverseInPlace(outList2);
 end threadMapList_2;
-
-public function threadTupleList<T1, T2>
-  "Takes two lists of lists as arguments and produces a list of lists of a two
-  tuple of the element types of each list.
-  Example: threadTupleList({{1}, {2, 3}}, {{'a'}, {'b', 'c'}}) =>
-             {{(1, 'a')}, {(2, 'b'), (3, 'c')}}"
-  input list<list<T1>> inList1;
-  input list<list<T2>> inList2;
-  output list<list<tuple<T1, T2>>> outList;
-algorithm
-  outList := list(threadTuple(lst1, lst2) threaded for lst1 in inList1, lst2 in inList2);
-end threadTupleList;
 
 public function threadMapAllValue<T1, T2, TO, VT>
   "Takes two lists and a function and threads (interleaves) and maps the
@@ -6149,6 +6096,26 @@ algorithm
   outList := list(e for e guard(not inCompFunc(inValue, e)) in inList);
 end removeOnTrue;
 
+public function filterCons<T>
+  "Adds the elements from inList for which the filter function returns true to
+   accumList in reverse order. Ex:
+     filterCons({1, 2, 3, 4, 5}, isOdd, {6, 7}) => {5, 3, 1, 6, 7}"
+  input list<T> inList;
+  input FilterFunc fn;
+  input output list<T> accumList;
+
+  partial function FilterFunc
+    input T e;
+    output Boolean res;
+  end FilterFunc;
+algorithm
+  for e in inList loop
+    if fn(e) then
+      accumList := e :: accumList;
+    end if;
+  end for;
+end filterCons;
+
 public function select = filterOnTrue;
 public function select1 = filter1OnTrue;
 public function select1r = filter1rOnTrue;
@@ -6174,6 +6141,28 @@ algorithm
   end for;
   fail();
 end find;
+
+public function findOption<T>
+  "Returns the first element of a list for which the predicate function return
+   true as an Option, or NONE() if no element is found."
+  input list<T> lst;
+  input Predicate fn;
+  output Option<T> result;
+
+  partial function Predicate
+    input T e;
+    output Boolean matching;
+  end Predicate;
+algorithm
+  for e in lst loop
+    if fn(e) then
+      result := SOME(e);
+      return;
+    end if;
+  end for;
+
+  result := NONE();
+end findOption;
 
 public function find1<T, ArgT1>
   "This function retrieves the first element of a list for which the passed
@@ -6400,6 +6389,45 @@ algorithm
   outList := append_reverse(outList, rest);
 end deletePositionsSorted;
 
+public function keepPositions<T>
+  "Takes a list and a list of positions, and deletes all other elements from the
+   list. Note that positions are indexed from 0.
+     Example: keepPositions({1, 2, 3, 4, 5}, {2, 0, 3}) => {1, 3, 4}"
+  input list<T> inList;
+  input list<Integer> inPositions;
+  output list<T> outList;
+protected
+  list<Integer> sorted_pos;
+algorithm
+  sorted_pos := sortedUnique(sort(inPositions, intGt), intEq);
+  outList := keepPositionsSorted(inList, sorted_pos);
+end keepPositions;
+
+public function keepPositionsSorted<T>
+  "Takes a list and a sorted list of positions (smallest index first), and
+   deletes all other positions from the list. Note that positions are indexed from 0.
+     Example: deletePositionsSorted({1, 2, 3, 4, 5}, {0, 2, 3}) => {1, 3, 4}"
+  input list<T> inList;
+  input list<Integer> inPositions;
+  output list<T> outList = {};
+protected
+  Integer i = 0;
+  T e;
+  list<T> rest = inList;
+algorithm
+  for pos in inPositions loop
+    while i <> pos loop
+      _ :: rest := rest;
+      i := i + 1;
+    end while;
+
+    e :: rest := rest;
+    outList := e :: outList;
+    i := i + 1;
+  end for;
+  outList := listReverse(outList);
+end keepPositionsSorted;
+
 public function removeMatchesFirst
   "Removes all matching integers that occur first in a list. If the first
    element doesn't match it returns the list."
@@ -6561,26 +6589,35 @@ public function toString<T>
   "
   input list<T> inList;
   input FuncType inPrintFunc;
-  input String inListNameStr "The name of the list.";
-  input String inBeginStr "The start of the list";
-  input String inDelimitStr "The delimiter between list elements.";
-  input String inEndStr "The end of the list.";
-  input Boolean inPrintEmpty "If false, don't output begin and end if the list is empty.";
+  input String inListNameStr  = ""      "The name of the list.";
+  input String inBeginStr     = "{"     "The start of the list";
+  input String inDelimitStr   = ", "    "The delimiter between list elements.";
+  input String inEndStr       = "}"     "The end of the list.";
+  input Boolean inPrintEmpty  = true    "If false, don't output begin and end if the list is empty.";
+  input Integer maxLength = 0           "If > 0, only the first maxLength elements are printed";
   output String outString;
 
   partial function FuncType
     input T inElement;
     output String outString;
   end FuncType;
+protected
+  list<T> lst = inList;
+  String endStr = inEndStr;
 algorithm
-  outString := match(inList, inPrintEmpty)
+  if maxLength > 0 and listLength(lst) > maxLength then
+    lst := List.firstN(lst, maxLength);
+    endStr := ", ..." + endStr;
+  end if;
+
+  outString := match(lst, inPrintEmpty)
     local
       String str;
 
     // Empty list and inPrintEmpty true => concatenate the list name, begin
     // string and end string.
     case ({}, true)
-      then stringAppendList({inListNameStr, inBeginStr, inEndStr});
+      then stringAppendList({inListNameStr, inBeginStr, endStr});
 
     // Empty list and inPrintEmpty false => output only list name.
     case ({}, false)
@@ -6588,8 +6625,8 @@ algorithm
 
     else
       equation
-        str = stringDelimitList(map(inList, inPrintFunc), inDelimitStr);
-        str = stringAppendList({inListNameStr, inBeginStr, str, inEndStr});
+        str = stringDelimitList(map(lst, inPrintFunc), inDelimitStr);
+        str = stringAppendList({inListNameStr, inBeginStr, str, endStr});
       then
         str;
 
@@ -6824,16 +6861,6 @@ algorithm
   end for;
   outList := listReverse(outList);
 end accumulateMapFoldAccum;
-
-public function first2FromTuple3<T>
-  input tuple<T, T, T> inTuple;
-  output list<T> outList;
-protected
-  T a, b;
-algorithm
-  (a, b, _) := inTuple;
-  outList := {a, b};
-end first2FromTuple3;
 
 public function findMap<T>
   "Same as map, but stops when it find a certain element as indicated by the
@@ -7337,6 +7364,50 @@ algorithm
   outResult := true;
 end all;
 
+public function none<T>
+  "Returns true if the given predicate function returns false for all elements in
+   the given list."
+  input list<T> inList;
+  input PredFunc inFunc;
+  output Boolean outResult;
+
+  partial function PredFunc
+    input T inElement;
+    output Boolean outMatch;
+  end PredFunc;
+algorithm
+  for e in inList loop
+    if inFunc(e) then
+      outResult := false;
+      return;
+    end if;
+  end for;
+
+  outResult := true;
+end none;
+
+public function any<T>
+  "Returns true if the given predicate function returns true for any element in
+   the given list."
+  input list<T> inList;
+  input PredFunc inFunc;
+  output Boolean outResult;
+
+  partial function PredFunc
+    input T inElement;
+    output Boolean outMatch;
+  end PredFunc;
+algorithm
+  for e in inList loop
+    if inFunc(e) then
+      outResult := true;
+      return;
+    end if;
+  end for;
+
+  outResult := false;
+end any;
+
 public function separateOnTrue<T>
   "Takes a list of values and a filter function over the values and returns 2
    sub lists of values for which the matching function returns true and false."
@@ -7569,24 +7640,85 @@ algorithm
   end match;
 end allCombinations4;
 
- public function contains<T>
-    input list<T> lst;
-    input T elem;
-    input equalityFunc eqFunc;
-    partial function equalityFunc
-      input T t1;
-      input T t2;
-      output Boolean res;
-    end equalityFunc;
-    output Boolean res = false;
-  algorithm
-    for i in lst loop
-      if eqFunc(i, elem) then
-        res := true;
-        return;
-      end if;
-    end for;
+
+public function contains<T>
+  input list<T> lst;
+  input T elem;
+  input equalityFunc eqFunc;
+  partial function equalityFunc
+    input T t1;
+    input T t2;
+    output Boolean res;
+  end equalityFunc;
+  output Boolean res = false;
+algorithm
+  for i in lst loop
+    if eqFunc(i, elem) then
+      res := true;
+      return;
+    end if;
+  end for;
 end contains;
+
+function minElement<T>
+  "Returns the smallest element in the list, or fails if the list is empty."
+  input list<T> inList;
+  input LessFn lessFn;
+  output T res;
+
+  partial function LessFn
+    "Returns true if e1 < e2, otherwise false."
+    input T e1;
+    input T e2;
+    output Boolean res;
+  end LessFn;
+algorithm
+  res := listHead(inList);
+
+  for e in listRest(inList) loop
+    if lessFn(e, res) then
+      res := e;
+    end if;
+  end for;
+end minElement;
+
+function maxElement<T>
+  "Returns the largest element in the list, or fails if the list is empty."
+  input list<T> inList;
+  input LessFn lessFn;
+  output T res;
+
+  partial function LessFn
+    "Returns true if e1 < e2, otherwise false."
+    input T e1;
+    input T e2;
+    output Boolean res;
+  end LessFn;
+algorithm
+  res := listHead(inList);
+
+  for e in listRest(inList) loop
+    if lessFn(res, e) then
+      res := e;
+    end if;
+  end for;
+end maxElement;
+
+function trim<T>
+  "Removes elements from the head of the list while the given function returns
+   true for the first element, or until the list is empty."
+  input output list<T> l;
+  input PredFn fn;
+
+  partial function PredFn
+    input T e;
+    output Boolean res;
+  end PredFn;
+algorithm
+  while not listEmpty(l) and fn(listHead(l)) loop
+    l := listRest(l);
+  end while;
+end trim;
 
 annotation(__OpenModelica_Interface="util");
 end List;

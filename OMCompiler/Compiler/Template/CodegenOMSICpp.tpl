@@ -49,7 +49,7 @@ package CodegenOMSICpp
 import interface SimCodeTV;
 import interface SimCodeBackendTV;
 import CodegenUtil.*;
-import CodegenCpp.*; 
+import CodegenCppOMSI.*;
 
 //import CodegenCppCommon.*;
 //import CodegenOMSI_common.*;
@@ -62,7 +62,8 @@ case SIMCODE(modelInfo=modelInfo as MODELINFO(__)) then
 
   let &extraFuncs = buffer "" /*BUFD*/
   let &extraFuncsDecl = buffer "" /*BUFD*/
-  let()= textFile(simulationOMSUCPPMainRunScript(simCode , &extraFuncs , &extraFuncsDecl, "", "", "", "exec"), '<%fileNamePrefix%><%simulationMainRunScriptSuffix(simCode , &extraFuncs , &extraFuncsDecl, "")%>')
+
+  let()= textFile(simulationOMSUCPPMainRunScript(simCode , &extraFuncs , &extraFuncsDecl, "", "", "", "exec"), '<%dotPath(modelInfo.name)%><%simulationMainRunScriptSuffix(simCode , &extraFuncs , &extraFuncsDecl, "")%>')
 
  ""
 end translateModel;
@@ -92,23 +93,23 @@ template simulationOMSUCPPMainRunScript(SimCode simCode ,Text& extraFuncs,Text& 
     let libFolder =simulationLibDir(simulationCodeTarget(),simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace)
     let binFolder =simulationBinDir(simulationCodeTarget(),simCode )
     let libPaths = makefileParams.libPaths |> path => path; separator=";"
-
+    let zermMQParams = if getConfigBool(USE_ZEROMQ_IN_SIM) then '-u true -p <%getConfigInt(ZEROMQ_PUB_PORT)%> -s <%getConfigInt(ZEROMQ_SUB_PORT)%> -v <%getConfigString(ZEROMQ_SERVER_ID)%> -c <%getConfigString(ZEROMQ_CLIENT_ID)%> -g <%getConfigString(ZEROMQ_JOB_ID)%>' else ''
     match makefileParams.platform
       case  "linux32"
       case  "linux64" then
         <<
         #!/bin/sh
         <%preRunCommandLinux%>
-        <%execCommandLinux%> <%binFolder%>/OMCppOSUSimulation <%execParameters%>  <%outputParameter%> $*
+        <%execCommandLinux%> <%binFolder%>/OMCppOSUSimulation <%execParameters%> <%zermMQParams%> <%outputParameter%> $*
         >>
       case  "win32"
       case  "win64" then
         <<
         @echo off
-        <%preRunCommandWindows%>
-        REM ::export PATH=<%libFolder%>:$PATH REPLACE C: with /C/
         SET PATH=<%binFolder%>;<%libFolder%>;<%libPaths%>;%PATH%
-        OMCppOSUSimulation.exe <%execParameters%> <%outputParameter%>
+        REM ::export PATH=<%libFolder%>:$PATH REPLACE C: with /C/
+        <%preRunCommandWindows%>
+        OMCppOSUSimulation.exe <%execParameters%> <%zermMQParams%> <%outputParameter%>
         >>
     end match
   end match

@@ -1,5 +1,6 @@
 // name: BatchReactorCon4
 // status: correct
+// cflags: -d=-newInst
 
 setCommandLineOptions("+g=Optimica");
 getErrorString();
@@ -14,10 +15,10 @@ optimization nmpcBatchReactorCon4(objectiveIntegrand = -x2)
   Real c2 = 1+ exp(time);
   Real c3 = 2+ exp(time);
 
-  Real cc1(min = 0) = u - c1; 
-  Real cc2(min = 0) = u - c2; 
-  Real cc3(max = 0) = u - c3; 
-  Real cc4(max = 0) = u - 5*(1+time); 
+  Real cc1(min = 0) = u - c1;
+  Real cc2(min = 0) = u - c2;
+  Real cc3(max = 0) = u - c3;
+  Real cc4(max = 0) = u - 5*(1+time);
 constraint
   cc1;
   cc2;
@@ -43,9 +44,8 @@ getErrorString();
 // record SimulationResult
 //     resultFile = "nmpcBatchReactorCon4_res.mat",
 //     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 20, tolerance = 1e-08, method = 'optimization', fileNamePrefix = 'nmpcBatchReactorCon4', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = ''",
-//     messages = "assert            | warning | The following assertion has been violated at time 0.000000
-// |                 | |       | $con$cc2 >= 0.0
-// assert            | warning | Variable violating min constraint: 0.0 <= $con$cc2, has value: -1
+//     messages = "LOG_ASSERT        | warning | The following assertion has been violated at time 0.000000
+// |                 | |       | (($con$cc2 >= 0.0)) --> \"Variable violating min constraint: 0.0 <= $con$cc2, has value: -1\"
 // LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
 //
 // Optimizer Variables
@@ -60,7 +60,7 @@ getErrorString();
 // ******************************************************************************
 // This program contains Ipopt, a library for large-scale nonlinear optimization.
 //  Ipopt is released as open source code under the Eclipse Public License (EPL).
-//          For more information visit http://projects.coin-or.org/Ipopt
+//          For more information visit https://github.com/coin-or/Ipopt
 // ******************************************************************************
 //
 // LOG_SUCCESS       | info    | The simulation finished successfully.

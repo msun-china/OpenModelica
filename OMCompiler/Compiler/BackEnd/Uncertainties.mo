@@ -384,7 +384,7 @@ algorithm
         indirectlyLinked = List.setDifference(getRelatedVariables(mExt,directlyLinked),knowns);
         unknowns = listAppend(directlyLinked,indirectlyLinked);
         outputvars = List.setDifference(List.intRange(BackendVariable.varsSize(allVars)),listAppend(unknowns,knowns));
-        unknowns = listAppend(unknowns,outputvars);
+        unknowns = listAppend(unknowns,outputvars) annotation(__OpenModelica_DisableListAppendWarning=true);
         fullvars =listAppend(unknowns,knowns);
         initblocks=setInitialBlocks(bltblocks);
         constantvars=getConstantVariables(mExt);
@@ -492,7 +492,7 @@ algorithm
         (simcodejacobian,shared)=SymbolicJacobian.getSymbolicJacobian(outDiffVars,outResidualEqns,outResidualVars,outOtherEqns,outOtherVars,shared,BackendVariable.listVar(List.map1r(extractedvars,BackendVariable.getVarAt,allVars)),"F",false);
         // put the jacobian also into shared object
         setcVars=BackendVariable.listVar(List.map1r(getRemovedEquationSolvedVariables(tempsetC,var),BackendVariable.getVarAt,allVars));
-        shared.dataReconciliationData = SOME(BackendDAE.DATA_RECON(symbolicJacobian=simcodejacobian,setcVars=outResidualVars,datareconinputs=outDiffVars));
+        shared.dataReconciliationData = SOME(BackendDAE.DATA_RECON(symbolicJacobian=simcodejacobian,setcVars=outResidualVars,datareconinputs=outDiffVars,setBVars=NONE(), symbolicJacobianH=NONE(), relatedBoundaryConditions=0));
         //BackendDump.dumpVariables(setcVars,"SET_C_SOLVEDVARS");
 
         // Prepare the final DAE System with Set-c equations as residual equations
@@ -855,19 +855,19 @@ algorithm
      if(not listEmpty(c1)) then
          //print("\n constant leaf found:=>" + anyString(c1));
         (tempsolvedeqs,_)=BuildSquareSubSetHelper1(c1,tmpsolveeqvar,tempsolvedeqs);
-        tempsolvedvars=listAppend(tempsolvedvars,c1);
+        tempsolvedvars=listAppend(tempsolvedvars,c1) annotation(__OpenModelica_DisableListAppendWarning=true);
         //found=true;
         //print("\n Final subset Equations:" + anyString(tempsolvedeqs));
      end if;
      if(not listEmpty(t1)) then
          //print("\n known leaf found:=>" + anyString(t1));
         (tempsolvedeqs,_)=BuildSquareSubSetHelper1(t1,tmpsolveeqvar,tempsolvedeqs);
-        tempsolvedvars=listAppend(tempsolvedvars,t1);
+        tempsolvedvars=listAppend(tempsolvedvars,t1) annotation(__OpenModelica_DisableListAppendWarning=true);
         //found=true;
          //print("\n Final subset Equations:" + anyString(tempsolvedeqs));
      end if;
      if(found==false) then
-         tempsolvedvars=listAppend(tempsolvedvars,t2);
+         tempsolvedvars=listAppend(tempsolvedvars,t2) annotation(__OpenModelica_DisableListAppendWarning=true);
          //print("\n false loop" + anyString(tempsolvedvars) +" "+ anyString(t2));
          (tempsolvedeqs,tempeqs)=BuildSquareSubSetHelper1(t2,solvedeqvar,tempsolvedeqs);
          //print("\n false loop-1" + anyString(tempsolvedeqs) +" "+ anyString(tempeqs));
@@ -927,8 +927,8 @@ algorithm
       //(t1,t2,t3):=List.intersection1OnTrue(allvars,invars,intEq);
        (t1,t2,t3):=List.intersection1OnTrue(allvars,{varnumber},intEq);
        (tmpvars,tmpeqs):=BuildSquareSubSetHelper(allvars,knowns,mExt,solvedeqvar,{varnumber},{i},constantvars);
-       solvedvars:=listAppend(solvedvars,tmpvars);
-       solvedeqs:=listAppend(solvedeqs,tmpeqs);
+       solvedvars:=listAppend(solvedvars,tmpvars) annotation(__OpenModelica_DisableListAppendWarning=true);
+       solvedeqs:=listAppend(solvedeqs,tmpeqs) annotation(__OpenModelica_DisableListAppendWarning=true);
        dependency_variables_tree:=(varnumber,List.unique(tmpvars))::dependency_variables_tree;
        tmpeqs:=List.setDifferenceOnTrue(tmpeqs,approximatedEquations,intEq);
        dependency_equation_tree:=(i,List.unique(tmpeqs))::dependency_equation_tree;
@@ -1484,8 +1484,8 @@ algorithm
       (blockitems1,_):=j;
       (blockvarlst1,_):=listGet(tmptargetblocksvar,count);
       (tmpsetc,tmpsets):=extractMixedBlock(blockitems1,blockvarlst1);
-      setc:=listAppend(setc,tmpsetc);
-      sets:=listAppend(sets,tmpsets);
+      setc:=listAppend(setc,tmpsetc) annotation(__OpenModelica_DisableListAppendWarning=true);
+      sets:=listAppend(sets,tmpsets) annotation(__OpenModelica_DisableListAppendWarning=true);
       count:=count+1;
     end for;
   end for;
@@ -1564,7 +1564,7 @@ algorithm
             (tmplist1,tmplist2,tmplist3):=List.intersection1OnTrue(setc1,approximatedEquation,intEq);
             setc1:=listAppend(tmplist1,tmplist2);
             setc:=listAppend(List.restOrEmpty(setc1),setc);
-            sets:=listAppend(sets,sets1);
+            sets:=listAppend(sets,sets1) annotation(__OpenModelica_DisableListAppendWarning=true);
             removedeq:=listAppend(List.firstOrEmpty(setc1),removedeq);
          end if;
       elseif (blockexist==true and squarestatus==false) then
@@ -1573,8 +1573,8 @@ algorithm
           insert equations into setc and sets
         */
          (setc1,sets1):=extractMixedBlock(blockitem,blockvarlist);
-         sets:=listAppend(sets,sets1);
-         setc:=listAppend(setc,setc1);
+         sets:=listAppend(sets,sets1) annotation(__OpenModelica_DisableListAppendWarning=true);
+         setc:=listAppend(setc,setc1) annotation(__OpenModelica_DisableListAppendWarning=true);
       else
         /*
           NON EXISTING BLOCKS,Blocks to be removed
@@ -2911,7 +2911,7 @@ varsOut:=matchcontinue(m,vars)
   case(((_,eqvars))::t,_)
     equation
       true = containsAny(eqvars,vars);
-      eqvars = listAppend(eqvars,getRelatedVariables(t,vars));
+      eqvars = listAppend(eqvars,getRelatedVariables(t,vars)) annotation(__OpenModelica_DisableListAppendWarning=true);
       eqvars = List.setDifference(setOfList(eqvars),vars);
     then eqvars;
   case(((_,eqvars))::t,_)
@@ -3673,26 +3673,11 @@ public function setVarCref "author: PA
   Sets the ComponentRef of a variable."
   input BackendDAE.Var inVar;
   input DAE.ComponentRef cr;
-  output BackendDAE.Var outVar;
-protected
-  DAE.ComponentRef name;
-  BackendDAE.VarKind kind;
-  DAE.VarDirection dir;
-  DAE.VarParallelism prl;
-  DAE.Type tp;
-  Option<DAE.Exp> bind;
-  Option<DAE.Exp> tplExp;
-  DAE.InstDims ad;
-  DAE.ElementSource source;
-  Option<DAE.VariableAttributes> attr;
-  Option<BackendDAE.TearingSelect> ts;
-  DAE.Exp hideResult;
-  Option<SCode.Comment> cmt;
-  DAE.ConnectorType ct;
-  DAE.VarInnerOuter io;
+  output BackendDAE.Var outVar = inVar;
 algorithm
-  BackendDAE.VAR(name,kind,dir,prl,tp,bind,tplExp,ad,source,attr,ts,hideResult,cmt,ct,io,_) := inVar;
-  outVar := BackendDAE.VAR(cr,kind,dir,prl,tp,bind,tplExp,ad,source,attr,ts,hideResult,cmt,ct,io,false);
+  outVar.varName := cr;
+  // kabdelhak: mimicked from old behaviour, not shure why it is done
+  outVar.unreplaceable := false;
 end setVarCref;
 
 public function setVarBindingOpt "author: PA
@@ -3712,13 +3697,13 @@ protected
   DAE.ElementSource source;
   Option<DAE.VariableAttributes> attr;
   Option<BackendDAE.TearingSelect> ts;
-  DAE.Exp hideResult;
+  Option<DAE.Exp> hideResult;
   Option<SCode.Comment> cmt;
   DAE.ConnectorType ct;
   DAE.VarInnerOuter innerOuter;
 algorithm
   BackendDAE.VAR(name,kind,dir,prl,tp,bind,tplExp,ad,source,attr,ts,hideResult,cmt,ct,innerOuter,_) := inVar;
-  outVar := BackendDAE.VAR(name,kind,dir,prl,tp,bindExp,tplExp,ad,source,attr,ts,hideResult,cmt,ct,innerOuter,false);
+  outVar := BackendDAE.VAR(name,kind,dir,prl,tp,bindExp,tplExp,ad,source,attr,ts,hideResult,cmt,ct,innerOuter,false,false);
 end setVarBindingOpt;
 
 public function moveVariables "

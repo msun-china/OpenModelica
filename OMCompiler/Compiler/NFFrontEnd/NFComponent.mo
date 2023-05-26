@@ -29,11 +29,10 @@
  *
  */
 
-encapsulated package NFComponent
+encapsulated uniontype NFComponent
 
-import DAE;
-import NFBinding.Binding;
-import NFClass.Class;
+import Binding = NFBinding;
+import Class = NFClass;
 import NFClassTree.ClassTree;
 import Dimension = NFDimension;
 import NFInstNode.InstNode;
@@ -43,155 +42,40 @@ import SCode;
 import Type = NFType;
 import Expression = NFExpression;
 import NFPrefixes.*;
+import Attributes = NFAttributes;
 
 protected
-import List;
 import Prefixes = NFPrefixes;
 import SCodeUtil;
 import Restriction = NFRestriction;
+import Component = NFComponent;
+import IOStream;
+import NFFunction.Function;
 
 public
-constant Component.Attributes DEFAULT_ATTR =
-  Component.Attributes.ATTRIBUTES(
-    ConnectorType.NON_CONNECTOR,
-    Parallelism.NON_PARALLEL,
-    Variability.CONTINUOUS,
-    Direction.NONE,
-    InnerOuter.NOT_INNER_OUTER,
-    false,
-    false,
-    Replaceable.NOT_REPLACEABLE()
+  type ComponentState = enumeration(
+    PartiallyInstantiated "Component instance has been created",
+    FullyInstantiated     "All component expressions have been instantiated",
+    Typed                 "The component's type has been determined",
+    TypeChecked           "The component's binding has been typed and type checked"
   );
-constant Component.Attributes INPUT_ATTR =
-  Component.Attributes.ATTRIBUTES(
-    ConnectorType.NON_CONNECTOR,
-    Parallelism.NON_PARALLEL,
-    Variability.CONTINUOUS,
-    Direction.INPUT,
-    InnerOuter.NOT_INNER_OUTER,
-    false,
-    false,
-    Replaceable.NOT_REPLACEABLE()
-  );
-
-constant Component.Attributes OUTPUT_ATTR =
-  Component.Attributes.ATTRIBUTES(
-    ConnectorType.NON_CONNECTOR,
-    Parallelism.NON_PARALLEL,
-    Variability.CONTINUOUS,
-    Direction.OUTPUT,
-    InnerOuter.NOT_INNER_OUTER,
-    false,
-    false,
-    Replaceable.NOT_REPLACEABLE()
-  );
-
-constant Component.Attributes CONSTANT_ATTR =
-  Component.Attributes.ATTRIBUTES(
-    ConnectorType.NON_CONNECTOR,
-    Parallelism.NON_PARALLEL,
-    Variability.CONSTANT,
-    Direction.NONE,
-    InnerOuter.NOT_INNER_OUTER,
-    false,
-    false,
-    Replaceable.NOT_REPLACEABLE()
-  );
-
-constant Component.Attributes IMPL_DISCRETE_ATTR =
-  Component.Attributes.ATTRIBUTES(
-    ConnectorType.NON_CONNECTOR,
-    Parallelism.NON_PARALLEL,
-    Variability.IMPLICITLY_DISCRETE,
-    Direction.NONE,
-    InnerOuter.NOT_INNER_OUTER,
-    false,
-    false,
-    Replaceable.NOT_REPLACEABLE()
-  );
-
-uniontype Component
-  uniontype Attributes
-    import SCode;
-
-    record ATTRIBUTES
-      // adrpo: keep the order in DAE.ATTR
-      ConnectorType.Type connectorType;
-      Parallelism parallelism;
-      Variability variability;
-      Direction direction;
-      InnerOuter innerOuter;
-      Boolean isFinal;
-      Boolean isRedeclare;
-      Replaceable isReplaceable;
-    end ATTRIBUTES;
-
-    function toDAE
-      input Attributes ina;
-      input Visibility vis;
-      output DAE.Attributes outa;
-    algorithm
-      outa := DAE.ATTR(
-        ConnectorType.toDAE(ina.connectorType),
-        parallelismToSCode(ina.parallelism),
-        variabilityToSCode(ina.variability),
-        directionToAbsyn(ina.direction),
-        innerOuterToAbsyn(ina.innerOuter),
-        visibilityToSCode(vis)
-      );
-    end toDAE;
-
-    function toString
-      input Attributes attr;
-      input Type ty;
-      output String str;
-    algorithm
-      str := (if attr.isRedeclare then "redeclare " else "") +
-             (if attr.isFinal then "final " else "") +
-             Prefixes.unparseInnerOuter(attr.innerOuter) +
-             Prefixes.unparseReplaceable(attr.isReplaceable) +
-             Prefixes.unparseParallelism(attr.parallelism) +
-             ConnectorType.unparse(attr.connectorType) +
-             Prefixes.unparseVariability(attr.variability, ty) +
-             Prefixes.unparseDirection(attr.direction);
-    end toString;
-
-    function toFlatString
-      input Attributes attr;
-      input Type ty;
-      output String str;
-    algorithm
-      str := Prefixes.unparseVariability(attr.variability, ty) +
-             Prefixes.unparseDirection(attr.direction);
-    end toFlatString;
-  end Attributes;
 
   record COMPONENT_DEF
     SCode.Element definition;
     Modifier modifier;
   end COMPONENT_DEF;
 
-  record UNTYPED_COMPONENT
-    InstNode classInst;
-    array<Dimension> dimensions;
-    Binding binding;
-    Binding condition;
-    Component.Attributes attributes;
-    Option<SCode.Comment> comment;
-    Boolean instantiated;
-    SourceInfo info;
-  end UNTYPED_COMPONENT;
-
-  record TYPED_COMPONENT
+  record COMPONENT
     InstNode classInst;
     Type ty;
     Binding binding;
     Binding condition;
-    Component.Attributes attributes;
+    Attributes attributes;
     Option<Modifier> ann "the annotation from SCode.Comment as a modifier";
     Option<SCode.Comment> comment;
+    ComponentState state;
     SourceInfo info;
-  end TYPED_COMPONENT;
+  end COMPONENT;
 
   record ITERATOR
     Type ty;
@@ -201,6 +85,7 @@ uniontype Component
 
   record ENUM_LITERAL
     Expression literal;
+    SCode.Comment comment;
   end ENUM_LITERAL;
 
   record TYPE_ATTRIBUTE
@@ -212,6 +97,8 @@ uniontype Component
     Component component;
   end DELETED_COMPONENT;
 
+  record WILD "needed for new crefs in the backend" end WILD;
+
   function new
     input SCode.Element definition;
     output Component component;
@@ -222,11 +109,20 @@ uniontype Component
   function newEnum
     input Type enumType;
     input String literalName;
+    input SCode.Comment comment;
     input Integer literalIndex;
     output Component component;
   algorithm
-    component := ENUM_LITERAL(Expression.ENUM_LITERAL(enumType, literalName, literalIndex));
+    component := ENUM_LITERAL(Expression.ENUM_LITERAL(enumType, literalName, literalIndex), comment);
   end newEnum;
+
+  function newIterator
+    input Type iterType;
+    input SourceInfo info;
+    output Component component;
+  algorithm
+    component := ITERATOR(iterType, Variability.IMPLICITLY_DISCRETE, info);
+  end newIterator;
 
   function definition
     input Component component;
@@ -253,11 +149,9 @@ uniontype Component
   algorithm
     info := match component
       case COMPONENT_DEF() then SCodeUtil.elementInfo(component.definition);
-      case UNTYPED_COMPONENT() then component.info;
-      case TYPED_COMPONENT() then component.info;
+      case COMPONENT() then component.info;
       case ITERATOR() then component.info;
       case TYPE_ATTRIBUTE() then Modifier.info(component.modifier);
-      case DELETED_COMPONENT() then info(component.component);
       // Fail for enumeration literals, InstNode.info handles that case instead.
     end match;
   end info;
@@ -267,8 +161,10 @@ uniontype Component
     output InstNode classInst;
   algorithm
     classInst := match component
-      case UNTYPED_COMPONENT() then component.classInst;
-      case TYPED_COMPONENT() then component.classInst;
+      case COMPONENT()    then component.classInst;
+      case ITERATOR(ty = Type.COMPLEX(cls = classInst)) then classInst;
+      case ITERATOR()           then InstNode.ITERATOR_NODE(Expression.EMPTY(component.ty));
+      else InstNode.EMPTY_NODE();
     end match;
   end classInstance;
 
@@ -277,13 +173,7 @@ uniontype Component
     input output Component component;
   algorithm
     () := match component
-      case UNTYPED_COMPONENT()
-        algorithm
-          component.classInst := classInst;
-        then
-          ();
-
-      case TYPED_COMPONENT()
+      case COMPONENT()
         algorithm
           component.classInst := classInst;
         then
@@ -342,11 +232,10 @@ uniontype Component
     output Type ty;
   algorithm
     ty := match component
-      case TYPED_COMPONENT() then component.ty;
-      case UNTYPED_COMPONENT() then InstNode.getType(component.classInst);
+      case COMPONENT(ty = Type.UNTYPED()) then InstNode.getType(component.classInst);
+      case COMPONENT() then component.ty;
       case ITERATOR() then component.ty;
       case TYPE_ATTRIBUTE() then component.ty;
-      case DELETED_COMPONENT() then getType(component.component);
       else Type.UNKNOWN();
     end match;
   end getType;
@@ -356,11 +245,7 @@ uniontype Component
     input output Component component;
   algorithm
     component := match component
-      case UNTYPED_COMPONENT()
-        then TYPED_COMPONENT(component.classInst, ty, component.binding,
-          component.condition, component.attributes, NONE(), component.comment, component.info);
-
-      case TYPED_COMPONENT()
+      case COMPONENT()
         algorithm
           component.ty := ty;
         then
@@ -380,7 +265,7 @@ uniontype Component
     output Boolean isTyped;
   algorithm
     isTyped := match component
-      case TYPED_COMPONENT() then true;
+      case COMPONENT() then component.state >= ComponentState.Typed;
       case ITERATOR(ty = Type.UNKNOWN()) then false;
       case ITERATOR() then true;
       case TYPE_ATTRIBUTE() then true;
@@ -395,7 +280,7 @@ uniontype Component
       local
         Type ty;
 
-      case TYPED_COMPONENT(ty = Type.ARRAY(elementType = ty))
+      case COMPONENT(ty = Type.ARRAY(elementType = ty))
         algorithm
           component.ty := ty;
         then
@@ -413,31 +298,24 @@ uniontype Component
 
   function getAttributes
     input Component component;
-    output Component.Attributes attr;
+    output Attributes attr;
   algorithm
     attr := match component
-      case UNTYPED_COMPONENT() then component.attributes;
-      case TYPED_COMPONENT() then component.attributes;
+      case COMPONENT() then component.attributes;
+      else NFAttributes.DEFAULT_ATTR;
     end match;
   end getAttributes;
 
   function setAttributes
-    input Component.Attributes attr;
+    input Attributes attr;
     input output Component component;
   algorithm
     () := match component
-      case UNTYPED_COMPONENT()
+      case COMPONENT()
         algorithm
           component.attributes := attr;
         then
           ();
-
-      case TYPED_COMPONENT()
-        algorithm
-          component.attributes := attr;
-        then
-          ();
-
     end match;
   end setAttributes;
 
@@ -446,10 +324,10 @@ uniontype Component
     output Binding b;
   algorithm
     b := match component
-      case UNTYPED_COMPONENT() then component.binding;
-      case TYPED_COMPONENT() then component.binding;
-      case TYPE_ATTRIBUTE() then Modifier.binding(component.modifier);
-      else NFBinding.EMPTY_BINDING;
+      case COMPONENT()          then component.binding;
+      case TYPE_ATTRIBUTE()     then Modifier.binding(component.modifier);
+      case WILD()               then Binding.WILD();
+                                else NFBinding.EMPTY_BINDING;
     end match;
   end getBinding;
 
@@ -471,7 +349,8 @@ uniontype Component
       if InstNode.isRecord(cls_node) then
         try
           record_exp := Class.makeRecordExp(cls_node);
-          binding := Binding.FLAT_BINDING(record_exp, Expression.variability(record_exp));
+          binding := Binding.makeTyped(record_exp, NFBinding.EachType.NOT_EACH,
+            NFBinding.Source.GENERATED, info(component));
         else
         end try;
       end if;
@@ -483,13 +362,7 @@ uniontype Component
     input output Component component;
   algorithm
     () := match component
-      case UNTYPED_COMPONENT()
-        algorithm
-          component.binding := binding;
-        then
-          ();
-
-      case TYPED_COMPONENT()
+      case COMPONENT()
         algorithm
           component.binding := binding;
         then
@@ -545,8 +418,7 @@ uniontype Component
     output Binding cond;
   algorithm
     cond := match component
-      case UNTYPED_COMPONENT() then component.condition;
-      case TYPED_COMPONENT() then component.condition;
+      case COMPONENT() then component.condition;
       else NFBinding.EMPTY_BINDING;
     end match;
   end getCondition;
@@ -563,8 +435,7 @@ uniontype Component
     output Direction direction;
   algorithm
     direction := match component
-      case TYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(direction = direction)) then direction;
-      case UNTYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(direction = direction)) then direction;
+      case COMPONENT(attributes = Attributes.ATTRIBUTES(direction = direction)) then direction;
       else Direction.NONE;
     end match;
   end direction;
@@ -574,29 +445,23 @@ uniontype Component
     output Boolean isInput = direction(component) == Direction.INPUT;
   end isInput;
 
-  function makeInput
+  function setDirection
+    input Direction direction;
     input output Component component;
   protected
     Attributes attr;
   algorithm
     () := match component
-      case UNTYPED_COMPONENT(attributes = attr)
+      case COMPONENT(attributes = attr)
         algorithm
-          attr.direction := Direction.INPUT;
-          component.attributes := attr;
-        then
-          ();
-
-      case TYPED_COMPONENT(attributes = attr)
-        algorithm
-          attr.direction := Direction.INPUT;
+          attr.direction := direction;
           component.attributes := attr;
         then
           ();
 
       else ();
     end match;
-  end makeInput;
+  end setDirection;
 
   function isOutput
     input Component component;
@@ -608,8 +473,7 @@ uniontype Component
     output Parallelism parallelism;
   algorithm
     parallelism := match component
-      case TYPED_COMPONENT(attributes = ATTRIBUTES(parallelism = parallelism)) then parallelism;
-      case UNTYPED_COMPONENT(attributes = ATTRIBUTES(parallelism = parallelism)) then parallelism;
+      case COMPONENT(attributes = Attributes.ATTRIBUTES(parallelism = parallelism)) then parallelism;
       else Parallelism.NON_PARALLEL;
     end match;
   end parallelism;
@@ -619,8 +483,7 @@ uniontype Component
     output Variability variability;
   algorithm
     variability := match component
-      case TYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(variability = variability)) then variability;
-      case UNTYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(variability = variability)) then variability;
+      case COMPONENT(attributes = Attributes.ATTRIBUTES(variability = variability)) then variability;
       case ITERATOR() then component.variability;
       case ENUM_LITERAL() then Variability.CONSTANT;
       else Variability.CONTINUOUS;
@@ -635,14 +498,7 @@ uniontype Component
       local
         Attributes attr;
 
-      case UNTYPED_COMPONENT(attributes = attr)
-        algorithm
-          attr.variability := variability;
-          component.attributes := attr;
-        then
-          ();
-
-      case TYPED_COMPONENT(attributes = attr)
+      case COMPONENT(attributes = attr)
         algorithm
           attr.variability := variability;
           component.attributes := attr;
@@ -690,8 +546,7 @@ uniontype Component
     isFinal := match component
       case COMPONENT_DEF()
         then SCodeUtil.finalBool(SCodeUtil.prefixesFinal(SCodeUtil.elementPrefixes(component.definition)));
-      case UNTYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(isFinal = isFinal)) then isFinal;
-      case TYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(isFinal = isFinal)) then isFinal;
+      case COMPONENT(attributes = Attributes.ATTRIBUTES(isFinal = isFinal)) then isFinal;
       else false;
     end match;
   end isFinal;
@@ -701,14 +556,20 @@ uniontype Component
     output InnerOuter io;
   algorithm
     io := match component
-      case UNTYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(innerOuter = io)) then io;
-      case TYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(innerOuter = io)) then io;
+      case COMPONENT(attributes = Attributes.ATTRIBUTES(innerOuter = io)) then io;
       case COMPONENT_DEF()
         then Prefixes.innerOuterFromSCode(SCodeUtil.prefixesInnerOuter(
           SCodeUtil.elementPrefixes(component.definition)));
       else InnerOuter.NOT_INNER_OUTER;
     end match;
   end innerOuter;
+
+  function isInnerOuter
+    input Component component;
+    output Boolean isInnerOuter;
+  algorithm
+    isInnerOuter := innerOuter(component) <> InnerOuter.NOT_INNER_OUTER;
+  end isInnerOuter;
 
   function isInner
     input Component component;
@@ -738,9 +599,7 @@ uniontype Component
     output ConnectorType.Type cty;
   algorithm
     cty := match component
-      case UNTYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(connectorType = cty)) then cty;
-      case TYPED_COMPONENT(attributes = Attributes.ATTRIBUTES(connectorType = cty)) then cty;
-      case DELETED_COMPONENT() then connectorType(component.component);
+      case COMPONENT(attributes = Attributes.ATTRIBUTES(connectorType = cty)) then cty;
       else ConnectorType.NON_CONNECTOR;
     end match;
   end connectorType;
@@ -753,14 +612,7 @@ uniontype Component
       local
         Attributes attr;
 
-      case UNTYPED_COMPONENT(attributes = attr)
-        algorithm
-          attr.connectorType := cty;
-          component.attributes := attr;
-        then
-          ();
-
-      case TYPED_COMPONENT(attributes = attr)
+      case COMPONENT(attributes = attr)
         algorithm
           attr.connectorType := cty;
           component.attributes := attr;
@@ -791,8 +643,8 @@ uniontype Component
     output Boolean isEO;
   algorithm
     isEO := match component
-      case UNTYPED_COMPONENT() then Class.isExternalObject(InstNode.getClass(component.classInst));
-      case TYPED_COMPONENT() then Type.isExternalObject(component.ty);
+      case COMPONENT(ty = Type.UNTYPED()) then Class.isExternalObject(InstNode.getClass(component.classInst));
+      case COMPONENT() then Type.isExternalObject(component.ty);
       else false;
     end match;
   end isExternalObject;
@@ -806,7 +658,7 @@ uniontype Component
       identical := true;
     else
       identical := match (comp1, comp2)
-        case (UNTYPED_COMPONENT(), UNTYPED_COMPONENT())
+        case (COMPONENT(), COMPONENT())
           algorithm
             if not Class.isIdentical(InstNode.getClass(comp1.classInst),
                                      InstNode.getClass(comp2.classInst)) then
@@ -836,13 +688,7 @@ uniontype Component
       case COMPONENT_DEF(definition = def as SCode.Element.COMPONENT())
         then SCodeDump.unparseElementStr(def);
 
-      case UNTYPED_COMPONENT()
-        then Attributes.toString(component.attributes, Type.UNKNOWN()) +
-             InstNode.name(component.classInst) + " " + name +
-             List.toString(arrayList(component.dimensions), Dimension.toString, "", "[", ", ", "]", false) +
-             Binding.toString(component.binding, " = ");
-
-      case TYPED_COMPONENT()
+      case COMPONENT()
         then Attributes.toString(component.attributes, component.ty) +
              Type.toString(component.ty) + " " + name +
              Binding.toString(component.binding, " = ");
@@ -852,53 +698,100 @@ uniontype Component
     end match;
   end toString;
 
+  function toFlatStream
+    input String name;
+    input Component component;
+    input output IOStream.IOStream s;
+  protected
+    list<tuple<String, Binding>> ty_attrs;
+  algorithm
+    () := match component
+      case COMPONENT()
+        algorithm
+          s := Attributes.toFlatStream(component.attributes, component.ty, s);
+          s := IOStream.append(s, Type.toFlatString(component.ty));
+          s := IOStream.append(s, " '");
+          s := IOStream.append(s, name);
+          s := IOStream.append(s, "'");
+
+          ty_attrs := list((Modifier.name(a), Modifier.binding(a)) for a in
+            Class.getTypeAttributes(InstNode.getClass(component.classInst)));
+          s := typeAttrsToFlatStream(ty_attrs, component.ty, s);
+
+          s := IOStream.append(s, Binding.toFlatString(component.binding, " = "));
+        then
+          ();
+
+      case TYPE_ATTRIBUTE()
+        algorithm
+          s := IOStream.append(s, name);
+          s := IOStream.append(s, Modifier.toFlatString(component.modifier, printName = false));
+        then
+          ();
+    end match;
+  end toFlatStream;
+
+  function typeAttrsToFlatStream
+    input list<tuple<String, Binding>> typeAttrs;
+    input Type componentType;
+    input output IOStream.IOStream s;
+  protected
+    Integer var_dims, binding_dims;
+    list<tuple<String, Binding>> ty_attrs = typeAttrs;
+    String name;
+    Binding binding;
+    Expression bind_exp;
+  algorithm
+    if listEmpty(ty_attrs) then
+      return;
+    end if;
+
+    s := IOStream.append(s, "(");
+    var_dims := Type.dimensionCount(componentType);
+
+    while true loop
+      (name, binding) := listHead(ty_attrs);
+      bind_exp := Expression.expandSplitIndices(Binding.getExp(binding));
+      binding_dims := Type.dimensionCount(Expression.typeOf(bind_exp));
+
+      if var_dims > binding_dims then
+        s := IOStream.append(s, "each ");
+      end if;
+
+      s := IOStream.append(s, name);
+      s := IOStream.append(s, " = ");
+      s := IOStream.append(s, Binding.toFlatString(binding));
+
+      ty_attrs := listRest(ty_attrs);
+      if listEmpty(ty_attrs) then
+        break;
+      else
+        s := IOStream.append(s, ", ");
+      end if;
+    end while;
+
+    s := IOStream.append(s, ")");
+  end typeAttrsToFlatStream;
+
   function toFlatString
     input String name;
     input Component component;
     output String str;
+  protected
+    IOStream.IOStream s;
   algorithm
-    str := match component
-      local
-        SCode.Element def;
-
-      case TYPED_COMPONENT()
-        then Attributes.toFlatString(component.attributes, component.ty) +
-             Type.toFlatString(component.ty) + " '" + name + "'" +
-             Binding.toFlatString(component.binding, " = ");
-
-      case TYPE_ATTRIBUTE()
-        then name + Modifier.toFlatString(component.modifier, printName = false);
-    end match;
+    s := IOStream.create(name, IOStream.IOStreamType.LIST());
+    s := toFlatStream(name, component, s);
+    str := IOStream.string(s);
+    IOStream.delete(s);
   end toFlatString;
-
-  function setDimensions
-    input list<Dimension> dims;
-    input output Component component;
-  algorithm
-    () := match component
-      case UNTYPED_COMPONENT()
-        algorithm
-          component.dimensions := listArray(dims);
-        then
-          ();
-
-      case TYPED_COMPONENT()
-        algorithm
-          component.ty := Type.liftArrayLeftList(Type.arrayElementType(component.ty), dims);
-        then
-          ();
-
-      else ();
-    end match;
-  end setDimensions;
 
   function dimensionCount
     input Component component;
     output Integer count;
   algorithm
     count := match component
-      case UNTYPED_COMPONENT() then arrayLength(component.dimensions);
-      case TYPED_COMPONENT() then listLength(Type.arrayDims(component.ty));
+      case COMPONENT() then Type.dimensionCount(component.ty);
       else 0;
     end match;
   end dimensionCount;
@@ -909,8 +802,8 @@ uniontype Component
   algorithm
     comment := match component
       case COMPONENT_DEF() then SCodeUtil.getElementComment(component.definition);
-      case UNTYPED_COMPONENT() then component.comment;
-      case TYPED_COMPONENT() then component.comment;
+      case COMPONENT() then component.comment;
+      case ENUM_LITERAL() then SOME(component.comment);
       else NONE();
     end match;
   end comment;
@@ -920,14 +813,14 @@ uniontype Component
     output Option<Modifier> ann;
   algorithm
     ann := match component
-      case TYPED_COMPONENT() then component.ann;
+      case COMPONENT() then component.ann;
       else NONE();
     end match;
   end ann;
 
   function getEvaluateAnnotation
     input Component component;
-    output Boolean evaluate;
+    output Option<Boolean> evaluate;
   protected
     SCode.Comment cmt;
   algorithm
@@ -951,7 +844,7 @@ uniontype Component
       return;
     end if;
 
-    fixed := fixed and Expression.isTrue(Expression.getBindingExp(Binding.getExp(binding)));
+    fixed := fixed and Expression.isTrue(Binding.getExp(binding));
   end getFixedAttribute;
 
   function getUnitAttribute
@@ -969,7 +862,7 @@ uniontype Component
       return;
     end if;
 
-    unit := Expression.getBindingExp(Binding.getExp(binding));
+    unit := Binding.getExp(binding);
 
     unitString := match unit
       case Expression.STRING() then unit.value;
@@ -985,10 +878,9 @@ uniontype Component
       local
         Binding condition;
 
-      case TYPED_COMPONENT(condition = condition)
-        then Binding.isBound(condition) and Expression.isFalse(Binding.getTypedExp(condition));
+      case COMPONENT(condition = condition)
+        then Binding.isTyped(condition) and Expression.isFalse(Binding.getTypedExp(condition));
 
-      case DELETED_COMPONENT() then true;
       else false;
     end match;
   end isDeleted;
@@ -1002,7 +894,90 @@ uniontype Component
       else false;
     end match;
   end isTypeAttribute;
-end Component;
+
+  function countConnectorVars
+    "Returns the number of potential (neither constant, parameter, input, nor
+     output), flow, and stream variables in the given connector."
+    input Component component;
+    input Boolean isRoot = true;
+    output Integer potentials = 0;
+    output Integer flows = 0;
+    output Integer streams = 0;
+    output Boolean knownSize = true;
+  protected
+    Type ty;
+    ConnectorType.Type cty;
+    Class cls;
+    Option<InstNode> eq_node_opt;
+    InstNode eq_node;
+    Integer comp_size = 0, p, f, s;
+    Function fn;
+    Boolean known_size;
+  algorithm
+    cls := InstNode.getClass(classInstance(component));
+    eq_node_opt := Class.tryLookupElement("equalityConstraint", cls);
+
+    if isSome(eq_node_opt) and
+       SCodeUtil.isFunction(InstNode.definition(Util.getOption(eq_node_opt))) then
+      // If the type contains an equalityConstraint function then the size is
+      // determined by the return type of it.
+      SOME(eq_node) := eq_node_opt;
+      Function.instFunctionNode(eq_node, NFInstContext.NO_CONTEXT, info(component));
+      fn := listHead(Function.typeNodeCache(eq_node));
+      ty := Function.returnType(fn);
+
+      if Type.hasKnownSize(ty) then
+        comp_size := Type.sizeOf(ty);
+      else
+        comp_size := 0;
+        knownSize := false;
+      end if;
+    else
+      ty := getType(component);
+
+      // Ignore dimensions for the root connector, i.e. an array of connectors
+      // is treated as a scalar when balance checking it.
+      if isRoot then
+        comp_size := 1;
+      elseif Type.hasKnownSize(ty) then
+        comp_size := Dimension.sizesProduct(Type.arrayDims(ty));
+      else
+        comp_size := 0;
+        knownSize := false;
+      end if;
+
+      ty := Type.arrayElementType(ty);
+      if Type.isComplex(ty) then
+        // For complex types we only count elements in records, not in e.g. connectors.
+        // (unless it's the connector that we're trying to count the variables in).
+        if Type.isRecord(ty) or isRoot then
+          for c in ClassTree.getComponents(Class.classTree(cls)) loop
+            (p, f, s, known_size) := countConnectorVars(InstNode.component(c), false);
+            potentials := potentials + p * comp_size;
+            flows := flows + f * comp_size;
+            streams := streams + s * comp_size;
+            knownSize := known_size and knownSize;
+          end for;
+        end if;
+
+        // Complex elements are not counted themselves.
+        comp_size := 0;
+      end if;
+    end if;
+
+    if comp_size > 0 then
+      cty := connectorType(component);
+
+      if ConnectorType.isFlow(cty) then
+        flows := flows + comp_size;
+      elseif ConnectorType.isStream(cty) then
+        streams := streams + comp_size;
+      elseif variability(component) >= Variability.DISCRETE and
+             direction(component) == Direction.NONE then
+        potentials := potentials + comp_size;
+      end if;
+    end if;
+  end countConnectorVars;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFComponent;

@@ -8,8 +8,10 @@
   as listed at <url: http://www.opensource.org/licenses/bsd-license.php >.
 */
 
-#ifdef QT_NO_DEBUG
-#ifdef WIN32
+/* adrpo commented this out as this is a C file compiled with gcc so it NEVER get QT_NO_DEBUG
+ * #ifdef QT_NO_DEBUG
+ */
+#if defined(_WIN32)
 #include "backtrace.h"
 
 void
@@ -34,6 +36,21 @@ output_print(struct output_buffer *ob, const char * format, ...)
 
   ob->ptr = strlen(ob->buf + ob->ptr) + ob->ptr;
 }
+
+
+/* adrpo: add support for newer binutils */
+#if !defined(bfd_get_section_flags)
+#define bfd_get_section_flags(dummy, section) bfd_section_flags(section)
+#endif
+
+#if !defined(bfd_get_section_vma)
+#define bfd_get_section_vma(dummy, section) bfd_section_vma(section)
+#endif
+
+#if !defined(bfd_get_section_size)
+#define bfd_get_section_size(section) bfd_section_size(section)
+#endif
+
 
 static void
 lookup_section(bfd *abfd, asection *sec, void *opaque_data)
@@ -256,5 +273,8 @@ _backtrace(struct output_buffer *ob, struct bfd_set *set, int depth , LPCONTEXT 
     }
   }
 }
-#endif //#ifdef WIN32
-#endif // #ifdef QT_NO_DEBUG
+#endif //#if defined(_WIN32)
+
+/*
+ * #endif // #ifdef QT_NO_DEBUG
+ */

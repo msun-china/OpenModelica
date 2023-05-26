@@ -32,14 +32,19 @@
 extern "C" {
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
- #define WIN32_LEAN_AND_MEAN
  #include <windows.h>
 #endif
 
 #include "openmodelica.h"
-#include "meta_modelica.h"
+#include "meta/meta_modelica.h"
+
 #define ADD_METARECORD_DEFINITIONS static
-#include "OpenModelicaBootstrappingHeader.h"
+#if defined(OMC_BOOTSTRAPPING)
+  #include "../boot/tarball-include/OpenModelicaBootstrappingHeader.h"
+#else
+  #include "../OpenModelicaBootstrappingHeader.h"
+#endif
+
 #include "Dynload.cpp"
 #include "ModelicaUtilities.h"
 

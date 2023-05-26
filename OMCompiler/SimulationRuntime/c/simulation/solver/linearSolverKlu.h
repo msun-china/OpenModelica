@@ -33,13 +33,13 @@
 
 #include "omc_config.h"
 
-#ifdef WITH_UMFPACK
+#ifdef WITH_SUITESPARSE
 #ifndef _LINEARSOLVERKLU_H_
 #define _LINEARSOLVERKLU_H_
 
 #include "../../simulation_data.h"
-#include "suitesparse/Include/amd.h"
-#include "suitesparse/Include/klu.h"
+#include <amd.h>
+#include <klu.h>
 
 typedef struct DATA_KLU
 {

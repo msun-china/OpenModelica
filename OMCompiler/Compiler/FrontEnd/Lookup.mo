@@ -2198,12 +2198,12 @@ algorithm
     // function_name cardinality
     case (_,"cardinality")
       then {DAE.T_FUNCTION(
-              {DAE.FUNCARG("x",DAE.T_COMPLEX(ClassInf.CONNECTOR(Absyn.IDENT("$$"),false),{},NONE()),DAE.C_VAR(),DAE.NON_PARALLEL(),NONE())},
+              {DAE.FUNCARG("x",DAE.T_COMPLEX(ClassInf.CONNECTOR(Absyn.IDENT("$$"),false),{},NONE(), false),DAE.C_VAR(),DAE.NON_PARALLEL(),NONE())},
               DAE.T_INTEGER_DEFAULT,
               DAE.FUNCTION_ATTRIBUTES_DEFAULT,
               Absyn.IDENT("cardinality")),
             DAE.T_FUNCTION(
-              {DAE.FUNCARG("x",DAE.T_COMPLEX(ClassInf.CONNECTOR(Absyn.IDENT("$$"),true),{},NONE()),DAE.C_VAR(),DAE.NON_PARALLEL(),NONE())},
+              {DAE.FUNCARG("x",DAE.T_COMPLEX(ClassInf.CONNECTOR(Absyn.IDENT("$$"),true),{},NONE(), false),DAE.C_VAR(),DAE.NON_PARALLEL(),NONE())},
               DAE.T_INTEGER_DEFAULT,
               DAE.FUNCTION_ATTRIBUTES_DEFAULT,
               Absyn.IDENT("cardinality"))};
@@ -2557,7 +2557,7 @@ algorithm
         fpath = FGraph.getGraphName(env);
         (cdefelts,classExtendsElts,extendsElts,compElts) = InstUtil.splitElts(elts);
         (cache,env,_,_,eltsMods,_,_,_,_) = InstExtends.instExtendsAndClassExtendsList(cache, env, InnerOuter.emptyInstHierarchy, DAE.NOMOD(), DAE.NOPRE(), extendsElts, classExtendsElts, elts, ClassInf.RECORD(fpath), name, true, false);
-        eltsMods = listAppend(eltsMods,InstUtil.addNomod(compElts));
+        eltsMods = listAppend(eltsMods,InstUtil.addNomod(compElts)) annotation(__OpenModelica_DisableListAppendWarning=true);
         // print("Record Elements: " +
         //   stringDelimitList(
         //     List.map(
@@ -3296,7 +3296,7 @@ algorithm
 
         // print("CREF EB: " + ComponentReference.printComponentRefStr(inCref) + "\nTyParent: " + Types.printTypeStr(inParentType) + "\nParent:\n" + Types.printBindingStr(inParentBinding) + "\nChild:\n" + Types.printBindingStr(inChildBinding) + "\n");
 
-        DAE.RECORD(_, exps, comp, _) = Expression.subscriptExp(e, ss);
+        DAE.RECORD(_, exps, comp, _) = Expression.applyExpSubscripts(e, ss);
 
         e = listGet(exps, List.position(cId, comp));
         b = DAE.EQBOUND(e, NONE(), c, s);
@@ -3323,7 +3323,7 @@ algorithm
         true = Types.isRecord(tyElement);
         // print("CREF VB: " + ComponentReference.printComponentRefStr(inCref) + "\nTyParent: " + Types.printTypeStr(inParentType) + "\nParent:\n" + Types.printBindingStr(inParentBinding) + "\nChild:\n" + Types.printBindingStr(inChildBinding) + "\n");
         e = ValuesUtil.valueExp(v);
-        DAE.RECORD(_, exps, comp, _) = Expression.subscriptExp(e, ss);
+        DAE.RECORD(_, exps, comp, _) = Expression.applyExpSubscripts(e, ss);
 
         e = listGet(exps, List.position(cId, comp));
 

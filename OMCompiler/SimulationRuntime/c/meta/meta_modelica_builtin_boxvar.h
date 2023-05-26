@@ -2,7 +2,7 @@
 
 #if !(defined(OMC_MINIMAL_RUNTIME) || defined(OMC_FMI_RUNTIME))
 
-#if !defined(OMC_GENERATE_RELOCATABLE_CODE) || defined(OMC_BOOTSTRAPPING_STAGE_1) || defined(OMC_BOOTSTRAPPING_STAGE_2)
+#if !defined(OMC_GENERATE_RELOCATABLE_CODE)
 #define OMC_SYM_BOXPTR(X) &boxptr_##X
 #else
 #define OMC_SYM_BOXPTR(X) &boxvar_fn_##X
@@ -41,6 +41,7 @@ static void* boxvar_fn_intSub = (void*) boxptr_intSub;
 static void* boxvar_fn_isNone = (void*) boxptr_isNone;
 static void* boxvar_fn_isSome = (void*) boxptr_isSome;
 static void* boxvar_fn_listAppend = (void*) boxptr_listAppend;
+static void* boxvar_fn_listAppendDestroy = (void*) boxptr_listAppendDestroy;
 static void* boxvar_fn_listArray = (void*) boxptr_listArray;
 static void* boxvar_fn_listDelete = (void*) boxptr_listDelete;
 static void* boxvar_fn_listEmpty = (void*) boxptr_listEmpty;
@@ -163,6 +164,8 @@ static const MMC_DEFSTRUCTLIT(boxvar_lit_isSome,2,0) {(modelica_metatype) OMC_SY
 #define boxvar_isSome MMC_REFSTRUCTLIT(boxvar_lit_isSome)
 static const MMC_DEFSTRUCTLIT(boxvar_lit_listAppend,2,0) {(modelica_metatype) OMC_SYM_BOXPTR(listAppend),0}};
 #define boxvar_listAppend MMC_REFSTRUCTLIT(boxvar_lit_listAppend)
+static const MMC_DEFSTRUCTLIT(boxvar_lit_listAppendDestroy,2,0) {(modelica_metatype) OMC_SYM_BOXPTR(listAppendDestroy),0}};
+#define boxvar_listAppendDestroy MMC_REFSTRUCTLIT(boxvar_lit_listAppendDestroy)
 static const MMC_DEFSTRUCTLIT(boxvar_lit_listArray,2,0) {(modelica_metatype) OMC_SYM_BOXPTR(listArray),0}};
 #define boxvar_listArray MMC_REFSTRUCTLIT(boxvar_lit_listArray)
 static const MMC_DEFSTRUCTLIT(boxvar_lit_listDelete,2,0) {(modelica_metatype) OMC_SYM_BOXPTR(listDelete),0}};

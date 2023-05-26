@@ -1,5 +1,6 @@
 // name: ocpOnlyInputs
 // status: correct
+// cflags: -d=-newInst
 
 setCommandLineOptions("+gDynOpt");
 
@@ -41,12 +42,11 @@ val(cost,1.0);
 // --------------------------------------------------------
 // number of nonlinear constraints: 0
 // ========================================================
-// stdout            | info    | Jacobian or SparsePattern is not generated or failed to initialize! Switch back to normal.
 //
 // ******************************************************************************
 // This program contains Ipopt, a library for large-scale nonlinear optimization.
 //  Ipopt is released as open source code under the Eclipse Public License (EPL).
-//          For more information visit http://projects.coin-or.org/Ipopt
+//          For more information visit https://github.com/coin-or/Ipopt
 // ******************************************************************************
 //
 // LOG_SUCCESS       | info    | The simulation finished successfully.

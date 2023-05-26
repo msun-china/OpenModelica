@@ -40,11 +40,12 @@ extern "C" {
  */
 #if !defined(_MSC_VER)
 #include <libgen.h>
-#include <dirent.h>
 #include <unistd.h>
 #endif
 
-#include "meta_modelica.h"
+#include <dirent.h>
+
+#include "meta/meta_modelica.h"
 #include <limits.h>
 #include "ModelicaUtilities.h"
 
@@ -54,7 +55,7 @@ extern "C" {
 #include <time.h>
 #include <math.h>
 
-#include "rtclock.h"
+#include "util/rtclock.h"
 #include "omc_config.h"
 #include "errorext.h"
 #include "settingsimpl.h"
@@ -76,6 +77,7 @@ typedef void* iconv_t;
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
 #include <rpc.h>
+#include <psapi.h>
 #define getFunctionPointerFromDLL  GetProcAddress
 #define FreeLibraryFromHandle !FreeLibrary
 
@@ -273,15 +275,14 @@ void SystemImpl__toWindowsSeperators(char* buffer, int bufferLength)
 int SystemImpl__chdir(const char* path)
 {
 #if defined(__MINGW32__) || defined(_MSC_VER)
-  MULTIBYTE_TO_WIDECHAR_LENGTH(path, unicodePathLength);
-  MULTIBYTE_TO_WIDECHAR_VAR(path, unicodePath, unicodePathLength);
+  wchar_t* unicodePath = omc_multibyte_to_wchar_str(path);
+  int success = SetCurrentDirectoryW(unicodePath);
+  free(unicodePath);
 
-  if (!SetCurrentDirectoryW(unicodePath)) {
-    MULTIBYTE_OR_WIDECHAR_VAR_FREE(unicodePath);
+  if (!success) {
     c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("SetCurrentDirectoryW failed."),NULL,0);
     return -1;
   }
-  MULTIBYTE_OR_WIDECHAR_VAR_FREE(unicodePath);
   return 0;
 #else
   if (chdir(path) != 0) {
@@ -302,16 +303,20 @@ extern char* SystemImpl__pwd(void)
     return NULL;
   }
 
-  WCHAR unicodePath[bufLen];
+  wchar_t* unicodePath = (wchar_t*)omc_alloc_interface.malloc_atomic(bufLen * sizeof(wchar_t));
   if (!GetCurrentDirectoryW(bufLen, unicodePath)) {
     c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("GetCurrentDirectoryW failed."),NULL,0);
     return NULL;
   }
-  WIDECHAR_TO_MULTIBYTE_LENGTH(unicodePath, bufferLength);
-  WIDECHAR_TO_MULTIBYTE_VAR(unicodePath, buffer, bufferLength);
+
+  char* buffer = omc_wchar_to_multibyte_str(unicodePath);
+  // This seems like it is an overkill. If all we need is the length then strlen on the 'buffer' above should suffice.
+  // I am leaving it like this for now since this was what was being done by the macro WIDECHAR_TO_MULTIBYTE_LENGTH
+  int bufferLength = WideCharToMultiByte(CP_UTF8, 0, unicodePath, -1, NULL, 0, NULL, NULL);
   SystemImpl__toWindowsSeperators(buffer, bufferLength);
   char *res = omc_alloc_interface.malloc_strdup(buffer);
-  MULTIBYTE_OR_WIDECHAR_VAR_FREE(buffer);
+  free(buffer);
+  GC_free(unicodePath);
   return res;
 #else
   char buf[MAXPATHLEN];
@@ -329,12 +334,9 @@ extern int SystemImpl__regularFileExists(const char* str)
   WIN32_FIND_DATAW FileData;
   HANDLE sh;
 
-  MULTIBYTE_TO_WIDECHAR_LENGTH(str, unicodeFilenameLength);
-  MULTIBYTE_TO_WIDECHAR_VAR(str, unicodeFilename, unicodeFilenameLength);
-
+  wchar_t* unicodeFilename = omc_multibyte_to_wchar_str(str);
   sh = FindFirstFileW(unicodeFilename, &FileData);
-
-  MULTIBYTE_OR_WIDECHAR_VAR_FREE(unicodeFilename);
+  free(unicodeFilename);
 
   if (sh == INVALID_HANDLE_VALUE) {
     if (strlen(str) >= MAXPATHLEN)
@@ -352,9 +354,9 @@ extern int SystemImpl__regularFileExists(const char* str)
   FindClose(sh);
   return ((FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0);
 #else
-  struct stat buf;
+  omc_stat_t buf;
   /* adrpo: TODO: check if str leads to a path > PATH_MAX, maybe use realpath impl. from below */
-  if (stat(str, &buf)) return 0;
+  if (omc_stat(str, &buf)) return 0;
   return (buf.st_mode & S_IFREG) != 0;
 #endif
 }
@@ -376,11 +378,7 @@ static char* SystemImpl__readFile(const char* filename)
   char* buf;
   int res;
   FILE * file = NULL;
-#if defined(__MINGW32__) || defined(_MSC_VER)
-  struct _stat statstr;
-#else
-  struct stat statstr;
-#endif
+  omc_stat_t statstr;
   res = omc_stat(filename, &statstr);
 
   if (res != 0) {
@@ -421,7 +419,7 @@ static char* SystemImpl__readFile(const char* filename)
   }
   buf = (char*) omc_alloc_interface.malloc_atomic(statstr.st_size+1);
 
-  if( (res = fread(buf, sizeof(char), statstr.st_size, file)) != statstr.st_size) {
+  if( (res = omc_fread(buf, sizeof(char), statstr.st_size, file, 0)) != statstr.st_size) {
     const char *c_tokens[2]={strerror(errno),filename};
     c_add_message(NULL,85, /* ERROR_OPENING_FILE */
       ErrorType_scripting,
@@ -499,7 +497,7 @@ int SystemImpl__writeFile(const char* filename, const char* data)
 int SystemImpl__appendFile(const char* filename, const char *data)
 {
   FILE *file = NULL;
-  file = fopen(filename, "a");
+  file = omc_fopen(filename, "a");
 
   if(file == NULL) {
     const char *c_tokens[1] = {filename};
@@ -585,35 +583,68 @@ const char* SystemImpl__basename(const char *str)
 }
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
-int runProcess(const char* cmd)
+/**
+ * @brief Create new process and run command.
+ *
+ * Create handle for log file if outFile is not NULL and
+ * redirect stdout and stderr.
+ * Using wide chars for all commands and paths.
+ *
+ * @param cmd       Command to execute.
+ * @param outFile   Path to output file, can be NULL.
+ * @return int      Return 0 on success, 1 on failure.
+ */
+int runProcess(const char* cmd, const char* outFile)
 {
-  STARTUPINFOW si;
-  PROCESS_INFORMATION pi;
-  char *c = "cmd /c";
-  char *command = (char *)omc_alloc_interface.malloc_atomic(strlen(cmd) + strlen(c) + 4);
+  STARTUPINFOW startupInfo;
+  PROCESS_INFORMATION processInfo;
+  SECURITY_ATTRIBUTES securityAttributes;
+  HANDLE logFileHandle = NULL;
+  wchar_t* unicodeOutFile = NULL;
+  char *terminal = "cmd /c";
+  char *command = (char *)omc_alloc_interface.malloc_atomic(strlen(cmd) + strlen(terminal) + 4);
   DWORD exitCode = 1;
 
-  ZeroMemory(&si, sizeof(si));
-  si.cb = sizeof(si);
-  ZeroMemory(&pi, sizeof(pi));
+  ZeroMemory(&startupInfo, sizeof(startupInfo));
+  ZeroMemory(&processInfo, sizeof(processInfo));
 
-
-  sprintf(command, "%s \"%s\"", c, cmd);
-
-  /* fprintf(stderr, "%s\n", command); fflush(NULL); */
-
-  MULTIBYTE_TO_WIDECHAR_LENGTH(command, unicodeCommandLength);
-  MULTIBYTE_TO_WIDECHAR_VAR(command, unicodeCommand, unicodeCommandLength);
-
-  if (CreateProcessW(NULL, unicodeCommand, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
-  {
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    // Get the exit code.
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
+  startupInfo.cb = sizeof(startupInfo);   // Size of struct in bytes
+  if (*outFile) {
+    unicodeOutFile = omc_multibyte_to_wchar_str(outFile);
+    securityAttributes.nLength = sizeof(securityAttributes);
+    securityAttributes.lpSecurityDescriptor = NULL;
+    securityAttributes.bInheritHandle = TRUE;
+    logFileHandle = CreateFileW(unicodeOutFile,
+                    FILE_APPEND_DATA,
+                    FILE_SHARE_WRITE | FILE_SHARE_READ,
+                    &securityAttributes,
+                    OPEN_ALWAYS,
+                    FILE_ATTRIBUTE_NORMAL,
+                    NULL);
+    startupInfo.dwFlags |= STARTF_USESTDHANDLES;  // Additional handles in hStdInput, hStdOutput and hStdError elements
+    startupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startupInfo.hStdError = logFileHandle;
+    startupInfo.hStdOutput = logFileHandle;
   }
-  MULTIBYTE_OR_WIDECHAR_VAR_FREE(unicodeCommand);
+
+  sprintf(command, "%s \"%s\"", terminal, cmd);
+  wchar_t* unicodeCommand = omc_multibyte_to_wchar_str(command);
+  //printf("unicodeCommand: %ls\n", unicodeCommand);
+
+  if (CreateProcessW(NULL, unicodeCommand, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &startupInfo, &processInfo))
+  {
+    WaitForSingleObject(processInfo.hProcess, INFINITE);
+    // Get the exit code.
+    GetExitCodeProcess(processInfo.hProcess, &exitCode);
+    CloseHandle(processInfo.hProcess);
+    CloseHandle(processInfo.hThread);
+  }
+  if (logFileHandle) {
+    CloseHandle(logFileHandle);
+  }
+
+  free(unicodeOutFile);
+  free(unicodeCommand);
   GC_free(command);
   return (int)exitCode;
 }
@@ -625,18 +656,12 @@ int SystemImpl__systemCall(const char* str, const char* outFile)
   const int debug = 0;
   if (debug) {
     fprintf(stderr, "System.systemCall: %s\n", str); fflush(NULL);
+    fprintf(stderr, "System.systemCall log file: %s\n", outFile); fflush(NULL);
   }
 
   fflush(NULL); /* flush output so the testsuite is deterministic */
 #if defined(__MINGW32__) || defined(_MSC_VER)
-  if (*outFile) {
-    char *command = (char *)omc_alloc_interface.malloc_atomic(strlen(str) + strlen(outFile) + 10);
-    sprintf(command, "%s >> %s 2>&1", str, outFile);
-    status = runProcess(command);
-    GC_free((void*)command);
-  } else {
-    status = runProcess(str);
-  }
+  status = runProcess(str, outFile);
 #else
   pid_t pID = vfork();
   if (pID == 0) { // child
@@ -870,11 +895,7 @@ int SystemImpl__spawnCall(const char* path, const char* str)
 
 int SystemImpl__plotCallBackDefined(threadData_t *threadData)
 {
-  if (threadData->plotClassPointer && threadData->plotCB) {
-    return 1;
-  } else {
-    return 0;
-  }
+  return threadData->plotClassPointer && threadData->plotCB;
 }
 
 void SystemImpl__plotCallBack(threadData_t *threadData, int externalWindow, const char* filename, const char* title, const char* grid, const char* plotType,
@@ -882,10 +903,23 @@ void SystemImpl__plotCallBack(threadData_t *threadData, int externalWindow, cons
                               const char* y2, const char* curveWidth, const char* curveStyle, const char* legendPosition, const char* footer, const char* autoScale,
                               const char* variables)
 {
-  if (threadData->plotClassPointer && threadData->plotCB) {
+  if (SystemImpl__plotCallBackDefined(threadData)) {
     PlotCallback pcb = threadData->plotCB;
     pcb(threadData->plotClassPointer, externalWindow, filename, title, grid, plotType, logX, logY, xLabel, yLabel, x1, x2, y1, y2, curveWidth, curveStyle,
         legendPosition, footer, autoScale, variables);
+  }
+}
+
+int SystemImpl__loadModelCallBackDefined(threadData_t *threadData)
+{
+  return threadData->loadModelClassPointer && threadData->loadModelCB;
+}
+
+void SystemImpl__loadModelCallBack(threadData_t *threadData, const char* modelname)
+{
+  if (SystemImpl__loadModelCallBackDefined(threadData)) {
+    LoadModelCallback cb = threadData->loadModelCB;
+    cb(threadData->loadModelClassPointer, modelname);
   }
 }
 
@@ -900,21 +934,29 @@ extern int SystemImpl__directoryExists(const char *str)
   /* if the string is NULL return 0 */
   if (!str) return 0;
 #if defined(__MINGW32__) || defined(_MSC_VER)
-  WIN32_FIND_DATA FileData;
+  WIN32_FIND_DATAW FileData;
   HANDLE sh;
   char* path = strdup(str);
   int last = strlen(path)-1;
   /* adrpo: RTFM! the path cannot end in a slash??!! https://msdn.microsoft.com/en-us/library/windows/desktop/aa364418(v=vs.85).aspx */
-  if (last > 0 && (path[last] == '\\' || path[last] == '/')) path[last] = '\0';
-  sh = FindFirstFile(path, &FileData);
+  while (last > 0 && (path[last] == '\\' || path[last] == '/'))
+      last--;
+
+  path[last + 1] = '\0';
+
+  wchar_t* unicodePath = omc_multibyte_to_wchar_str(path);
+  sh = FindFirstFileW(unicodePath, &FileData);
+  free(unicodePath);
   free(path);
+
   if (sh == INVALID_HANDLE_VALUE)
     return 0;
+
   FindClose(sh);
   return (FileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 #else
-  struct stat buf;
-  if (stat(str, &buf))
+  omc_stat_t buf;
+  if (omc_stat(str, &buf))
     return 0;
   return (buf.st_mode & S_IFDIR) != 0;
 #endif
@@ -946,7 +988,7 @@ extern int SystemImpl__copyFile(const char *str_1, const char *str_2)
   char buf[8192];
   FILE *source, *target;
 
-  source = fopen(str_1, "r");
+  source = omc_fopen(str_1, "r");
   if (source==0) {
     const char *msg[2] = {strerror(errno), str_1};
     c_add_message(NULL,85,
@@ -957,7 +999,7 @@ extern int SystemImpl__copyFile(const char *str_1, const char *str_2)
       2);
     return 0;
   }
-  target = fopen(str_2, "w");
+  target = omc_fopen(str_2, "w");
   if (target==0) {
     const char *msg[2] = {strerror(errno), str_2};
     c_add_message(NULL,85,
@@ -970,7 +1012,7 @@ extern int SystemImpl__copyFile(const char *str_1, const char *str_2)
     return 0;
   }
 
-  while ( n = fread(buf, 1, 8192, source) ) {
+  while (( n = omc_fread(buf, 1, 8192, source, 1) )) {
     if (n != fwrite(buf, 1, n, target)) {
       rv = 0;
       break;
@@ -1026,7 +1068,7 @@ static int SystemImpl__removeDirectoryItem(const char *path)
     while ((retval == 0) && (p = readdir(d)))
     {
       int r2 = -1;
-      char * buf;
+      char * dir_name;
       size_t len;
 
       /* Do not recurse on "." and ".." */
@@ -1036,22 +1078,36 @@ static int SystemImpl__removeDirectoryItem(const char *path)
       }
 
       len = path_len + strlen(p->d_name) + 2;
-      buf = (char *)omc_alloc_interface.malloc_atomic(len);
-      if (buf != NULL)
+      dir_name = (char *)omc_alloc_interface.malloc_atomic(len);
+      if (dir_name != NULL)
       {
-        struct stat statbuf;
+        omc_stat_t statbuf;
 
-        snprintf(buf, len, "%s/%s", path, p->d_name);
-        if (stat(buf, &statbuf) == 0)
+        snprintf(dir_name, len, "%s/%s", path, p->d_name);
+        if (omc_stat(dir_name, &statbuf) == 0)
         {
           if (S_ISDIR(statbuf.st_mode))
           {
-            r2 = 0==SystemImpl__removeDirectory(buf);
+            r2 = 0==SystemImpl__removeDirectory(dir_name);
           }
           else
           {
-            r2 = unlink(buf);
+            r2 = omc_unlink(dir_name);
           }
+        }
+        else if(omc_lstat(dir_name, &statbuf) == 0)
+        {
+          // Dead link, that isn't pointing to a file/directory any more
+          r2 = omc_unlink(dir_name);
+        }
+        else {
+          const char *c_tokens[1]={dir_name};
+          c_add_message(NULL,85,
+            ErrorType_scripting,
+            ErrorLevel_error,
+            gettext("Failed to remove %s"),
+            c_tokens,
+            1);
         }
       }
       retval = r2;
@@ -1067,7 +1123,7 @@ static int SystemImpl__removeDirectoryItem(const char *path)
   else
   {
     /* Could not open path as dir, try to handle as file */
-    retval = unlink(path);
+    retval = omc_unlink(path);
   }
 
   return retval;
@@ -1172,13 +1228,13 @@ extern int SystemImpl__removeDirectory(const char *path)
           if (strcmp(p->d_name+(len-len_post), pat_post) == 0)
           {
             /* pre and post pattern do match */
-            struct stat statbuf;
+            omc_stat_t statbuf;
             char * newdir = (char *)omc_alloc_interface.malloc_atomic(len_base+len+len_sub+3);
 
             strcpy(newdir, basepath);
             strcat(newdir, "/");
             strcat(newdir, p->d_name);
-            if (stat(newdir, &statbuf) == 0)
+            if (omc_stat(newdir, &statbuf) == 0)
             {
               if (S_ISDIR(statbuf.st_mode))
               {
@@ -1193,7 +1249,7 @@ extern int SystemImpl__removeDirectory(const char *path)
               {
                 if (sub == NULL)
                 {
-                  unlink(newdir);
+                  omc_unlink(newdir);
                 }
                 else
                 {
@@ -1221,11 +1277,7 @@ extern const char* SystemImpl__readFileNoNumeric(const char* filename)
   char* buf, *bufRes;
   int res,numCount;
   FILE * file = NULL;
-#if defined(__MINGW32__) || defined(_MSC_VER)
-  struct _stat statstr;
-#else
-  struct stat statstr;
-#endif
+  omc_stat_t statstr;
   res = omc_stat(filename, &statstr);
 
   if(res!=0) {
@@ -1242,7 +1294,7 @@ extern const char* SystemImpl__readFileNoNumeric(const char* filename)
   file = omc_fopen(filename,"rb");
   buf = (char*) omc_alloc_interface.malloc_atomic(statstr.st_size+1);
   bufRes = (char*) omc_alloc_interface.malloc_atomic((statstr.st_size+70)*sizeof(char));
-  if( (res = fread(buf, sizeof(char), statstr.st_size, file)) != statstr.st_size) {
+  if( (res = omc_fread(buf, sizeof(char), statstr.st_size, file, 0)) != statstr.st_size) {
     fclose(file);
     return "Failed while reading file";
   }
@@ -1322,8 +1374,8 @@ static const char* SystemImpl__getUUIDStr(void)
 {
   static char uuidStr[37] = "8c4e810f-3df3-4a00-8276-176fa3c9f9e0";
 #if defined(__MINGW32__) || defined(_MSC_VER)
-  unsigned char *tmp;
-  UUID uuid;
+  unsigned char *tmp = NULL;
+  UUID uuid = {0};
   if (UuidCreate(&uuid) == RPC_S_OK)
     UuidToString(&uuid, &tmp);
   tmp[36] = '\0';
@@ -1340,7 +1392,7 @@ static const char* SystemImpl__getUUIDStr(void)
 typedef void (*mmc_GC_function_set_gc_state)(mmc_GC_state_type*);
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
-int SystemImpl__loadLibrary(const char *str, int printDebug)
+int SystemImpl__loadLibrary(const char *str, int relativePath, int printDebug)
 {
   char libname[MAXPATHLEN];
   char currentDirectory[MAXPATHLEN];
@@ -1350,15 +1402,31 @@ int SystemImpl__loadLibrary(const char *str, int printDebug)
   HMODULE h;
   const char* ctokens[2];
   mmc_GC_function_set_gc_state mmc_GC_set_state_lib_function = NULL;
-  /* adrpo: use BACKSLASH here as specified here: http://msdn.microsoft.com/en-us/library/ms684175(VS.85).aspx */
-  GetCurrentDirectory(bufLen,currentDirectory);
-#if defined(_MSC_VER)
-  _snprintf(libname, MAXPATHLEN, "%s\\%s.dll", currentDirectory, str);
-#else
-  snprintf(libname, MAXPATHLEN, "%s\\%s.dll", currentDirectory, str);
-#endif
 
-  h = LoadLibrary(libname);
+  if (str[0] != '\0') {
+    /* adrpo: use BACKSLASH here as specified here: http://msdn.microsoft.com/en-us/library/ms684175(VS.85).aspx */
+    if (relativePath) {
+      GetCurrentDirectory(bufLen,currentDirectory);
+#if defined(_MSC_VER)
+      _snprintf(libname, MAXPATHLEN, "%s\\%s", currentDirectory, str);
+#else
+      snprintf(libname, MAXPATHLEN, "%s\\%s", currentDirectory, str);
+#endif
+    } else {
+#if defined(_MSC_VER)
+      _snprintf(libname, MAXPATHLEN, "%s", str);
+#else
+      snprintf(libname, MAXPATHLEN, "%s", str);
+#endif
+    }
+
+    h = LoadLibrary(libname);
+  } else { /* no library name, fetch current module handle */
+    /* set the libname */
+    strcpy(libname, "[own process]");
+    h = GetModuleHandle(0);
+  }
+
   if (h == NULL) {
     LPVOID lpMsgBuf;
     FormatMessage(
@@ -1377,16 +1445,6 @@ int SystemImpl__loadLibrary(const char *str, int printDebug)
     return -1;
   }
 
-  /* adrpo, pass the mmc_GC_state pointer from the current process!
-  mmc_GC_set_state_lib_function = (mmc_GC_function_set_gc_state)getFunctionPointerFromDLL(h, "mmc_GC_set_state");
-  if (mmc_GC_set_state_lib_function == NULL) {
-    fprintf(stderr, "Unable to get pointer for mmc_GC_set_state in  %s!\n", libname);
-    fflush(stderr);
-    return -1;
-  }
-  mmc_GC_set_state_lib_function(mmc_GC_state);
-  */
-
   libIndex = alloc_ptr();
   if (libIndex < 0) {
     //fprintf(stderr, "Error loading library %s!\n", libname); fflush(stderr);
@@ -1401,7 +1459,7 @@ int SystemImpl__loadLibrary(const char *str, int printDebug)
 }
 
 #else
-int SystemImpl__loadLibrary(const char *str, int printDebug)
+int SystemImpl__loadLibrary(const char *str, int relativePath, int printDebug)
 {
   char libname[MAXPATHLEN];
   modelica_ptr_t lib = NULL;
@@ -1409,28 +1467,29 @@ int SystemImpl__loadLibrary(const char *str, int printDebug)
   void *h = NULL;
   mmc_GC_function_set_gc_state mmc_GC_set_state_lib_function = NULL;
   const char* ctokens[2];
-  snprintf(libname, MAXPATHLEN, "./%s" CONFIG_DLL_EXT, str);
 #if defined(RTLD_DEEPBIND)
-  h = dlopen(libname, RTLD_LOCAL | RTLD_NOW | RTLD_DEEPBIND);
+  int flags = RTLD_LOCAL | RTLD_NOW | RTLD_DEEPBIND;
 #else
-  h = dlopen(libname, RTLD_LOCAL | RTLD_NOW);
+  int flags = RTLD_LOCAL | RTLD_NOW;
 #endif
+
+  if (str[0] != '\0') {
+    if (relativePath) {
+      snprintf(libname, MAXPATHLEN, "./%s", str);
+    } else {
+      snprintf(libname, MAXPATHLEN, "%s", str);
+    }
+    h = dlopen(libname, flags);
+  } else {
+    h = dlopen(NULL, flags);
+  }
+
   if (h == NULL) {
     ctokens[0] = dlerror();
     ctokens[1] = libname;
     c_add_message(NULL,-1, ErrorType_runtime,ErrorLevel_error, gettext("OMC unable to load `%s': %s.\n"), ctokens, 2);
     return -1;
   }
-
-  /* adrpo, pass the mmc_GC_state pointer from the current process!
-  mmc_GC_set_state_lib_function = (mmc_GC_function_set_gc_state)getFunctionPointerFromDLL(h, "mmc_GC_set_state");
-  if (mmc_GC_set_state_lib_function == NULL) {
-    fprintf(stderr, "Unable to get pointer for mmc_GC_set_state in  %s!\n", libname);
-    fflush(stderr);
-    return -1;
-  }
-  mmc_GC_set_state_lib_function(mmc_GC_state);
-  */
 
   libIndex = alloc_ptr();
   if (libIndex < 0) {
@@ -1485,13 +1544,13 @@ int file_select_directories(direntry entry)
 {
   char fileName[MAXPATHLEN];
   int res;
-  struct stat fileStatus;
+  omc_stat_t fileStatus;
   if ((strcmp(entry->d_name, ".") == 0) ||
       (strcmp(entry->d_name, "..") == 0)) {
     return (0);
   } else {
     sprintf(fileName,"%s/%s",select_from_dir,entry->d_name);
-    res = stat(fileName,&fileStatus);
+    res = omc_stat(fileName,&fileStatus);
     if (res!=0) return 0;
     if ((fileStatus.st_mode & _IFDIR))
       return (1);
@@ -1507,6 +1566,7 @@ int SystemImpl__lookupFunction(int libIndex, const char *str)
   modelica_ptr_t lib = NULL, func = NULL;
   function_t funcptr;
   int funcIndex;
+  long lastError = 0;
 
   lib = lookup_ptr(libIndex);
 
@@ -1514,9 +1574,58 @@ int SystemImpl__lookupFunction(int libIndex, const char *str)
     return -1;
 
   funcptr =  (int (*)(threadData_t*, type_description*, type_description*)) getFunctionPointerFromDLL(lib->data.lib, str);
+  lastError = GetLastError();
+
+#if defined(__MINGW32__) || defined(_MSC_VER)
+  /* windows is special :)
+   * if we didn't find the function, search it in all the loaded DLLs as Linux does
+   */
+  if (funcptr == NULL) {
+    HMODULE hMods[1024];
+    HMODULE hProcess = GetCurrentProcess();
+    DWORD cbNeeded;
+    unsigned int i;
+    char szModName[MAX_PATH];
+
+    /* see if the GetModuleHandle(0) is in the current process and an executable */
+    if ( GetModuleFileNameEx( hProcess, lib->data.lib, szModName, sizeof(szModName) / sizeof(char)) )
+    {
+      // if strcmp(szModName[strlen(szModName)-4], ".exe")
+      if ( EnumProcessModules(hProcess, hMods, sizeof(hMods), &cbNeeded) )
+      {
+        for ( i = 0; i < (cbNeeded / sizeof(modelica_integer)); i++ )
+        {
+          funcptr = (int (*)(threadData_t*, type_description*, type_description*)) getFunctionPointerFromDLL(hMods[i], str);
+          if (funcptr != NULL)
+          {
+            break;
+          }
+
+          /* // uncomment for debugging
+          {
+            if ( GetModuleFileNameEx( hProcess, hMods[i], szModName, sizeof(szModName) / sizeof(char)) )
+            {
+              fprintf(stderr, "function %s in %s handle:[%p][%d] funcptr[%p] GetLastError:%d\n", str, szModName, hMods[i], i, funcptr, GetLastError()); fflush(NULL);
+            }
+          }
+          */
+        }
+      }
+    }
+  }
+#endif
 
   if (funcptr == NULL) {
-    fprintf(stderr, "Unable to find `%s': %lu.\n", str, GetLastError());
+    const char* err_toks[2];
+    char id_buf[11];
+    snprintf(id_buf, 11, "%lu", lastError);
+#if defined(__MINGW32__) || defined(_MSC_VER)
+    err_toks[0] = id_buf;
+#else
+    err_toks[0] = dlerror();
+#endif
+    err_toks[1] = str;
+    c_add_message(NULL, -1, ErrorType_runtime, ErrorLevel_error, gettext("Unable to find `%s': %s.\n"), err_toks, 2);
     return -1;
   }
 
@@ -1725,98 +1834,55 @@ static int compute_sanitized_string_size(const char* str) {
   int i, count;
 
   for (i=0, count=0; str[i]; i++, count++) {
-    char c = str[i];
-    // Each non-alphanum character needs one more char for its
-    // two char ascii representation.
-    if (!isalnum(c) && c != '_') {
-      count++;
+    // Each non-alphanum character needs two more char for its
+    // escape + two hex representation
+    if (!isalnum(str[i])) {
+      count += 2;
     }
   }
 
   return count;
 }
 
-static char* sanitize_string(const char* src, char* dst, int nrchars) {
+static char* sanitize_string(const char* src, char* dst) {
   const char lookupTbl[] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
 
   int i;
-  for (i = 0; i < nrchars; i++) {
-    unsigned char c = src[i];
-    if (isalnum(c) || c == '_') {
+  while (*src) {
+    unsigned char c = *src++;
+    if (isalnum(c)) {
       *dst = c;
       dst++;
-    }
-    else {
-      *dst = lookupTbl[c/16];
-      dst++;
-      *dst = lookupTbl[c%16];
-      dst++;
+    } else {
+      *dst++ = '_';
+      *dst++ = lookupTbl[c/16];
+      *dst++ = lookupTbl[c%16];
     }
   }
 
   return dst;
 }
 
-// This function assumes the input is actually a quoted string e.g 'gb' or 'ab[!%'
+// This function does not assume the input is actually a quoted string e.g 'gb' or 'ab[!%'
+//
 extern char* System_sanitizeQuotedIdentifier(const char* str)
 {
   char *res,*cur;
 
-  const char openquote[]="Q_";
-  const char closequote[]="_Q";
+  const char openquote[]="_omcQ";
   const int qsize = sizeof(openquote) - 1;
-
-  int nrchars_org = strlen(str);
 
   // Each non-alphanum character needs one more char for its
   // two char ascii representation.
-  int nrchars_needed = compute_sanitized_string_size(str);
+  int nrchars_needed = compute_sanitized_string_size(str) + qsize;
 
-  // ignore the count for opening and closing quotes in the original string
-  nrchars_needed = nrchars_needed - 4;
-  nrchars_org = nrchars_org - 2;
-
-  nrchars_needed += 2*qsize; // opening and closing quoute rep.
-  nrchars_needed++; /*null terminator*/
-  res = (char*) omc_alloc_interface.malloc_atomic(nrchars_needed * sizeof(char));
+  res = (char*) omc_alloc_interface.malloc_atomic((nrchars_needed+1) * sizeof(char));
 
   cur = res;
   cur += sprintf(cur, "%s", openquote);
-  cur = sanitize_string(str + 1, cur, nrchars_org);
-  cur += sprintf(cur,"%s", closequote);
+  cur = sanitize_string(str, cur);
   *cur = '\0';
 
-  ++cur;
-  assert((cur == res + nrchars_needed) && "Allocated memory does not exactly fit the unquoted string output");
-
-  return res;
-}
-
-extern char* System_sanitizeIdentifier(const char* str)
-{
-  char *res,*cur;
-
-  int nrchars_org = strlen(str);
-
-  // Each non-alphanum character needs one more char for its
-  // two char ascii representation.
-  int nrchars_needed = compute_sanitized_string_size(str);
-
-  // if the first char is not alphanum then the result will start with a number(ascii)
-  // we do not want that. So make it always start with a char.
-  const char openquote[]="D_";
-  const int qsize = sizeof(openquote) - 1;
-  nrchars_needed += qsize;
-
-  nrchars_needed++; /*null terminator*/
-  res = (char*) omc_alloc_interface.malloc_atomic(nrchars_needed * sizeof(char));
-
-  cur = res;
-  cur += sprintf(cur, "%s", openquote);
-  cur = sanitize_string(str, cur, nrchars_org);
-  *cur = '\0';
-
-  ++cur;
   assert((cur == res + nrchars_needed) && "Allocated memory does not exactly fit the unquoted string output");
 
   return res;
@@ -1829,11 +1895,9 @@ extern char* SystemImpl__unquoteIdentifier(char* str)
     return System_sanitizeQuotedIdentifier(str);
   }
 
-#if !defined(OPENMODELICA_BOOTSTRAPPING_STAGE_1)
   if (strstr(str, "$")) {
-    return System_sanitizeIdentifier(str);
+    return System_sanitizeQuotedIdentifier(str);
   }
-#endif
 
   return str;
 }
@@ -1955,18 +2019,14 @@ static int SystemImpl__uriToClassAndPath(const char *uri, const char **scheme, c
   return 1;
 }
 
-#ifdef NO_LAPACK
-int SystemImpl__dgesv(void *lA, void *lB, void **res)
-{
-  MMC_THROW();
-}
-#else
 /* adrpo 2011-06-23
  * extern definition to dgesv_ from -llapack
  * as we do not link with -lsim and the one
  * in matrix.h got renamed to _omc_dgesv_ to
  * avoid name clashes!
  */
+#ifdef HAVE_LAPACK
+
 extern int dgesv_(integer *n, integer *nrhs, doublereal *a, integer *lda, integer *ipiv, doublereal *b, integer *ldb, integer *info);
 
 int SystemImpl__dgesv(void *lA, void *lB, void **res)
@@ -2008,60 +2068,13 @@ int SystemImpl__dgesv(void *lA, void *lB, void **res)
   *res = tmp;
   return info;
 }
-#endif
 
-#ifdef NO_LPLIB
-int SystemImpl__lpsolve55(void *lA, void *lB, void *ix, void **res)
-{
-  c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("Not compiled with lpsolve support"),NULL,0);
-  MMC_THROW();
-}
 #else
-
-#include CONFIG_LPSOLVEINC
-
-int SystemImpl__lpsolve55(void *lA, void *lB, void *ix, void **res)
+int SystemImpl__dgesv(void *lA, void *lB, void **res)
 {
-  int i = 0, j = 0, info, sz = 0;
-  void *tmp = lB;
-  lprec *lp;
-  double inf,*vres;
-
-  while (MMC_NILHDR != MMC_GETHDR(tmp)) {
-    sz++;
-    tmp = MMC_CDR(tmp);
-  }
-  vres = (double*)omc_alloc_interface.malloc_atomic(sz*sizeof(double));
-  memset(vres,0,sz*sizeof(double));
-  lp = make_lp(sz, sz);
-  set_verbose(lp, 1);
-  inf = get_infinite(lp);
-
-  for (i=0; i<sz; i++) {
-    set_lowbo(lp, i+1, -inf);
-    set_constr_type(lp, i+1, EQ);
-    tmp = MMC_CAR(lA);
-    for (j=0; j<sz; j++) {
-      set_mat(lp, i+1, j+1, mmc_prim_get_real(MMC_CAR(tmp)));
-      tmp = MMC_CDR(tmp);
-    }
-    set_rh(lp, i+1, mmc_prim_get_real(MMC_CAR(lB)));
-    lA = MMC_CDR(lA);
-    lB = MMC_CDR(lB);
-  }
-  while (MMC_NILHDR != MMC_GETHDR(ix)) {
-    if (MMC_UNTAGFIXNUM(MMC_CAR(ix)) != -1) set_int(lp, MMC_UNTAGFIXNUM(MMC_CAR(ix)), 1);
-    ix = MMC_CDR(ix);
-  }
-  info=solve(lp);
-  //print_lp(lp);
-  if (info==0 || info==1) get_ptr_variables(lp,&vres);
-  *res = mmc_mk_nil();
-  while (sz--) {
-    *res = mmc_mk_cons(mmc_mk_rcon(vres[sz]),*res);
-  }
-  delete_lp(lp);
-  return info;
+  c_add_message(NULL, -1, ErrorType_runtime, ErrorLevel_error,
+                "A LAPACK routine is called but OMC is not compiled with LAPACK support", NULL, 0);
+  MMC_THROW();
 }
 #endif
 
@@ -2074,13 +2087,17 @@ typedef struct {
   int fileIsDir;
 } modelicaPathEntry;
 
-void splitVersion(const char *version, long *versionNum, char **versionExtra)
+int splitVersion(const char *version, long *versionNum, char **versionExtra)
 {
   const char *buf = version;
   char *next;
   long l;
   int cont,i=0,len;
   memset(versionNum,0,sizeof(long)*MODELICAPATH_LEVELS);
+  if (!isdigit(version[0])) {
+    *versionExtra = omc_alloc_interface.malloc_strdup(buf);
+    return 0;
+  }
   do {
     /* fprintf(stderr, "look versionNum %s\n", buf); */
     l = strtol(buf,&next,10);
@@ -2093,12 +2110,18 @@ void splitVersion(const char *version, long *versionNum, char **versionExtra)
     buf = next;
   } while (cont && ++i < MODELICAPATH_LEVELS);
   if (*buf == ' ') buf++;
-  *versionExtra = omc_alloc_interface.malloc_strdup(buf);
+
+  if (*buf == '+') {
+    *versionExtra = omc_alloc_interface.malloc_strdup("");
+  } else {
+    *versionExtra = omc_alloc_interface.malloc_strdup(buf);
+  }
   len = strlen(*versionExtra);
   /* fprintf(stderr, "have len %ld versionExtra %s\n", len, *versionExtra); */
   if (len >= 2 && 0==strcmp("mo", *versionExtra+len-2)) {
     (*versionExtra)[len-2] = '\0';
   }
+  return 1;
 }
 
 static int regularFileExistsInDirectory(const char *dir1, const char *dir2, const char *file)
@@ -2214,12 +2237,13 @@ static int modelicaPathEntryVersionGreater(long *ver1, long *ver2, int numToTest
 
 static int getLoadModelPathFromSingleTarget(const char *searchTarget, modelicaPathEntry *entries, int numEntries, int exactVersion, const char **outDir, char **outName, int *isDir)
 {
-  int i, j, foundIndex = -1;
+  int i, j, foundIndex = -1, foundDigitVersion;
   long version[MODELICAPATH_LEVELS] = {0}, foundVersion[MODELICAPATH_LEVELS] = {0};
   char *versionExtra;
-  splitVersion(searchTarget,version,&versionExtra);
+  /* fprintf(stderr, "searchTarget %s\n", searchTarget); */
+  foundDigitVersion = splitVersion(searchTarget,version,&versionExtra);
   /* fprintf(stderr, "expected %ld.%ld.%ld.%ld %s ; exact=%d\n", version[0], version[1], version[2], version[3], versionExtra, exactVersion); */
-  if (version > 0 && !*versionExtra) {
+  if (foundDigitVersion && !*versionExtra) {
     /* Makes us load 3.2.1 if 3.2.0.0 is not available.
      * Note that all 4 levels are present and 3.2 is equivalent to 3.2.0.0
      * Search one additional level for each time we fail.
@@ -2231,7 +2255,7 @@ static int getLoadModelPathFromSingleTarget(const char *searchTarget, modelicaPa
 
         if (modelicaPathEntryVersionEqual(entries[i].version,version,j)
             && (j==MODELICAPATH_LEVELS || modelicaPathEntryVersionGreater(entries[i].version,version,MODELICAPATH_LEVELS))
-            && entries[i].versionExtra[0] == '\0') {
+            && (entries[i].versionExtra[0] == '\0' || entries[i].versionExtra[0] == '+' || entries[i].versionExtra[0] == '-')) {
           if (modelicaPathEntryVersionGreater(entries[i].version,foundVersion,MODELICAPATH_LEVELS)) {
             memcpy(foundVersion,entries[i].version,sizeof(long)*MODELICAPATH_LEVELS);
             foundIndex = i;
@@ -2246,17 +2270,27 @@ static int getLoadModelPathFromSingleTarget(const char *searchTarget, modelicaPa
       }
     }
   }
-  if (*versionExtra) {
-    /* fprintf(stderr, "Look for version %lx versionExtra: %s\n", version, versionExtra); */
-    for (i=0; i<numEntries; i++) {
-      /* fprintf(stderr, "entry %s/%s\n", entries[i].dir, entries[i].file);
-      fprintf(stderr, "is %ld.%ld.%ld.%ld %s\n", entries[i].version[0], entries[i].version[1], entries[i].version[2], entries[i].version[3], entries[i].versionExtra); */
-      if (modelicaPathEntryVersionEqual(entries[i].version,version,MODELICAPATH_LEVELS) && 0==strncmp(entries[i].versionExtra,versionExtra,strlen(versionExtra))) {
+  /* fprintf(stderr, "Look for version %lx versionExtra: %s\n", version, versionExtra); */
+  for (i=0; i<numEntries; i++) {
+    /* fprintf(stderr, "entry %s/%s\n", entries[i].dir, entries[i].file);
+    fprintf(stderr, "is %ld.%ld.%ld.%ld %s\n", entries[i].version[0], entries[i].version[1], entries[i].version[2], entries[i].version[3], entries[i].versionExtra); */
+    if (version[0]==0 && version[1]==0 && version[2]==0) {
+      const char *entryVersionExtra = entries[i].versionExtra;
+      if (entryVersionExtra[0] == '-' && versionExtra[0] != '-') {
+        entryVersionExtra = entryVersionExtra+1;
+      }
+      if (0==strncmp(entryVersionExtra,versionExtra,strlen(versionExtra))) {
         *outDir = entries[i].dir;
         *outName = entries[i].file;
         *isDir = entries[i].fileIsDir;
         return 0;
       }
+    }
+    if (modelicaPathEntryVersionEqual(entries[i].version,version,MODELICAPATH_LEVELS) && 0==strncmp(entries[i].versionExtra,versionExtra,strlen(versionExtra))) {
+      *outDir = entries[i].dir;
+      *outName = entries[i].file;
+      *isDir = entries[i].fileIsDir;
+      return 0;
     }
   }
   return 1;
@@ -2270,7 +2304,7 @@ static int getLoadModelPathFromDefaultTarget(const char *name, modelicaPathEntry
 
   /* Look for best release version */
   for (i=0; i<numEntries; i++) {
-    if (modelicaPathEntryVersionGreater(entries[i].version,foundVersion,MODELICAPATH_LEVELS) && entries[i].versionExtra[0] == '\0') {
+    if (modelicaPathEntryVersionGreater(entries[i].version,foundVersion,MODELICAPATH_LEVELS) && (entries[i].versionExtra[0] == '\0' || entries[i].versionExtra[0] == '+' || entries[i].versionExtra[0] == '-')) {
       memcpy(foundVersion,entries[i].version,sizeof(long)*MODELICAPATH_LEVELS);
       foundIndex = i;
     }
@@ -2411,14 +2445,6 @@ extern int SystemImpl_tmpTickMaximum(threadData_t *threadData, int index)
   return data->tmp_tick_max_no[index];
 }
 
-#if defined(OPENMODELICA_BOOTSTRAPPING_STAGE_1)
-extern int SystemImpl_tmpTick(threadData_t *threadData)
-{
-  int res = SystemImpl_tmpTickIndex(threadData,0);
-  return res;
-}
-#endif
-
 extern void SystemImpl_tmpTickReset(threadData_t *threadData, int start)
 {
   SystemImpl_tmpTickResetIndex(threadData,start,0);
@@ -2459,7 +2485,11 @@ const char* SystemImpl__iconv__ascii(const char * str)
 
 static int isUtf8Encoding(const char *str)
 {
+#if defined(_MSC_VER)
+  return _stricmp(str, "UTF-8") || _stricmp(str, "UTF8");
+#else
   return strcasecmp(str, "UTF-8") || strcasecmp(str, "UTF8");
+#endif
 }
 
 extern const char* SystemImpl__iconv(const char * str, const char *from, const char *to, int printError)
@@ -2536,7 +2566,7 @@ extern const char* SystemImpl__iconv(const char * str, const char *from, const c
   return buf;
 }
 
-#include <tinymt64.h>
+#include "util/tinymt64.h"
 
 static tinymt64_t system_random_seed = {{0,0},0,0,0};
 
@@ -2678,9 +2708,9 @@ int System_getTerminalWidth(void)
 #endif
 }
 
-#include "simulation_options.h"
+#include "util/simulation_options.h"
 
-#define SB_SIZE 8192*4
+#define SB_SIZE 16384*4
 #define SB_SIZE_MINUS_ONE (SB_SIZE-1)
 
 /* snprintf check negative size */
@@ -2781,6 +2811,53 @@ char* System_getSimulationHelpTextSphinx(int detailed, int sphinx)
         flagDesc = NLS_LS_METHOD_DESC;
         break;
 
+      case FLAG_SR:
+        numExtraFlags = RK_MAX;
+        flagName = GB_METHOD_NAME;
+        flagDesc = GB_METHOD_DESC;
+        break;
+
+      case FLAG_SR_INT:
+        numExtraFlags = GB_INTERPOL_MAX;
+        flagName = GB_INTERPOL_METHOD_NAME;
+        flagDesc = GB_INTERPOL_METHOD_DESC;
+        break;
+
+      case FLAG_SR_CTRL:
+        numExtraFlags = GB_CTRL_MAX;
+        flagName = GB_CTRL_METHOD_NAME;
+        flagDesc = GB_CTRL_METHOD_DESC;
+        break;
+
+      case FLAG_SR_NLS:
+        numExtraFlags = GB_NLS_MAX;
+        flagName = GB_NLS_METHOD_NAME;
+        flagDesc = GB_NLS_METHOD_DESC;
+        break;
+
+      case FLAG_MR:
+        numExtraFlags = RK_MAX;
+        flagName = GB_METHOD_NAME;
+        flagDesc = GB_METHOD_DESC;
+        break;
+
+      case FLAG_MR_INT:
+        numExtraFlags = GB_INTERPOL_MAX;
+        flagName = GB_INTERPOL_METHOD_NAME;
+        flagDesc = GB_INTERPOL_METHOD_DESC;
+        break;
+
+      case FLAG_MR_CTRL:
+        numExtraFlags = GB_CTRL_MAX;
+        flagName = GB_CTRL_METHOD_NAME;
+        flagDesc = GB_CTRL_METHOD_DESC;
+        break;
+
+      case FLAG_MR_NLS:
+        numExtraFlags = GB_NLS_MAX;
+        flagName = GB_NLS_METHOD_NAME;
+        flagDesc = GB_NLS_METHOD_DESC;
+        break;
 
       case FLAG_S:
         numExtraFlags = S_MAX;
@@ -2841,8 +2918,8 @@ int SystemImpl__fileIsNewerThan(const char *file1, const char *file2)
   FindClose(sh2);
   return ((LARGE_INTEGER*)&ftWrite1)->QuadPart - ((LARGE_INTEGER*)&ftWrite2)->QuadPart > 0 ? 1 : 0;
 #else
-  struct stat buf1, buf2;
-  if (stat(file1, &buf1)) {
+  omc_stat_t buf1, buf2;
+  if (omc_stat(file1, &buf1)) {
     const char *c_tokens[2]={strerror(errno),file1};
     c_add_message(NULL,85,
         ErrorType_scripting,
@@ -2852,7 +2929,7 @@ int SystemImpl__fileIsNewerThan(const char *file1, const char *file2)
         2);
     return -1;
   }
-  if (stat(file2, &buf2)) {
+  if (omc_stat(file2, &buf2)) {
     const char *c_tokens[2]={strerror(errno),file2};
     c_add_message(NULL,85,
         ErrorType_scripting,
@@ -2885,25 +2962,24 @@ int SystemImpl__fileContentsEqual(const char *file1, const char *file2)
   char buf1[8192],buf2[8192];
   FILE *f1,*f2;
   int i1,i2,totalread=0,error=0;
-#if !defined(_MSC_VER)
-  struct stat stbuf1;
-  struct stat stbuf2;
-  if (stat(file1, &stbuf1)) return 0;
-  if (stat(file2, &stbuf2)) return 0;
-  if (stbuf1.st_size != stbuf2.st_size) return 0;
-#endif
-  f1 = fopen(file1,"rb");
+  omc_stat_t stbuf1;
+  omc_stat_t stbuf2;
+
+  if (omc_stat(file1, &stbuf1) || omc_stat(file2, &stbuf2) || stbuf1.st_size != stbuf2.st_size)
+    return 0;
+
+  f1 = omc_fopen(file1,"rb");
   if (f1 == NULL) {
     return 0;
   }
-  f2 = fopen(file2,"rb");
+  f2 = omc_fopen(file2,"rb");
   if (f2 == NULL) {
     fclose(f1);
     return 0;
   }
   do {
-    i1 = fread(buf1,1,8192,f1);
-    i2 = fread(buf2,1,8192,f2);
+    i1 = omc_fread(buf1,1,8192,f1, 1);
+    i2 = omc_fread(buf2,1,8192,f2, 1);
     if (i1 != i2 || strncmp(buf1,buf2,i1)) {
       error = 1;
     }
@@ -2916,20 +2992,23 @@ int SystemImpl__fileContentsEqual(const char *file1, const char *file2)
 
 int SystemImpl__rename(const char *source, const char *dest)
 {
-#if defined(__MINGW32__) || defined(_MSC_VER)
-  return MoveFileEx(source, dest, MOVEFILE_REPLACE_EXISTING);
-#endif
-  return 0==rename(source,dest);
+   return (0 == omc_rename(source, dest));
 }
 
 char* SystemImpl__ctime(double time)
 {
   char buf[64] = {0}; /* needs to be >=26 char */
   time_t t = (time_t) time;
-  return omc_alloc_interface.malloc_strdup(ctime_r(&t,buf));
+#if defined(__MINGW32__) || defined(_MSC_VER)
+  errno_t e = ctime_s(buf, 64, t);
+  assert(e == 0 && "ctime_s returned an error");
+  return omc_alloc_interface.malloc_strdup(buf);
+#else
+  return omc_alloc_interface.malloc_strdup(ctime_r(&t, buf));
+#endif
 }
 
-#if defined(__MINGW32__)
+#if defined(__MINGW32__) || defined(_MSC_VER)
 /*
  * strtok_r implementation
  */
@@ -2961,16 +3040,34 @@ static char *omc_strtok_r(char *str, const char *delim, char **saveptr)
 
 #endif /* defined(__MINGW32__) */
 
-int SystemImpl__stat(const char *filename, double *size, double *mtime)
+typedef enum {
+    FileType_NoFile = 1,
+    FileType_RegularFile,
+    FileType_Directory,
+    FileType_SpecialFile
+} OpenModelicaFileType;
+
+int SystemImpl__stat(const char *filename, double *size, double *mtime, int *fileType)
 {
-  struct stat stats;
-  if (0 != stat(filename, &stats)) {
+  omc_stat_t stats;
+  if (0 != omc_stat(filename, &stats)) {
     *size = 0;
     *mtime = 0;
+    *fileType = FileType_NoFile;
     return 0;
   }
   *size = stats.st_size;
   *mtime = stats.st_mtime;
+  if (S_ISREG(stats.st_mode)) {
+    *fileType = FileType_RegularFile;
+  }
+  else if (S_ISDIR(stats.st_mode)) {
+    *fileType = FileType_Directory;
+  }
+  else {
+    *fileType = FileType_SpecialFile;
+  }
+
   return 1;
 }
 
@@ -3015,15 +3112,15 @@ int SystemImpl__covertTextFileToCLiteral(const char *textFile, const char *outFi
   int result = 0, n, i, j, k, isMSVC = !strcmp(target, "msvc");
   char buffer[512];
   char obuffer[1024];
-  fin = fopen(textFile, "r");
+  fin = omc_fopen(textFile, "r");
   if (!fin) {
     goto done;
   }
   errno = 0;
 #if defined(__APPLE_CC__)||defined(__MINGW32__)||defined(__MINGW64__)
-  unlink(outFile);
+  omc_unlink(outFile);
 #endif
-  fout = fopen(outFile, "w");
+  fout = omc_fopen(outFile, "w");
   if (!fout) {
     const char *c_token[1]={strerror(errno)};
     c_add_message(NULL,85,
@@ -3040,7 +3137,7 @@ int SystemImpl__covertTextFileToCLiteral(const char *textFile, const char *outFi
     fputc('{', fout);
     fputc('\n', fout);
     do {
-      n = fread(buffer,1,511,fin);
+      n = omc_fread(buffer,1,511,fin, 1);
       j = 0;
       /* adrpo: encode each char */
       for (i=0; i<n; i++) {
@@ -3083,7 +3180,7 @@ int SystemImpl__covertTextFileToCLiteral(const char *textFile, const char *outFi
   {
     fputc('\"', fout);
     do {
-      n = fread(buffer,1,511,fin);
+      n = omc_fread(buffer,1,511,fin, 1);
       j = 0;
       for (i=0; i<n; i++) {
         switch (buffer[i]) {
@@ -3228,6 +3325,16 @@ int SystemImpl__relocateFunctions(const char *fileName, void *names)
   return 0;
 }
 #endif
+
+int SystemImpl__fputs(const char *str, int stream)
+{
+  switch (stream) {
+    case 1: return fputs(str, stdout); break;
+    case 2: return fputs(str, stderr); break;
+  }
+
+  return -1;
+}
 
 #ifdef __cplusplus
 }

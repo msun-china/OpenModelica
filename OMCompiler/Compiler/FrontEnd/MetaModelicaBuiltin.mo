@@ -387,6 +387,16 @@ algorithm
   annotation(__OpenModelica_EarlyInline = true, __OpenModelica_BuiltinPtr = true);
 end realAbs;
 
+function realAlmostEq
+  input Real a;
+  input Real b;
+  input Real absTol = 1e-6;
+  output Boolean c;
+algorithm
+  c := absTol > abs(a-b);
+  annotation(__OpenModelica_EarlyInline = true, __OpenModelica_BuiltinPtr = true);
+end realAlmostEq;
+
 function realNeg
   input Real x;
   output Real y;
@@ -607,7 +617,7 @@ function stringHashSdbm
 external "builtin";
 end stringHashSdbm;
 
-function substring
+function substring "Returns substring, does not fail for bogus inputs."
   input String str;
   input Integer start "start index, first character is 1";
   input Integer stop "stop index, first character is 1";
@@ -1000,6 +1010,13 @@ function listArrayLiteral<A>
   output array<A> arr;
 external "builtin";
 end listArrayLiteral;
+
+function listAppendDestroy<A> "O(listLength(lstFirstDestroyed))"
+  input list<A> lstFirstDestroyed "this list will be destroyed, the end of this list will be set to the second list";
+  input list<A> lstSecondKept "this list is not touched";
+  output list<A> lstFirstDestroyedReturned;
+external "builtin";
+end listAppendDestroy;
 
 end Dangerous;
 

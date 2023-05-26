@@ -34,8 +34,6 @@
 #include "generic_array.h"
 #include "omc_error.h"
 
-#pragma GCC diagnostic error "-Werror"
-
 static void* generic_ptrget(const base_array_t *a, size_t sze, size_t i) {
   return ((char*)a->data) + (i*sze);
 }
@@ -48,13 +46,15 @@ static int generic_array_ndims_eq(const base_array_t* src, const base_array_t* d
     return 1;
 }
 
+#define omc_FORMAT "src->dim_size[%d] != dst->dim_size[%d], %" PRINT_MMC_SINT_T " != %" PRINT_MMC_SINT_T "\n"
+
 static int generic_array_dimsizes_eq(const base_array_t* src, const base_array_t* dst, int print_error)
 {
     int i;
     for(i = 0; i < src->ndims; ++i) {
         if(src->dim_size[i] != dst->dim_size[i]) {
             if (print_error) {
-                fprintf(stderr, "src->dim_size[%d] != dst->dim_size[%d], %ld != %ld\n",
+                fprintf(stderr, omc_FORMAT,
                         i, i, src->dim_size[i], dst->dim_size[i]);
             }
             return 0;
@@ -124,7 +124,7 @@ void generic_array_create(threadData_t* td, base_array_t* dst, constructor_func 
     dst->data = generic_alloc(nr_of_elements, sze);
 
     // If we get here then the dst array has known dims
-    // Whcih means it is not flexible.
+    // Which means it is not flexible.
     dst->flexible = 0;
 
     // Initialize each element of the complex array
@@ -145,7 +145,7 @@ void simple_array_create(threadData_t* td, base_array_t* dst, int ndims, size_t 
     dst->data = generic_alloc(nr_of_elements, sze);
 
     // If we get here then the dst array has known dims
-    // Whcih means it is not flexible.
+    // Which means it is not flexible.
     dst->flexible = 0;
 
     // Init to 0. IDK if this is what Modelica expects
@@ -161,7 +161,7 @@ void generic_array_alloc_copy(const base_array_t src_cp, base_array_t* dst, copy
     clone_base_array_spec(src, dst);
 
     // If we get here then it means the dst array had a default value (i.e., binding to src array)
-    // Whcih means even if it was unknown size, it is not flexible anymore and is
+    // Which means even if it was unknown size, it is not flexible anymore and is
     // same shape as the src array.
     dst->flexible = 0;
 
@@ -183,7 +183,7 @@ void simple_array_alloc_copy(const base_array_t src_cp, base_array_t* dst, size_
     clone_base_array_spec(src, dst);
 
     // If we get here then it means the dst array had a default value (i.e., binding to src array)
-    // Whcih means even if it was unknown size, it is not flexible anymore and is
+    // Which means even if it was unknown size, it is not flexible anymore and is
     // same shape as the src array.
     dst->flexible = 0;
 
@@ -227,6 +227,19 @@ void* generic_array_get(const base_array_t* src, size_t sze, ...) {
   return trgt;
 }
 
+void* generic_array_get1(const base_array_t* src, size_t sze, int sub1) {
+    omc_assert_macro(sub1 > 0 && sub1 <= src->dim_size[0]);
+
+    return generic_ptrget(src, sub1 - 1, sze);
+}
+
+void* generic_array_get2(const base_array_t* src, size_t sze, int sub1, int sub2) {
+    omc_assert_macro(sub1 > 0 && sub1 <= src->dim_size[0]);
+    omc_assert_macro(sub2 > 0 && sub2 <= src->dim_size[1]);
+
+    return generic_ptrget(src, ((sub1 - 1) * src->dim_size[1]) + (sub2 - 1), sze);
+}
+
 void generic_array_set(base_array_t* dst, void* val, copy_func cp_func, size_t sze, ...) {
   va_list ap;
   va_start(ap,sze);
@@ -235,23 +248,5 @@ void generic_array_set(base_array_t* dst, void* val, copy_func cp_func, size_t s
   cp_func(val,trgt);
   va_end(ap);
 }
-
-
-
-// TODO remove me. not needed anymore. superseded by generic_array_get
-// TODO: ndims is not needed to be passed here.
-void* generic_array_element_addr(const base_array_t* source, size_t sze, int ndims,...) {
-  va_list ap;
-  void* tmp;
-  va_start(ap,ndims);
-  tmp = generic_ptrget(source, calc_base_index_va(source, ndims, ap), sze);
-  va_end(ap);
-  return tmp;
-}
-
-void* generic_array_element_addr1(const base_array_t* source, size_t sze, int dim1) {
-  return generic_ptrget(source, dim1-1, sze);
-}
-
 
 
