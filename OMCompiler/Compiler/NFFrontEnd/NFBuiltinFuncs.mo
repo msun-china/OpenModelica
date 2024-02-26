@@ -72,7 +72,7 @@ constant SCode.Element DUMMY_ELEMENT = SCode.CLASS(
   SCode.defaultPrefixes,
   SCode.Encapsulated.ENCAPSULATED(),
   SCode.Partial.NOT_PARTIAL(),
-  SCode.Restriction.R_FUNCTION(SCode.FunctionRestriction.FR_NORMAL_FUNCTION(false)),
+  SCode.Restriction.R_FUNCTION(SCode.FunctionRestriction.FR_NORMAL_FUNCTION(Absyn.FunctionPurity.NO_PURITY())),
   SCode.ClassDef.PARTS({}, {}, {}, {}, {}, {}, {}, NONE()),
   SCode.Comment.COMMENT(NONE(), NONE()),
   AbsynUtil.dummyInfo
@@ -120,7 +120,7 @@ constant InstNode STRING_PARAM = InstNode.COMPONENT_NODE("s",
 
 // Default enumeration(:) parameter.
 constant Component ENUM_COMPONENT = Component.COMPONENT(NFInstNode.EMPTY_NODE(),
-  Type.ENUMERATION_ANY(), NFBinding.EMPTY_BINDING, NFBinding.EMPTY_BINDING,
+  Type.ENUMERATION(Absyn.Path.IDENT(":"), {}), NFBinding.EMPTY_BINDING, NFBinding.EMPTY_BINDING,
   NFAttributes.DEFAULT_ATTR, NONE(), NONE(), ComponentState.TypeChecked, AbsynUtil.dummyInfo);
 
 constant InstNode ENUM_PARAM = InstNode.COMPONENT_NODE("e",
@@ -370,6 +370,11 @@ constant Function SMOOTH = Function.FUNCTION(Path.IDENT("smooth"),
     Pointer.createImmutable(FunctionStatus.BUILTIN), Pointer.createImmutable(0));
 
 constant Function NO_EVENT = Function.FUNCTION(Path.IDENT("noEvent"),
+  InstNode.EMPTY_NODE(), {}, {}, {}, {},
+    Type.UNKNOWN(), DAE.FUNCTION_ATTRIBUTES_BUILTIN, {}, {}, listArray({}),
+    Pointer.createImmutable(FunctionStatus.BUILTIN), Pointer.createImmutable(0));
+
+constant Function PRE = Function.FUNCTION(Path.IDENT("pre"),
   InstNode.EMPTY_NODE(), {}, {}, {}, {},
     Type.UNKNOWN(), DAE.FUNCTION_ATTRIBUTES_BUILTIN, {}, {}, listArray({}),
     Pointer.createImmutable(FunctionStatus.BUILTIN), Pointer.createImmutable(0));

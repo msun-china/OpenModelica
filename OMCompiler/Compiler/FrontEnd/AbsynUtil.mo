@@ -193,6 +193,7 @@ algorithm
       String error_msg;
       Absyn.Ident id, enterName, exitName;
       list<Absyn.Case> match_cases;
+      list<Absyn.Subscript> subs;
 
     case Absyn.INTEGER() then (exp, arg);
     case Absyn.REAL() then (exp, arg);
@@ -329,6 +330,15 @@ algorithm
       then
         (if referenceEq(exp.exp,e1) then exp else Absyn.EXPRESSIONCOMMENT(exp.commentsBefore, e1, exp.commentsAfter), arg);
 
+    case Absyn.SUBSCRIPTED_EXP()
+      algorithm
+        (e1, arg) := traverseExpBidir(exp.exp, enterFunc, exitFunc, arg);
+        (subs, arg) := traverseExpBidirSubs(exp.subscripts, enterFunc, exitFunc, arg);
+      then
+        (if referenceEq(exp.exp, e1) and referenceEq(exp.subscripts, subs) then exp else Absyn.SUBSCRIPTED_EXP(e1, subs), arg);
+
+    case Absyn.BREAK() then (exp, arg);
+
     else
       algorithm
         (,,enterName) := System.dladdr(enterFunc);
@@ -362,21 +372,21 @@ algorithm
       list<Absyn.Subscript> subs1,subs2;
 
     case Absyn.CREF_FULLYQUALIFIED(componentRef = cr1)
-      equation
-        (cr2, arg) = traverseExpBidirCref(cr1, enterFunc, exitFunc, arg);
+      algorithm
+        (cr2, arg) := traverseExpBidirCref(cr1, enterFunc, exitFunc, arg);
       then
         (if referenceEq(cr1,cr2) then cref else crefMakeFullyQualified(cr2), arg);
 
     case Absyn.CREF_QUAL(name = name, subscripts = subs1, componentRef = cr1)
-      equation
-        (subs2, arg) = List.map2FoldCheckReferenceEq(subs1, traverseExpBidirSubs, enterFunc, exitFunc, arg);
-        (cr2, arg) = traverseExpBidirCref(cr1, enterFunc, exitFunc, arg);
+      algorithm
+        (subs2, arg) := traverseExpBidirSubs(subs1, enterFunc, exitFunc, arg);
+        (cr2, arg) := traverseExpBidirCref(cr1, enterFunc, exitFunc, arg);
       then
         (if referenceEq(cr1,cr2) and referenceEq(subs1,subs2) then cref else Absyn.CREF_QUAL(name, subs2, cr2), arg);
 
     case Absyn.CREF_IDENT(name = name, subscripts = subs1)
-      equation
-        (subs2, arg) = List.map2FoldCheckReferenceEq(subs1, traverseExpBidirSubs, enterFunc, exitFunc, arg);
+      algorithm
+        (subs2, arg) := traverseExpBidirSubs(subs1, enterFunc, exitFunc, arg);
       then
         (if referenceEq(subs1,subs2) then cref else Absyn.CREF_IDENT(name, subs2), arg);
 
@@ -386,8 +396,22 @@ algorithm
 end traverseExpBidirCref;
 
 public function traverseExpBidirSubs<Arg>
-  "Helper function to traverseExpBidirCref. Traverses expressions in a
-  subscript."
+  "Helper function to traverseExpBidir. Traverses expressions in a list of subscripts."
+  input output list<Absyn.Subscript> subscripts;
+  input FuncType enterFunc;
+  input FuncType exitFunc;
+  input output Arg arg;
+
+  partial function FuncType
+    input output Absyn.Exp exp;
+    input output Arg arg;
+  end FuncType;
+algorithm
+  (subscripts, arg) := List.map2FoldCheckReferenceEq(subscripts, traverseExpBidirSub, enterFunc, exitFunc, arg);
+end traverseExpBidirSubs;
+
+public function traverseExpBidirSub<Arg>
+  "Helper function to traverseExpBidir. Traverses expressions in a subscript."
   input output Absyn.Subscript subscript;
   input FuncType enterFunc;
   input FuncType exitFunc;
@@ -410,7 +434,7 @@ algorithm
 
     case Absyn.NOSUB() then (subscript, arg);
   end match;
-end traverseExpBidirSubs;
+end traverseExpBidirSub;
 
 public function traverseExpBidirElseIf<Arg>
   "Helper function to traverseExpBidirSubExps. Traverses the expressions in an
@@ -588,7 +612,7 @@ algorithm
   end match;
 end traverseClassPartBidir;
 
-protected function traverseEquationItemListBidir<Arg>
+public function traverseEquationItemListBidir<Arg>
   input list<Absyn.EquationItem> inEquationItems;
   input FuncType enterFunc;
   input FuncType exitFunc;
@@ -604,7 +628,7 @@ algorithm
   (outEquationItems, outArg) := List.map2FoldCheckReferenceEq(inEquationItems, traverseEquationItemBidir, enterFunc, exitFunc, inArg);
 end traverseEquationItemListBidir;
 
-protected function traverseAlgorithmItemListBidir<Arg>
+public function traverseAlgorithmItemListBidir<Arg>
   input list<Absyn.AlgorithmItem> inAlgs;
   input FuncType enterFunc;
   input FuncType exitFunc;
@@ -909,14 +933,12 @@ algorithm
 annotation(__OpenModelica_EarlyInline = true);
 end makeQualifiedPathFromStrings;
 
-public function className "returns the class name of a Absyn.Class as a Absyn.Path"
+public function className
+  "Returns the class name of a Absyn.Class."
   input Absyn.Class cl;
-  output Absyn.Path name;
-protected
-  String id;
+  output String name;
 algorithm
-  Absyn.CLASS(name = id) := cl;
-  name := Absyn.IDENT(id);
+  Absyn.CLASS(name = name) := cl;
 end className;
 
 public function isClassNamed
@@ -955,6 +977,37 @@ algorithm
     case Absyn.COMPONENTS(components = {Absyn.COMPONENTITEM(component = Absyn.COMPONENT(name = n))}) then n;
   end match;
 end elementSpecName;
+
+public function elementItemNames
+  input Absyn.ElementItem item;
+  output list<String> names;
+algorithm
+  names := match item
+    case Absyn.ElementItem.ELEMENTITEM() then elementNames(item.element);
+    else {};
+  end match;
+end elementItemNames;
+
+public function elementNames
+  input Absyn.Element element;
+  output list<String> names;
+algorithm
+  names := match element
+    case Absyn.Element.ELEMENT() then elementSpecNames(element.specification);
+    else {};
+  end match;
+end elementNames;
+
+public function elementSpecNames
+  input Absyn.ElementSpec spec;
+  output list<String> names;
+algorithm
+  names := match spec
+    case Absyn.ElementSpec.CLASSDEF() then {className(spec.class_)};
+    case Absyn.ElementSpec.COMPONENTS() then list(componentName(c) for c in spec.components);
+    else {};
+  end match;
+end elementSpecNames;
 
 public function isClassdef
   input Absyn.Element inElement;
@@ -1800,7 +1853,7 @@ public function getCrefFromExp
   input Boolean includeFunctions "note that if you say includeSubs = false then you won't get the functions from array subscripts";
   output list<Absyn.ComponentRef> outComponentRefLst;
 algorithm
-  outComponentRefLst := match (inExp,includeSubs,includeFunctions)
+  outComponentRefLst := match inExp
     local
       Absyn.ComponentRef cr;
       list<Absyn.ComponentRef> l1,l2,res;
@@ -1814,21 +1867,21 @@ algorithm
       list<list<Absyn.ComponentRef>> lstres1;
       list<list<Absyn.ComponentRef>> crefll;
 
-    case (Absyn.INTEGER(),_,_) then {};
-    case (Absyn.REAL(),_,_) then {};
-    case (Absyn.STRING(),_,_) then {};
-    case (Absyn.BOOL(),_,_) then {};
-    case (Absyn.CREF(componentRef = Absyn.ALLWILD()),_,_) then {};
-    case (Absyn.CREF(componentRef = Absyn.WILD()),_,_) then {};
-    case (Absyn.CREF(componentRef = cr),false,_) then {cr};
+    case Absyn.INTEGER() then {};
+    case Absyn.REAL() then {};
+    case Absyn.STRING() then {};
+    case Absyn.BOOL() then {};
+    case Absyn.CREF(componentRef = Absyn.ALLWILD()) then {};
+    case Absyn.CREF(componentRef = Absyn.WILD()) then {};
+    case Absyn.CREF(componentRef = cr) guard not includeSubs then {cr};
 
-    case (Absyn.CREF(componentRef = (cr)),true,_)
+    case Absyn.CREF(componentRef = (cr))
       equation
         subs = getSubsFromCref(cr,includeSubs,includeFunctions);
         l1 = getCrefsFromSubs(subs,includeSubs,includeFunctions);
       then cr::l1;
 
-    case (Absyn.BINARY(exp1 = e1,exp2 = e2),_,_)
+    case Absyn.BINARY(exp1 = e1,exp2 = e2)
       equation
         l1 = getCrefFromExp(e1,includeSubs,includeFunctions);
         l2 = getCrefFromExp(e2,includeSubs,includeFunctions);
@@ -1836,13 +1889,13 @@ algorithm
       then
         res;
 
-    case (Absyn.UNARY(exp = e1),_,_)
+    case Absyn.UNARY(exp = e1)
       equation
         res = getCrefFromExp(e1,includeSubs,includeFunctions);
       then
         res;
 
-    case (Absyn.LBINARY(exp1 = e1,exp2 = e2),_,_)
+    case Absyn.LBINARY(exp1 = e1,exp2 = e2)
       equation
         l1 = getCrefFromExp(e1,includeSubs,includeFunctions);
         l2 = getCrefFromExp(e2,includeSubs,includeFunctions);
@@ -1850,13 +1903,13 @@ algorithm
       then
         res;
 
-    case (Absyn.LUNARY(exp = e1),_,_)
+    case Absyn.LUNARY(exp = e1)
       equation
         res = getCrefFromExp(e1,includeSubs,includeFunctions);
       then
         res;
 
-    case (Absyn.RELATION(exp1 = e1,exp2 = e2),_,_)
+    case Absyn.RELATION(exp1 = e1,exp2 = e2)
       equation
         l1 = getCrefFromExp(e1,includeSubs,includeFunctions);
         l2 = getCrefFromExp(e2,includeSubs,includeFunctions);
@@ -1865,36 +1918,36 @@ algorithm
         res;
 
     // TODO: Handle else if-branches.
-    case (Absyn.IFEXP(ifExp = e1,trueBranch = e2,elseBranch = e3),_,_)
+    case Absyn.IFEXP(ifExp = e1,trueBranch = e2,elseBranch = e3)
       then List.flatten({
         getCrefFromExp(e1, includeSubs, includeFunctions),
         getCrefFromExp(e2, includeSubs, includeFunctions),
         getCrefFromExp(e3, includeSubs, includeFunctions)});
 
-    case (Absyn.CALL(function_ = cr, functionArgs = farg),_,_)
+    case Absyn.CALL(function_ = cr, functionArgs = farg)
       equation
         res = getCrefFromFarg(farg,includeSubs,includeFunctions);
         res = if includeFunctions then cr::res else res;
       then
         res;
-    case (Absyn.PARTEVALFUNCTION(function_ = cr, functionArgs = farg),_,_)
+    case Absyn.PARTEVALFUNCTION(function_ = cr, functionArgs = farg)
       equation
         res = getCrefFromFarg(farg,includeSubs,includeFunctions);
         res = if includeFunctions then cr::res else res;
       then
         res;
-    case (Absyn.ARRAY(arrayExp = expl),_,_)
+    case Absyn.ARRAY(arrayExp = expl)
       equation
         lstres1 = List.map2(expl, getCrefFromExp, includeSubs, includeFunctions);
         res = List.flatten(lstres1);
       then
         res;
-    case (Absyn.MATRIX(matrix = expll),_,_)
+    case Absyn.MATRIX(matrix = expll)
       equation
         res = List.flatten(List.flatten(List.map2List(expll, getCrefFromExp, includeSubs, includeFunctions)));
       then
         res;
-    case (Absyn.RANGE(start = e1,step = SOME(e3),stop = e2),_,_)
+    case Absyn.RANGE(start = e1,step = SOME(e3),stop = e2)
       equation
         l1 = getCrefFromExp(e1,includeSubs,includeFunctions);
         l2 = getCrefFromExp(e2,includeSubs,includeFunctions);
@@ -1903,7 +1956,7 @@ algorithm
         res = listAppend(l1, l2);
       then
         res;
-    case (Absyn.RANGE(start = e1,step = NONE(),stop = e2),_,_)
+    case Absyn.RANGE(start = e1,step = NONE(),stop = e2)
       equation
         l1 = getCrefFromExp(e1,includeSubs,includeFunctions);
         l2 = getCrefFromExp(e2,includeSubs,includeFunctions);
@@ -1911,20 +1964,20 @@ algorithm
       then
         res;
 
-    case (Absyn.END(),_,_) then {};
+    case Absyn.END() then {};
 
-    case (Absyn.TUPLE(expressions = expl),_,_)
+    case Absyn.TUPLE(expressions = expl)
       equation
         crefll = List.map2(expl,getCrefFromExp,includeSubs,includeFunctions);
         res = List.flatten(crefll);
       then
         res;
 
-    case (Absyn.CODE(),_,_) then {};
+    case Absyn.CODE() then {};
 
-    case (Absyn.AS(exp = e1),_,_) then getCrefFromExp(e1,includeSubs,includeFunctions);
+    case Absyn.AS(exp = e1) then getCrefFromExp(e1,includeSubs,includeFunctions);
 
-    case (Absyn.CONS(e1,e2),_,_)
+    case Absyn.CONS(e1,e2)
       equation
         l1 = getCrefFromExp(e1,includeSubs,includeFunctions);
         l2 = getCrefFromExp(e2,includeSubs,includeFunctions);
@@ -1932,21 +1985,34 @@ algorithm
       then
         res;
 
-    case (Absyn.LIST(expl),_,_)
+    case Absyn.LIST(expl)
       equation
         crefll = List.map2(expl,getCrefFromExp,includeSubs,includeFunctions);
         res = List.flatten(crefll);
       then
         res;
 
-    case (Absyn.MATCHEXP(),_,_) then fail();
+    case Absyn.MATCHEXP() then fail();
 
-    case (Absyn.DOT(),_,_)
+    case Absyn.DOT()
       // inExp.index is only allowed to contain names to index the function call; not crefs that are evaluated in any way
       then getCrefFromExp(inExp.exp,includeSubs,includeFunctions);
 
-    case (Absyn.EXPRESSIONCOMMENT(),_,_)
+    case Absyn.EXPRESSIONCOMMENT()
       then getCrefFromExp(inExp.exp,includeSubs,includeFunctions);
+
+    case Absyn.SUBSCRIPTED_EXP()
+      algorithm
+        l1 := getCrefFromExp(inExp.exp, includeSubs, includeFunctions);
+
+        if includeSubs then
+          l2 := getCrefsFromSubs(inExp.subscripts, includeSubs, includeFunctions);
+          l1 := listAppend(l2, l1);
+        end if;
+      then
+        l1;
+
+    case Absyn.BREAK() then {};
 
     else
       equation
@@ -4306,7 +4372,7 @@ algorithm
   end match;
 end opIsElementWise;
 
-protected function dummyTraverseExp<Arg>
+public function dummyTraverseExp<Arg>
   input Absyn.Exp inExp;
   input Arg inArg;
   output Absyn.Exp outExp;
@@ -4343,25 +4409,41 @@ algorithm
   end match;
 end getClassPartsInClass;
 
+public function getElementItemsInElement
+  "Returns the public and protected elements in a class."
+  input Absyn.Element element;
+  output list<Absyn.ElementItem> outElements;
+protected
+  Absyn.Class cls;
+algorithm
+  outElements := match element
+    case Absyn.Element.ELEMENT(specification = Absyn.ElementSpec.CLASSDEF(class_ = cls))
+      then getElementItemsInClass(cls);
+    else {};
+  end match;
+end getElementItemsInElement;
+
 public function getElementItemsInClass
   "Returns the public and protected elements in a class."
   input Absyn.Class inClass;
+  output list<Absyn.ElementItem> outElements = getElementItemsInClassDef(inClass.body);
+end getElementItemsInClass;
+
+public function getElementItemsInClassDef
+  "Returns the public and protected elements in a class definition."
+  input Absyn.ClassDef classDef;
   output list<Absyn.ElementItem> outElements;
 algorithm
-  outElements := match(inClass)
-    local
-      list<Absyn.ClassPart> parts;
+  outElements := match classDef
+    case Absyn.ClassDef.PARTS()
+      then List.mapFlat(classDef.classParts, getElementItemsInClassPart);
 
-    case Absyn.CLASS(body = Absyn.PARTS(classParts = parts))
-      then List.mapFlat(parts, getElementItemsInClassPart);
-
-    case Absyn.CLASS(body = Absyn.CLASS_EXTENDS(parts = parts))
-      then List.mapFlat(parts, getElementItemsInClassPart);
+    case Absyn.ClassDef.CLASS_EXTENDS()
+      then List.mapFlat(classDef.parts, getElementItemsInClassPart);
 
     else {};
-
   end match;
-end getElementItemsInClass;
+end getElementItemsInClassDef;
 
 public function getElementItemsInClassPart
   "Returns the public and protected elements in a class part."
@@ -4641,6 +4723,7 @@ algorithm
     local
       Absyn.Modification mod;
 
+    case Absyn.MODIFICATION(finalPrefix = true) then false;
     case Absyn.MODIFICATION(modification = NONE()) then true;
     case Absyn.MODIFICATION(modification = SOME(mod)) then isEmptyMod(mod);
     else false;
@@ -4830,6 +4913,19 @@ algorithm
       then
         ();
 
+    case Absyn.EXPRESSIONCOMMENT()
+      algorithm
+        outExp.exp := inFunc(outExp.exp, inArg);
+      then
+        ();
+
+    case Absyn.SUBSCRIPTED_EXP()
+      algorithm
+        outExp.exp := inFunc(outExp.exp, inArg);
+        outExp.subscripts := list(traverseExpShallowSub(s, inArg, inFunc) for s in outExp.subscripts);
+      then
+        ();
+
     else ();
   end match;
 end traverseExpShallow;
@@ -4884,6 +4980,28 @@ algorithm
   range_exp := Util.applyOption1(range_exp, inFunc, inArg);
   outIterator := Absyn.ITERATOR(name, guard_exp, range_exp);
 end traverseExpShallowIterator;
+
+public function traverseExpShallowSub<ArgT>
+  input output Absyn.Subscript sub;
+  input ArgT inArg;
+  input FuncT inFunc;
+
+  partial function FuncT
+    input Absyn.Exp inExp;
+    input ArgT inArg;
+    output Absyn.Exp outExp;
+  end FuncT;
+algorithm
+  () := match sub
+    case Absyn.Subscript.SUBSCRIPT()
+      algorithm
+        sub.subscript := inFunc(sub.subscript, inArg);
+      then
+        ();
+
+    else ();
+  end match;
+end traverseExpShallowSub;
 
 public function isElementItemClass
   input Absyn.ElementItem inElement;
@@ -5007,6 +5125,7 @@ algorithm
     case Absyn.RANGE() then true;
     case Absyn.CONS() then true;
     case Absyn.LIST() then true;
+    case Absyn.BREAK() then true;
     else false;
   end match;
 end isInvariantExpNoTraverse;
@@ -5201,7 +5320,7 @@ algorithm
     case ((class_ :: _),_,_,_,_)
       equation
         print("-traverse_classes2 failed on class:");
-        print(AbsynUtil.pathString(AbsynUtil.className(class_)));
+        print(AbsynUtil.className(class_));
         print("\n");
       then
         fail();
@@ -5565,34 +5684,39 @@ algorithm
 end isUniontype;
 
 public function traverseClassElements<ArgT>
-  input Absyn.Class inClass;
-  input FuncType inFunc;
-  input ArgT inArg;
-  output Absyn.Class outClass = inClass;
-  output ArgT outArg;
+  input output Absyn.Class cls;
+  input FuncType func;
+  input output ArgT arg;
 
   partial function FuncType
-    input Absyn.Element inElement;
-    input ArgT inArg;
-    output Absyn.Element outElement;
-    output ArgT outArg;
-    output Boolean outContinue;
+    input output Absyn.Element element;
+    input output ArgT arg;
+          output Boolean outContinue;
+  end FuncType;
+protected
+  Absyn.ClassDef body;
+algorithm
+  (body, arg) := traverseClassDefElements(cls.body, func, arg);
+
+  if not referenceEq(body, cls.body) then
+    cls.body := body;
+  end if;
+end traverseClassElements;
+
+public function traverseClassDefElements<ArgT>
+  input output Absyn.ClassDef classDef;
+  input FuncType func;
+  input output ArgT arg;
+
+  partial function FuncType
+    input output Absyn.Element element;
+    input output ArgT arg;
+          output Boolean outContinue;
   end FuncType;
 algorithm
-  outClass := match(outClass)
-    local
-      Absyn.ClassDef body;
-
-    case Absyn.CLASS()
-      algorithm
-        (body, outArg) := traverseClassDef(outClass.body,
-          function traverseClassPartElements(inFunc = inFunc), inArg);
-        if not referenceEq(body, outClass.body) then outClass.body := body; end if;
-      then
-        outClass;
-
-  end match;
-end traverseClassElements;
+  (classDef, arg) := traverseClassDef(classDef,
+    function traverseClassPartElements(inFunc = func), arg);
+end traverseClassDefElements;
 
 protected function traverseClassPartElements<ArgT>
   input Absyn.ClassPart inClassPart;
@@ -5762,25 +5886,23 @@ function getClassAnnotation
    annotations because Modelica 2 allowed it, in that case only the first
    annotation is returned."
   input Absyn.Class cls;
-  output Option<Absyn.Annotation> ann;
+  output Option<Absyn.Annotation> outAnnotation;
 algorithm
-  ann := getClassDefAnnotation(cls.body);
+  outAnnotation := getClassDefAnnotation(cls.body);
 end getClassAnnotation;
 
 function getClassDefAnnotation
   "Returns the optional annotation for a class definition."
-  input Absyn.ClassDef cdef;
-  output Option<Absyn.Annotation> ann;
+  input Absyn.ClassDef def;
+  output Option<Absyn.Annotation> outAnnotation;
 algorithm
-  ann := match cdef
-    case Absyn.ClassDef.PARTS()
-      then if listEmpty(cdef.ann) then NONE() else SOME(listHead(cdef.ann));
-    case Absyn.ClassDef.DERIVED(comment = SOME(Absyn.Comment.COMMENT(annotation_ = ann))) then ann;
-    case Absyn.ClassDef.ENUMERATION(comment = SOME(Absyn.Comment.COMMENT(annotation_ = ann))) then ann;
-    case Absyn.ClassDef.OVERLOAD(comment = SOME(Absyn.Comment.COMMENT(annotation_ = ann))) then ann;
-    case Absyn.ClassDef.CLASS_EXTENDS()
-      then if listEmpty(cdef.ann) then NONE() else SOME(listHead(cdef.ann));
-    case Absyn.ClassDef.PDER(comment = SOME(Absyn.Comment.COMMENT(annotation_ = ann))) then ann;
+  outAnnotation := match def
+    case Absyn.ClassDef.PARTS() guard not listEmpty(def.ann) then SOME(listHead(def.ann));
+    case Absyn.ClassDef.DERIVED() then getCommentOptAnnotation(def.comment);
+    case Absyn.ClassDef.ENUMERATION() then getCommentOptAnnotation(def.comment);
+    case Absyn.ClassDef.OVERLOAD() then getCommentOptAnnotation(def.comment);
+    case Absyn.ClassDef.CLASS_EXTENDS() guard not listEmpty(def.ann) then SOME(listHead(def.ann));
+    case Absyn.ClassDef.PDER() then getCommentOptAnnotation(def.comment);
     else NONE();
   end match;
 end getClassDefAnnotation;
@@ -6110,6 +6232,225 @@ algorithm
     else false;
   end match;
 end isElementRedeclare;
+
+function isModel
+  input Absyn.Class cls;
+  output Boolean res;
+algorithm
+  res := match cls
+    case Absyn.Class.CLASS(restriction = Absyn.Restriction.R_MODEL()) then true;
+    else false;
+  end match;
+end isModel;
+
+function isBlock
+  input Absyn.Class cls;
+  output Boolean res;
+algorithm
+  res := match cls
+    case Absyn.Class.CLASS(restriction = Absyn.Restriction.R_BLOCK()) then true;
+    else false;
+  end match;
+end isBlock;
+
+function eachBool
+  input Absyn.Each eachPrefix;
+  output Boolean res;
+algorithm
+  res := match eachPrefix
+    case Absyn.Each.EACH() then true;
+    else false;
+  end match;
+end eachBool;
+
+function getElementAnnotation
+  "Returns the annotation of an element. The name argument is used to select a
+   component when there are multiple components in one element, in other cases
+   it's ignored."
+  input Absyn.Element element;
+  input String name;
+  output Option<Absyn.Annotation> outAnnotation;
+algorithm
+  outAnnotation := match element
+    case Absyn.Element.ELEMENT() then getElementSpecAnnotation(element.specification, name);
+    else NONE();
+  end match;
+end getElementAnnotation;
+
+function getElementSpecAnnotation
+  input Absyn.ElementSpec spec;
+  input String name;
+  output Option<Absyn.Annotation> outAnnotation;
+algorithm
+  outAnnotation := match spec
+    case Absyn.ElementSpec.CLASSDEF() then getClassAnnotation(spec.class_);
+    case Absyn.ElementSpec.EXTENDS() then spec.annotationOpt;
+    case Absyn.ElementSpec.IMPORT() then getCommentOptAnnotation(spec.comment);
+    case Absyn.ElementSpec.COMPONENTS() then getComponentItemsAnnotation(spec.components, name);
+    else NONE();
+  end match;
+end getElementSpecAnnotation;
+
+function getComponentItemsAnnotation
+  input list<Absyn.ComponentItem> items;
+  input String name;
+  output Option<Absyn.Annotation> outAnnotation;
+protected
+  Option<Absyn.ComponentItem> oi;
+  Absyn.ComponentItem i;
+algorithm
+  oi := List.findOption(items, function isComponentItemNamed(name = name));
+
+  if isSome(oi) then
+    SOME(i) := oi;
+    outAnnotation := getCommentOptAnnotation(i.comment);
+  else
+    outAnnotation := NONE();
+  end if;
+end getComponentItemsAnnotation;
+
+function getCommentOptAnnotation
+  input Option<Absyn.Comment> commentOpt;
+  output Option<Absyn.Annotation> outAnnotation;
+algorithm
+  if isSome(commentOpt) then
+    SOME(Absyn.Comment.COMMENT(annotation_ = outAnnotation)) := commentOpt;
+  else
+    outAnnotation := NONE();
+  end if;
+end getCommentOptAnnotation;
+
+function setElementAnnotation
+  "Sets the annotation on an element. The name argument is used to select a
+   component when there are multiple components in one element, in other cases
+   it's ignored."
+  input output Absyn.Element element;
+  input String name;
+  input Option<Absyn.Annotation> inAnnotation;
+algorithm
+  () := match element
+    case Absyn.Element.ELEMENT()
+      algorithm
+        element.specification := setElementSpecAnnotation(element.specification, name, inAnnotation);
+      then
+        ();
+
+    else ();
+  end match;
+end setElementAnnotation;
+
+function setElementSpecAnnotation
+  input output Absyn.ElementSpec spec;
+  input String name;
+  input Option<Absyn.Annotation> inAnnotation;
+protected
+  Absyn.Class cls;
+algorithm
+  () := match spec
+    case Absyn.ElementSpec.CLASSDEF()
+      algorithm
+        spec.class_ := setClassAnnotation(spec.class_, inAnnotation);
+      then
+        ();
+
+    case Absyn.ElementSpec.EXTENDS()
+      algorithm
+        spec.annotationOpt := inAnnotation;
+      then
+        ();
+
+    case Absyn.ElementSpec.IMPORT()
+      algorithm
+        spec.comment := setCommentAnnotation(spec.comment, inAnnotation);
+      then
+        ();
+
+    case Absyn.ElementSpec.COMPONENTS()
+      algorithm
+        spec.components := List.findAndMap(spec.components,
+          function isComponentItemNamed(name = name),
+          function setComponentItemAnnotation(inAnnotation = inAnnotation));
+      then
+        ();
+
+    else ();
+  end match;
+end setElementSpecAnnotation;
+
+function setComponentItemAnnotation
+  input output Absyn.ComponentItem item;
+  input Option<Absyn.Annotation> inAnnotation;
+algorithm
+  item.comment := setCommentAnnotation(item.comment, inAnnotation);
+end setComponentItemAnnotation;
+
+function isImpure
+  input Absyn.FunctionPurity purity;
+  input Boolean defaultImpure = false; // No prefix = impure if true, otherwise = pure.
+  output Boolean isImpure;
+algorithm
+  isImpure := match purity
+    case Absyn.FunctionPurity.IMPURE() then true;
+    case Absyn.FunctionPurity.NO_PURITY() then defaultImpure;
+    else false;
+  end match;
+end isImpure;
+
+function purityEqual
+  input Absyn.FunctionPurity purity1;
+  input Absyn.FunctionPurity purity2;
+  input Boolean defaultImpure = false; // No prefix = impure if true, otherwise = pure.
+  output Boolean isEqual;
+algorithm
+  if valueConstructor(purity1) == valueConstructor(purity2) then
+    isEqual := true;
+  elseif defaultImpure then
+    isEqual := match (purity1, purity2)
+      case (Absyn.FunctionPurity.NO_PURITY(), Absyn.FunctionPurity.IMPURE()) then true;
+      case (Absyn.FunctionPurity.IMPURE(), Absyn.FunctionPurity.NO_PURITY()) then true;
+      else false;
+    end match;
+  else
+    isEqual := match (purity1, purity2)
+      case (Absyn.FunctionPurity.NO_PURITY(), Absyn.FunctionPurity.PURE()) then true;
+      case (Absyn.FunctionPurity.PURE(), Absyn.FunctionPurity.NO_PURITY()) then true;
+      else false;
+    end match;
+  end if;
+end purityEqual;
+
+function isElementSection
+  input Absyn.ClassPart part;
+  output Boolean res;
+algorithm
+  res := match part
+    case Absyn.ClassPart.PUBLIC() then true;
+    case Absyn.ClassPart.PROTECTED() then true;
+    else false;
+  end match;
+end isElementSection;
+
+function isEquationSection
+  input Absyn.ClassPart part;
+  output Boolean res;
+algorithm
+  res := match part
+    case Absyn.ClassPart.EQUATIONS() then true;
+    case Absyn.ClassPart.INITIALEQUATIONS() then true;
+    else false;
+  end match;
+end isEquationSection;
+
+function isAlgorithmSection
+  input Absyn.ClassPart part;
+  output Boolean res;
+algorithm
+  res := match part
+    case Absyn.ClassPart.ALGORITHMS() then true;
+    case Absyn.ClassPart.INITIALALGORITHMS() then true;
+    else false;
+  end match;
+end isAlgorithmSection;
 
 annotation(__OpenModelica_Interface="frontend");
 end AbsynUtil;

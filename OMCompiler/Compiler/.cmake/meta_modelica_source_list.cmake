@@ -14,7 +14,6 @@ set(OMC_MM_ALWAYS_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/ComponentReference.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/ConnectionGraph.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/ConnectUtil.mo
-    ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/Constants.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/DAEDump.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/DAE.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/DAEUtil.mo
@@ -296,6 +295,7 @@ set(OMC_MM_BACKEND_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/2_Pre/NBBindings.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/2_Pre/NBDetectStates.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/2_Pre/NBEvents.mo
+    ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/2_Pre/NBFunctionAlias.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/2_Pre/NBInline.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/3_Post/NBJacobian.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/3_Post/NBSolve.mo

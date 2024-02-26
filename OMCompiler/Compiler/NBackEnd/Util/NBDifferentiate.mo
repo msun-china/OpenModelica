@@ -287,7 +287,7 @@ public
           forBody := body_eqn :: forBody;
         end for;
         attr := differentiateEquationAttributes(eq.attr, diffArguments);
-      then (Equation.FOR_EQUATION(eq.ty, eq.iter, listReverse(forBody), eq.source, attr), diffArguments);
+      then (Equation.FOR_EQUATION(eq.size, eq.iter, listReverse(forBody), eq.source, attr), diffArguments);
 
       case Equation.WHEN_EQUATION() algorithm
         (whenBody, diffArguments) := differentiateWhenEquationBody(eq.body, diffArguments);
@@ -843,7 +843,33 @@ public
     exp := match (exp)
       local
         Integer i;
-        Expression ret, ret1, ret2, arg1, arg2, diffArg1, diffArg2;
+        Expression ret, ret1, ret2, arg1, arg2, arg3, diffArg1, diffArg2, diffArg3;
+        list<Expression> rest;
+        Type ty;
+        DifferentiationType diffType;
+
+      // DELAY
+      // d/dz delay(x, delta) = (dt/dz - d delta/dz) * delay(der(x), delta)
+      case (Expression.CALL()) guard(name == "delay")
+      algorithm
+        {arg1, arg2, arg3} := Call.arguments(exp.call);
+        // if z = t then dt/dz = 1 else dt/dz = 0
+        ret1 := Expression.REAL(if diffArguments.diffType == DifferentiationType.TIME then 1.0 else 0.0);
+        // d delta/dz
+        (ret2, diffArguments) := differentiateExpression(arg2, diffArguments);
+        // dt/dz - d delta/dz
+        ret2 := SimplifyExp.simplifyDump(Expression.MULTARY({ret1}, {ret2}, addOp), true, getInstanceName());
+        if Expression.isZero(ret2) then
+          ret := Expression.makeZero(Expression.typeOf(arg1));
+        else
+          diffType := diffArguments.diffType;
+          diffArguments.diffType := DifferentiationType.TIME;
+          (ret1, diffArguments) := differentiateExpression(arg1, diffArguments);
+          diffArguments.diffType := diffType;
+          exp.call := Call.setArguments(exp.call, {ret1, arg2, arg3});
+          ret := Expression.MULTARY({ret2, exp}, {}, mulOp);
+        end if;
+      then ret;
 
       // SMOOTH
       case (Expression.CALL()) guard(name == "smooth")
@@ -886,6 +912,44 @@ public
         exp.call := Call.setArguments(exp.call, {ret1, ret2});
       then exp;
 
+      // FILL
+      case (Expression.CALL()) guard(name == "fill")
+      algorithm
+        // only differentiate 1st input
+        arg1 :: rest := Call.arguments(exp.call);
+        (ret1, diffArguments) := differentiateExpression(arg1, diffArguments);
+        exp.call := Call.setArguments(exp.call, ret1 :: rest);
+      then exp;
+
+      // SEMI LINEAR
+      // d sL(x, m1, m2)/dt = sL(x, dm1/dt, dm2/dt) + dx/dt * if (x>=0) then m1 else m2
+      case (Expression.CALL()) guard(name == "semiLinear")
+      algorithm
+        {arg1, arg2, arg3} := Call.arguments(exp.call);
+
+        // dx/dt, dm1/dt, dm2/dt
+        (diffArg1, diffArguments) := differentiateExpression(arg1, diffArguments);
+        (diffArg2, diffArguments) := differentiateExpression(arg2, diffArguments);
+        (diffArg3, diffArguments) := differentiateExpression(arg3, diffArguments);
+
+        // sL(x, dm1/dt, dm2/dt)
+        exp.call := Call.setArguments(exp.call, {arg1, diffArg2, diffArg3});
+        ret := exp;
+
+        // only add second part if derivative is nonzero
+        if not Expression.isZero(diffArg1) then
+          ty    := Expression.typeOf(diffArg1);
+          // x >= 0
+          ret1  := Expression.RELATION(arg1, Operator.makeGreaterEq(ty), Expression.makeZero(ty));
+          // if (x>=0) then m1 else m2
+          ret1  := Expression.IF(ty, ret1, arg2, arg3);
+          // dx/dt * if (x>=0) then m1 else m2
+          ret2  := Expression.MULTARY({diffArg1, ret1}, {}, mulOp);
+          // sL(x, dm1/dt, dm2/dt) + dx/dt * if (x>=0) then m1 else m2
+          ret   := Expression.MULTARY({ret, ret2}, {}, addOp);
+        end if;
+      then ret;
+
       // Builtin function call with one argument
       // df(y)/dx = df/dy * dy/dx
       case (Expression.CALL()) guard(listLength(Call.arguments(exp.call)) == 1)
@@ -918,12 +982,14 @@ public
       case (Expression.CALL()) algorithm
         ret := match Call.functionNameLast(exp.call)
           case "sample" then Expression.BOOLEAN(false);
-          else fail();
+          else algorithm
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for: " + Expression.toString(exp)});
+          then fail();
         end match;
       then ret;
 
       else algorithm
-        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for: " + Expression.toString(exp)});
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of non-call expression: " + Expression.toString(exp)});
         then fail();
     end match;
   end differentiateBuiltinCall;
@@ -1073,6 +1139,16 @@ public
           purity      = NFPrefixes.Purity.PURE));                             // log(10)
         ret := Expression.MULTARY({Expression.REAL(1.0)}, {arg, ret}, mulOp); // 1/(arg*log(10))
       then ret;
+
+      // pre(arg) -> pre(d arg)
+      case ("pre") algorithm
+        (ret, diffArguments) := differentiateExpression(arg, diffArguments);
+      then Expression.CALL(Call.makeTypedCall(
+          fn          = NFBuiltinFuncs.PRE,
+          args        = {ret},
+          variability = Expression.variability(arg),
+          purity      = NFPrefixes.Purity.PURE
+        ));
 
       else algorithm
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for: " + name});
@@ -1300,7 +1376,7 @@ public
         (lhs, diffArguments) := differentiateExpression(diff_stmt.lhs, diffArguments);
         (rhs, diffArguments) := differentiateExpression(diff_stmt.rhs, diffArguments);
         diff_stmt.lhs := lhs;
-        diff_stmt.rhs := SimplifyExp.simplify(rhs, true);
+        diff_stmt.rhs := SimplifyExp.simplifyDump(rhs, true, getInstanceName());
       then {diff_stmt, stmt};
 
       // II. delegate differentiation to body and only return differentiated statement
@@ -1659,7 +1735,8 @@ public
         guard(UnorderedMap.contains(BVariable.getVarName(residualVar), jacobianHT))
         algorithm
           diffedResidualVar := BVariable.getVarPointer(UnorderedMap.getOrFail(BVariable.getVarName(residualVar), jacobianHT));
-      then EquationAttributes.EQUATION_ATTRIBUTES(NONE(), attr.kind, attr.evalStages, SOME(diffedResidualVar));
+          attr.residualVar := SOME(diffedResidualVar);
+      then attr;
 
       else attr;
 

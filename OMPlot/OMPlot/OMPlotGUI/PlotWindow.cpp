@@ -1,20 +1,21 @@
 /*
  * This file is part of OpenModelica.
  *
- * Copyright (c) 1998-CurrentYear, Linkoping University,
- * Department of Computer and Information Science,
- * SE-58183 Linkoping, Sweden.
+ * Copyright (c) 1998-CurrentYear, Open Source Modelica Consortium (OSMC),
+ * c/o Linköpings universitet, Department of Computer and Information Science,
+ * SE-58183 Linköping, Sweden.
  *
  * All rights reserved.
  *
- * THIS PROGRAM IS PROVIDED UNDER THE TERMS OF GPL VERSION 3
- * AND THIS OSMC PUBLIC LICENSE (OSMC-PL).
- * ANY USE, REPRODUCTION OR DISTRIBUTION OF THIS PROGRAM CONSTITUTES RECIPIENT'S
- * ACCEPTANCE OF THE OSMC PUBLIC LICENSE.
+ * THIS PROGRAM IS PROVIDED UNDER THE TERMS OF GPL VERSION 3 LICENSE OR
+ * THIS OSMC PUBLIC LICENSE (OSMC-PL) VERSION 1.2.
+ * ANY USE, REPRODUCTION OR DISTRIBUTION OF THIS PROGRAM CONSTITUTES
+ * RECIPIENT'S ACCEPTANCE OF THE OSMC PUBLIC LICENSE OR THE GPL VERSION 3,
+ * ACCORDING TO RECIPIENTS CHOICE.
  *
  * The OpenModelica software and the Open Source Modelica
  * Consortium (OSMC) Public License (OSMC-PL) are obtained
- * from Linkoping University, either from the above address,
+ * from OSMC, either from the above address,
  * from the URLs: http://www.ida.liu.se/projects/OpenModelica or
  * http://www.openmodelica.org, and in the OpenModelica distribution.
  * GNU version 3 is obtained from: http://www.gnu.org/copyleft/gpl.html.
@@ -22,20 +23,17 @@
  * This program is distributed WITHOUT ANY WARRANTY; without
  * even the implied warranty of  MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE, EXCEPT AS EXPRESSLY SET FORTH
- * IN THE BY RECIPIENT SELECTED SUBSIDIARY LICENSE CONDITIONS
- * OF OSMC-PL.
+ * IN THE BY RECIPIENT SELECTED SUBSIDIARY LICENSE CONDITIONS OF OSMC-PL.
  *
  * See the full OSMC Public License conditions for more details.
- *
- * Main Authors 2010: Syed Adeel Asghar, Sonia Tariq
  *
  */
 
 #include <iostream>
 #include <memory>
 
-#include <QtSvg/QSvgGenerator>
 #include "PlotWindow.h"
+#include "LogScaleEngine.h"
 #include "LinearScaleEngine.h"
 #include "qwt_plot_layout.h"
 #if QWT_VERSION >= 0x060000
@@ -46,6 +44,19 @@
 #include "qwt_text_label.h"
 #include "qwt_abstract_legend.h"
 
+#include <QtSvg/QSvgGenerator>
+#include <QToolBar>
+#include <QFileInfo>
+#include <QLayout>
+#include <QCloseEvent>
+#include <QDir>
+#include <QMessageBox>
+#include <QFileDialog>
+#include <QPrinter>
+#include <QPrintDialog>
+#include <QLineEdit>
+#include <QColorDialog>
+
 using namespace OMPlot;
 
 PlotWindow::PlotWindow(QStringList arguments, QWidget *parent, bool isInteractiveSimulation)
@@ -53,7 +64,7 @@ PlotWindow::PlotWindow(QStringList arguments, QWidget *parent, bool isInteractiv
 {
   /* set the widget background white. so that the plot is more useable in books and publications. */
   QPalette p(palette());
-  p.setColor(QPalette::Background, Qt::white);
+  p.setColor(QPalette::Window, Qt::white);
   setAutoFillBackground(true);
   setPalette(p);
   // setup the main window widget
@@ -285,6 +296,7 @@ void PlotWindow::setupToolbar()
     mpStartSimulationToolButton->setIcon(QIcon(":/Resources/icons/play_animation.svg"));
     mpStartSimulationToolButton->setToolTip(tr("Start"));
     mpStartSimulationToolButton->setAutoRaise(true);
+    connect(mpStartSimulationToolButton, SIGNAL(clicked(bool)), SLOT(interactiveSimulationStarted()));
     // pause tool button
     mpPauseSimulationToolButton = new QToolButton;
     mpPauseSimulationToolButton->setEnabled(false);
@@ -292,6 +304,7 @@ void PlotWindow::setupToolbar()
     mpPauseSimulationToolButton->setIcon(QIcon(":/Resources/icons/pause.svg"));
     mpPauseSimulationToolButton->setToolTip(tr("Pause"));
     mpPauseSimulationToolButton->setAutoRaise(true);
+    connect(mpPauseSimulationToolButton, SIGNAL(clicked(bool)), SLOT(interactiveSimulationPaused()));
     // speed label and combo box
     mpSimulationSpeedLabel = new QLabel(tr("Speed:"));
     QDoubleValidator *pDoubleValidator = new QDoubleValidator(this);
@@ -538,7 +551,7 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
       throw NoVariableException(QString("Corrupt file. nvar %1").arg(reader.nvar).toStdString().c_str());
     }
     // read in all values
-    for (int i = 0; i < reader.nall; i++) {
+    for (uint32_t i = 0; i < reader.nall; i++) {
       if (mVariablesList.contains(reader.allInfo[i].name) || getPlotType() == PlotWindow::PLOTALL) {
         variablesPlotted.append(reader.allInfo[i].name);
         // create the plot curve for variable
@@ -564,7 +577,7 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
             throw NoVariableException(QString("Corrupt file. nvar %1").arg(reader.nvar).toStdString().c_str());
           }
           // set plot curve data and attach it to plot
-          for (int i = 0 ; i < reader.nrows ; i++) {
+          for (uint32_t i = 0 ; i < reader.nrows ; i++) {
             pPlotCurve->addXAxisValue(timeVals[i]);
             pPlotCurve->addYAxisValue(vals[i]);
           }
@@ -784,7 +797,7 @@ void PlotWindow::plotParametric(PlotCurve *pPlotCurve)
           omc_free_matlab4_reader(&reader);
           throw NoVariableException(QString("Corrupt file. nvar %1").arg(reader.nvar).toStdString().c_str());
         }
-        for (int i = 0 ; i < reader.nrows ; i++)
+        for (uint32_t i = 0 ; i < reader.nrows ; i++)
           pPlotCurve->addXAxisValue(xVals[i]);
       }
       // if variable is a parameter then
@@ -811,7 +824,7 @@ void PlotWindow::plotParametric(PlotCurve *pPlotCurve)
           omc_free_matlab4_reader(&reader);
           throw NoVariableException(QString("Corrupt file. nvar %1").arg(reader.nvar).toStdString().c_str());
         }
-        for (int i = 0 ; i < reader.nrows ; i++)
+        for (uint32_t i = 0 ; i < reader.nrows ; i++)
           pPlotCurve->addYAxisValue(yVals[i]);
       }
       // if variable is a parameter then
@@ -902,7 +915,8 @@ void readPLTArray(QTextStream *mpTextStream, QString variable, double alpha, int
   return;
 }
 
-double getTimeUnitFactor(QString timeUnit){
+double getTimeUnitFactor(QString timeUnit)
+{
   if (timeUnit == "ms") return 1000.0;
   else if (timeUnit == "s") return 1.0;
   else if (timeUnit == "min") return 1.0/6.0;
@@ -911,8 +925,9 @@ double getTimeUnitFactor(QString timeUnit){
   else throw PlotException(QObject::tr("Unknown unit in plotArray(Parametric)."));
 }
 
-void PlotWindow::updateTimeText(QString unit)
+void PlotWindow::updateTimeText()
 {
+  QString unit = getTimeUnit();
   double timeUnitFactor = getTimeUnitFactor(unit);
   mpPlot->setFooter(QString("t = %1 " + unit).arg(getTime()*timeUnitFactor,0,'g',3));
   mpPlot->replot();
@@ -923,7 +938,6 @@ void PlotWindow::plotArray(double time, PlotCurve *pPlotCurve)
   double *res;
   QString currentLine;
   setTime(time);
-  double timeUnitFactor = getTimeUnitFactor(getTimeUnit());
   if (mVariablesList.isEmpty() && getPlotType() == PlotWindow::PLOTARRAY)
     throw NoVariableException(QString("No variables specified!").toStdString().c_str());
   bool editCase = pPlotCurve ? true : false;
@@ -984,8 +998,7 @@ void PlotWindow::plotArray(double time, PlotCurve *pPlotCurve)
       }
       pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
       pPlotCurve->attach(mpPlot);
-      mpPlot->setFooter(QString("t = %1 " + getTimeUnit()).arg(time*timeUnitFactor,0,'g',3));
-      mpPlot->replot();
+      updateTimeText();
     }
     mFile.close();
   }
@@ -1044,9 +1057,7 @@ void PlotWindow::plotArray(double time, PlotCurve *pPlotCurve)
       }
       pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
       pPlotCurve->attach(mpPlot);
-      mpPlot->setFooter(QString("t = %1 " + getTimeUnit()).arg(time*timeUnitFactor,0,'g',3));
-      mpPlot->replot();
-
+      updateTimeText();
     }
     omc_free_csv_reader(csvReader);
   }
@@ -1105,8 +1116,7 @@ void PlotWindow::plotArray(double time, PlotCurve *pPlotCurve)
         }
         pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
         pPlotCurve->attach(mpPlot);
-        mpPlot->setFooter(QString("t = %1 " + getTimeUnit()).arg(time*timeUnitFactor,0,'g',3));
-        mpPlot->replot();
+        updateTimeText();
         delete[] res;
       }
       // if plottype is PLOT then check which requested variables are not found in the file
@@ -1122,7 +1132,6 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
   QString xVariable, yVariable, xTitle, yTitle;
   int pair = 0;
   setTime(time);
-  double timeUnitFactor = getTimeUnitFactor(getTimeUnit());
   if (mVariablesList.isEmpty())
     throw NoVariableException(QString("No variables specified!").toStdString().c_str());
   else if (mVariablesList.size()%2 != 0)
@@ -1202,8 +1211,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
       }
       pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
       pPlotCurve->attach(mpPlot);
-      mpPlot->setFooter(QString("t = %1 " + getTimeUnit()).arg(time*timeUnitFactor,0,'g',3));
-      mpPlot->replot();
+      updateTimeText();
       mFile.close();
     }
     //    //PLOT CSV
@@ -1240,7 +1248,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
       for (int j = 0; j<2; j++){
         res.clear();
         double *arrElement;
-        for (int i = 1; i++; true){
+        for (int i = 1; ;i++){
           QString varNameQS = varPair[j];
           if (QRegExp("der\\(\\D(\\w)*\\)").exactMatch(varNameQS)){
             varNameQS.chop(1);
@@ -1270,8 +1278,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
       }
       pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
       pPlotCurve->attach(mpPlot);
-      mpPlot->setFooter(QString("t = %1 " + getTimeUnit()).arg(time*timeUnitFactor,0,'g',3));
-      mpPlot->replot();
+      updateTimeText();
       omc_free_csv_reader(csvReader);
     }
     //PLOT MAT
@@ -1343,8 +1350,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
       }
       pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
       pPlotCurve->attach(mpPlot);
-      mpPlot->setFooter(QString("t = %1 " + getTimeUnit()).arg(time*timeUnitFactor,0,'g',3));
-      mpPlot->replot();
+      updateTimeText();
       omc_free_matlab4_reader(&reader);
     }
   }
@@ -1394,22 +1400,6 @@ void PlotWindow::setTitle(QString title)
   mpPlot->setTitle(title);
 }
 
-void PlotWindow::updateCurves()
-{
-  for (auto & p : mpPlot->getPlotCurvesList()) {
-    // append the last point to the plotting curve
-    p->getPlotDirectPainter()->drawSeries(p, p->getSize() - 2, -1);
-  }
-}
-
-void PlotWindow::updateYAxis(QPair<double, double> minMaxValues)
-{
-  // replot if a value is out of bounds
-  if (minMaxValues.first < mpPlot->axisScaleDiv(QwtPlot::yLeft).lowerBound() || minMaxValues.second > mpPlot->axisScaleDiv(QwtPlot::yLeft).upperBound()) {
-    mpPlot->replot();
-  }
-}
-
 /*!
  * \brief PlotWindow::updatePlot
  * This function is called by OMEdit when auto scale is false.
@@ -1422,6 +1412,15 @@ void PlotWindow::updatePlot()
   if (mpPlot->getPlotZoomer()->zoomStack().size() == 1) {
     mpPlot->getPlotZoomer()->setZoomBase(false);
   }
+}
+
+void PlotWindow::setInteractiveControls(bool enabled)
+{
+  // control buttons
+  mpStartSimulationToolButton->setEnabled(enabled);
+  mpPauseSimulationToolButton->setEnabled(!enabled);
+  //plotpicker
+  mpPlot->getPlotPicker()->setEnabled(enabled);
 }
 
 void PlotWindow::setGrid(QString grid)
@@ -1663,6 +1662,22 @@ void PlotWindow::closeEvent(QCloseEvent *event)
   event->accept();
 }
 
+void PlotWindow::updateCurves()
+{
+  for (auto & p : mpPlot->getPlotCurvesList()) {
+    // append the last point to the plotting curve
+    p->getPlotDirectPainter()->drawSeries(p, p->getSize() - 2, -1);
+  }
+}
+
+void PlotWindow::updateYAxis(QPair<double, double> minMaxValues)
+{
+  // replot if a value is out of bounds
+  if (minMaxValues.first < mpPlot->axisScaleDiv(QwtPlot::yLeft).lowerBound() || minMaxValues.second > mpPlot->axisScaleDiv(QwtPlot::yLeft).upperBound()) {
+    mpPlot->replot();
+  }
+}
+
 void PlotWindow::enableZoomMode(bool on)
 {
   mpPlot->getPlotZoomer()->setEnabled(on);
@@ -1801,44 +1816,38 @@ void PlotWindow::fitInView()
 
 void PlotWindow::setLogX(bool on)
 {
-  if(on)
-  {
+  if (on) {
 #if QWT_VERSION >= 0x060100
-    mpPlot->setAxisScaleEngine(QwtPlot::xBottom, new QwtLogScaleEngine);
+    mpPlot->setAxisScaleEngine(QwtPlot::xBottom, new LogScaleEngine);
 #else
     mpPlot->setAxisScaleEngine(QwtPlot::xBottom, new QwtLog10ScaleEngine);
 #endif
-  }
-  else
-  {
+  } else {
     mpPlot->setAxisScaleEngine(QwtPlot::xBottom, new LinearScaleEngine);
   }
   mpPlot->setAxisAutoScale(QwtPlot::xBottom);
-  mpLogXCheckBox->blockSignals(true);
+  bool state = mpLogXCheckBox->blockSignals(true);
   mpLogXCheckBox->setChecked(on);
-  mpLogXCheckBox->blockSignals(false);
-  mpPlot->replot();
+  mpLogXCheckBox->blockSignals(state);
+  updatePlot();
 }
 
 void PlotWindow::setLogY(bool on)
 {
-  if(on)
-  {
+  if (on) {
 #if QWT_VERSION >= 0x060100
-    mpPlot->setAxisScaleEngine(QwtPlot::yLeft, new QwtLogScaleEngine);
+    mpPlot->setAxisScaleEngine(QwtPlot::yLeft, new LogScaleEngine);
 #else
     mpPlot->setAxisScaleEngine(QwtPlot::yLeft, new QwtLog10ScaleEngine);
 #endif
-  }
-  else
-  {
+  } else {
     mpPlot->setAxisScaleEngine(QwtPlot::yLeft, new LinearScaleEngine);
   }
   mpPlot->setAxisAutoScale(QwtPlot::yLeft);
-  mpLogYCheckBox->blockSignals(true);
+  bool state = mpLogYCheckBox->blockSignals(true);
   mpLogYCheckBox->setChecked(on);
-  mpLogYCheckBox->blockSignals(false);
-  mpPlot->replot();
+  mpLogYCheckBox->blockSignals(state);
+  updatePlot();
 }
 
 void PlotWindow::setAutoScale(bool on)
@@ -1874,6 +1883,16 @@ void PlotWindow::showSetupDialog(QString variable)
   SetupDialog *pSetupDialog = new SetupDialog(this);
   pSetupDialog->selectVariable(variable);
   pSetupDialog->exec();
+}
+
+void PlotWindow::interactiveSimulationStarted()
+{
+  setInteractiveControls(false);
+}
+
+void PlotWindow::interactiveSimulationPaused()
+{
+  setInteractiveControls(true);
 }
 
 /*!

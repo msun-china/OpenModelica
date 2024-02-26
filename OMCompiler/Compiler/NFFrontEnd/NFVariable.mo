@@ -32,14 +32,17 @@
 encapsulated uniontype NFVariable
   import Attributes = NFAttributes;
   import Binding = NFBinding;
+  import Class = NFClass;
   import Component = NFComponent;
   import ComponentRef = NFComponentRef;
+  import Dimension = NFDimension;
   import Expression = NFExpression;
   import NFInstNode.InstNode;
   import NFPrefixes.Visibility;
   import NFPrefixes.Variability;
   import NFPrefixes.ConnectorType;
   import NFPrefixes.Direction;
+  import NFPrefixes.AccessLevel;
   import Type = NFType;
   import BackendExtension = NFBackendExtension;
   import NFBackendExtension.BackendInfo;
@@ -48,6 +51,7 @@ protected
   import ExpandExp = NFExpandExp;
   import FlatModelicaUtil = NFFlatModelicaUtil;
   import IOStream;
+  import StringUtil;
   import Util;
   import Variable = NFVariable;
   import MetaModelica.Dangerous.listReverseInPlace;
@@ -67,11 +71,13 @@ public
   end VARIABLE;
 
   function fromCref
+    "creates a variable from a component reference.
+    Note: does not flatten, do not use for instantiated elements!"
     input ComponentRef cref;
     output Variable variable;
   protected
     list<ComponentRef> crefs;
-    InstNode node;
+    InstNode node, child_node;
     Component comp;
     Type ty;
     Binding binding;
@@ -79,6 +85,9 @@ public
     Attributes attr;
     Option<SCode.Comment> cmt;
     SourceInfo info;
+    BackendExtension.BackendInfo binfo = NFBackendExtension.DUMMY_BACKEND_INFO;
+    list<Variable> children = {};
+    Option<Integer> complexSize;
   algorithm
     node := ComponentRef.node(cref);
     comp := InstNode.component(node);
@@ -87,15 +96,26 @@ public
     attr := Component.getAttributes(comp);
     cmt := Component.comment(comp);
     info := InstNode.info(node);
+
     // kabdelhak: add dummy backend info, will be changed to actual value in
     // conversion to backend process (except for iterators). NBackendDAE.lower
     if ComponentRef.isIterator(cref) then
       binding := NFBinding.EMPTY_BINDING;
-      variable := VARIABLE(cref, ty, binding, vis, attr, {}, {}, cmt, info, BackendExtension.BACKEND_INFO(BackendExtension.ITERATOR(), NFBackendExtension.EMPTY_VAR_ATTR_REAL));
+      binfo.varKind := BackendExtension.ITERATOR();
     else
       binding := Component.getImplicitBinding(comp);
-      variable := VARIABLE(cref, ty, binding, vis, attr, {}, {}, cmt, info, NFBackendExtension.DUMMY_BACKEND_INFO);
     end if;
+
+    // get the record children if the variable is a record
+    complexSize := Type.complexSize(ty);
+    if Util.isSome(complexSize) then
+      for i in Util.getOption(complexSize):-1:1 loop
+        child_node := Class.nthComponent(i, InstNode.getClass(node));
+        children := fromCref(ComponentRef.fromNode(child_node, InstNode.getType(child_node))) :: children;
+      end for;
+    end if;
+
+    variable := VARIABLE(cref, ty, binding, vis, attr, {}, children, cmt, info, binfo);
   end fromCref;
 
   function size
@@ -185,11 +205,44 @@ public
     "Expands a variable into itself and its children if its complex."
     input Variable var;
     output list<Variable> children;
+  protected
+    function expandChildType
+      "helper function to inherit the array type dimensions"
+      input output Variable child;
+      input list<Dimension> dimensions;
+    algorithm
+      child.ty := Type.liftArrayLeftList(child.ty, dimensions);
+    end expandChildType;
   algorithm
-    children := if (isComplex(var) or isComplexArray(var))
-      then var :: List.flatten(list(expandChildren(v) for v in var.children))
-      else {var};
+    // for non-complex variables the children are empty therefore it will be returned itself
+    var.children := List.flatten(list(expandChildren(v) for v in var.children));
+    if isComplexArray(var) then
+      // if the variable is an array, inherit the array dimensions
+      var.children := list(expandChildType(v, Type.arrayDims(var.ty)) for v in var.children);
+    end if;
+    // return all children and the variable itself
+    children := var :: var.children;
   end expandChildren;
+
+  function typeOf
+    input Variable var;
+    output Type ty = var.ty;
+  end typeOf;
+
+  function attributes
+    input Variable variable;
+    output Attributes attributes = variable.attributes;
+  end attributes;
+
+  function variability
+    input Variable variable;
+    output Variability variability = variable.attributes.variability;
+  end variability;
+
+  function visibility
+    input Variable variable;
+    output Visibility visibility = variable.visibility;
+  end visibility;
 
   function isComplex
     input Variable var;
@@ -206,16 +259,6 @@ public
     output Boolean structural =
       variable.attributes.variability <= Variability.STRUCTURAL_PARAMETER;
   end isStructural;
-
-  function variability
-    input Variable variable;
-    output Variability variability = variable.attributes.variability;
-  end variability;
-
-  function visibility
-    input Variable variable;
-    output Visibility visibility = variable.visibility;
-  end visibility;
 
   function isEmptyArray
     input Variable variable;
@@ -275,8 +318,32 @@ public
 
   function isEncrypted
     input Variable variable;
-    output Boolean isEncrypted = Util.endsWith(variable.info.fileName, ".moc");
+    output Boolean isEncrypted = StringUtil.endsWith(variable.info.fileName, ".moc");
   end isEncrypted;
+
+  function isAccessible
+    input Variable variable;
+    output Boolean isAccessible;
+  protected
+    Option<AccessLevel> oaccess;
+    AccessLevel access;
+  algorithm
+    oaccess := InstNode.getAccessLevel(ComponentRef.node(variable.name));
+
+    if isSome(oaccess) then
+      SOME(access) := oaccess;
+    else
+      access := if isEncrypted(variable) then AccessLevel.DOCUMENTATION else AccessLevel.PACKAGE_DUPLICATE;
+    end if;
+
+    if access < AccessLevel.ICON then
+      isAccessible := false;
+    elseif access < AccessLevel.NON_PACKAGE_TEXT then
+      isAccessible := not isProtected(variable);
+    else
+      isAccessible := true;
+    end if;
+  end isAccessible;
 
   function lookupTypeAttribute
     input String name;
@@ -328,9 +395,48 @@ public
     end if;
   end propagateAnnotation;
 
-    partial function MapFn
-      input output Expression exp;
-    end MapFn;
+  function removeNonTopLevelDirection
+    "Removes input/output prefixes from a variable that's not a top-level
+     component, a component in a top-level connector, or a component in a
+     top-level input component. exposeLocalIOs can be used to keep the direction
+     for variables at lower levels as well, where 0 means top-level, 1 the level
+     below that, and so on."
+    input output Variable var;
+    input Integer exposeLocalIOs;
+  protected
+    ComponentRef rest_name;
+    InstNode node;
+    Attributes attr;
+  algorithm
+    if var.attributes.direction == Direction.NONE then
+      return;
+    end if;
+
+    if exposeLocalIOs > 0 and
+       var.attributes.connectorType <> ConnectorType.NON_CONNECTOR and
+       var.visibility == Visibility.PUBLIC and
+       ComponentRef.depth(var.name) < exposeLocalIOs then
+      return;
+    end if;
+
+    rest_name := ComponentRef.rest(var.name);
+    while not ComponentRef.isEmpty(rest_name) loop
+      node := ComponentRef.node(rest_name);
+
+      if not (InstNode.isConnector(node) or InstNode.isInput(node)) then
+        attr := var.attributes;
+        attr.direction := Direction.NONE;
+        var.attributes := attr;
+        return;
+      end if;
+
+      rest_name := ComponentRef.rest(rest_name);
+    end while;
+  end removeNonTopLevelDirection;
+
+  partial function MapFn
+    input output Expression exp;
+  end MapFn;
 
   function mapExp
     input output Variable var;

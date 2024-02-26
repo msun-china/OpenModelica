@@ -53,6 +53,10 @@
 #include <QXmlSchemaValidator>
 #include <QDir>
 
+extern "C" {
+extern const char* System_openModelicaPlatform();
+}
+
 SplashScreen *SplashScreen::mpInstance = 0;
 
 SplashScreen *SplashScreen::instance()
@@ -286,7 +290,13 @@ void Label::setText(const QString &text)
 {
   mText = text;
   setToolTip(text);
-  QLabel::setText(elidedText());
+  const QString text1 = elidedText();
+  // if text is empty OR if we get "..." i.e., QChar(0x2026) as text
+  if (text1.isEmpty() || text1.compare(QChar(0x2026)) == 0) {
+    QLabel::setText(mText);
+  } else {
+    QLabel::setText(text1);
+  }
 }
 
 QString Label::elidedText() const
@@ -309,20 +319,25 @@ FixedCheckBox::FixedCheckBox(QWidget *parent)
 {
   setCheckable(false);
   mDefaultValue = false;
-  mTickState = false;
+  mInheritedValue = false;
+  mFixedState = false;
 }
 
-void FixedCheckBox::setTickState(bool defaultValue, bool tickState)
+void FixedCheckBox::setTickState(bool defaultValue, bool fixedState)
 {
   mDefaultValue = defaultValue;
-  mTickState = tickState;
+  if (mDefaultValue) {
+    mInheritedValue = fixedState;
+  } else {
+    mFixedState = fixedState;
+  }
 }
 
-QString FixedCheckBox::tickStateString()
+QString FixedCheckBox::getTickStateString() const
 {
   if (mDefaultValue) {
     return "";
-  } else if (mTickState) {
+  } else if (mFixedState) {
     return "true";
   } else {
     return "false";
@@ -346,7 +361,7 @@ void FixedCheckBox::paintEvent(QPaintEvent *event)
   }
   p.drawRect(opt.rect.adjusted(0, 0, -1, -1));
   // if is checked then draw a tick
-  if (mTickState) {
+  if ((!mDefaultValue && mFixedState) || (mDefaultValue && mInheritedValue)) {
     p.setRenderHint(QPainter::Antialiasing);
     QPen pen = p.pen();
     pen.setWidthF(1.5);
@@ -634,15 +649,12 @@ qreal Utilities::convertUnit(qreal value, qreal offset, qreal scaleFactor)
  */
 bool Utilities::isValueLiteralConstant(QString value)
 {
-  bool ok = true;
-  value.toDouble(&ok);
-  if (ok) return true;
-
-  QStringList valuesArray = StringHandler::removeFirstLastCurlBrackets(value).split(",");
-  foreach (QString valueElement, valuesArray) {
-    valueElement.toDouble(&ok);
-  }
-  return ok;
+  /* Issue #11795. Allow setting negative values for parameters.
+   * Issue #11840. Allow setting array of values.
+   * The following regular expression allows decimal values and array of decimal values. The values can be negative.
+   */
+  QRegExp rx("\\{?\\s*-?\\d+(\\.\\d+)?(?:\\s*,\\s*-?\\d+(\\.\\d+)?)*\\s*\\}?");
+  return rx.exactMatch(value);
 }
 
 /*!
@@ -971,19 +983,24 @@ QGenericMatrix<3,3, double> Utilities::getRotationMatrix(QGenericMatrix<3,1,doub
 QString Utilities::getGDBPath()
 {
 #if defined(_WIN32)
-#if defined(__MINGW32__) && !defined(__MINGW64__)
-  const char *sgdb = "/tools/msys/mingw32/bin/gdb.exe";
-#endif
-#if defined(__MINGW64__)
-  const char *sgdb = "/tools/msys/mingw64/bin/gdb.exe";
-#endif
   const char *OMDEV = getenv("OMDEV");
-  if (QString(OMDEV).isEmpty()) {
-    return QString(Helper::OpenModelicaHome).append(sgdb);
-  } else {
-    QString qOMDEV = QString(OMDEV).replace("\\", "/");
-    return QString(qOMDEV).append(sgdb);
+  const char *MSYSTEM_PREFIX = getenv("MSYSTEM_PREFIX");
+  const char* msysEnv = System_openModelicaPlatform(); /* "ucrt64" or "mingw64" */
+
+  // MSYSTEM_PREFIX is set: <MSYSTEM_PREFIX>/bin/gdb.exe
+  if (!QString(MSYSTEM_PREFIX).isEmpty()) {
+    QString qMSYSTEM_PREFIX = QString(MSYSTEM_PREFIX).replace("\\", "/");
+    return QString(qMSYSTEM_PREFIX) + QString("/bin/gdb.exe");
   }
+
+  // OMDEV is set: <OMDEV>/tools/msys/<CONFIG_OPENMODELICA_SPEC_PLATFORM>/bin/gdb.exe
+  if (!QString(OMDEV).isEmpty()) {
+    QString qOMDEV = QString(OMDEV).replace("\\", "/");
+    return QString(qOMDEV) + QString("/tools/msys/") + QString(msysEnv) + QString("/bin/gdb.exe");
+  }
+
+  // Default: <OPENMODELICAHOME>/tools/msys/<CONFIG_OPENMODELICA_SPEC_PLATFORM>/bin/gdb.exe
+  return QString(Helper::OpenModelicaHome) + QString("/tools/msys/") + QString(msysEnv) + QString("bin/gdb.exe");
 #else
   return "gdb";
 #endif
@@ -1327,4 +1344,15 @@ void Utilities::setToolTip(QComboBox *pComboBox, const QString &description, con
     }
   }
   pComboBox->setToolTip(QString("<html><head/><body><p>%1</p><ul>%2</ul></body></html>").arg(description, itemsToolTip));
+}
+
+/*!
+ * \brief Utilities::isMultiline
+ * Returns true if the text containts \n.
+ * \param text
+ * \return
+ */
+bool Utilities::isMultiline(const QString &text)
+{
+  return text.indexOf('\n') >= 0;
 }

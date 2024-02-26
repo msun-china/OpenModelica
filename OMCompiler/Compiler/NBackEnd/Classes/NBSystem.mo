@@ -43,6 +43,7 @@ public
 protected
   // NF imports
   import Variable = NFVariable;
+  import Expression = NFExpression;
 
   // Backend Imports
   import BackendDAE = NBackendDAE;
@@ -214,6 +215,44 @@ public
       end if;
     end getLoopResiduals;
 
+    function mapEqn
+      input output System system;
+      input MapFunc func;
+      partial function MapFunc
+        input output BEquation.Equation e;
+      end MapFunc;
+    algorithm
+      system.equations := EquationPointers.map(system.equations, func);
+    end mapEqn;
+
+    function mapExp
+      input output System system;
+      input MapFunc func;
+      partial function MapFunc
+        input output Expression e;
+      end MapFunc;
+    algorithm
+      system.equations := EquationPointers.mapExp(system.equations, func);
+    end mapExp;
+
+    function mapStrongComponents
+      input output System system;
+      input MapFunc func;
+      partial function MapFunc
+        input output StrongComponent comp;
+      end MapFunc;
+    protected
+      array<StrongComponent> comps;
+    algorithm
+      if Util.isSome(system.strongComponents) then
+        SOME(comps) := system.strongComponents;
+        for i in 1:arrayLength(comps) loop
+          comps[i] := func(comps[i]);
+        end for;
+        system.strongComponents := SOME(comps);
+      end if;
+    end mapStrongComponents;
+
     function systemTypeString
       input SystemType systemType;
       output String str = "";
@@ -249,6 +288,37 @@ public
         then fail();
       end match;
     end systemTypeInteger;
+
+    function clone
+      "only clones equations."
+      input output System sys;
+      input Boolean shallow = true;
+    algorithm
+      sys.equations := EquationPointers.clone(sys.equations, shallow);
+      // these are partially pointer based and have to be recomputed if not shallow
+      if not shallow then
+        sys.adjacencyMatrix   := NONE();
+        sys.matching          := NONE();
+        sys.strongComponents  := NONE();
+        sys.jacobian          := NONE();
+      end if;
+    end clone;
+
+    function removeAlias
+      "removes alias strong components and replaces it with their original strong components.
+      used before differentiating for jacobians."
+      input output System sys;
+    protected
+      array<StrongComponent> comps;
+    algorithm
+      if Util.isSome(sys.strongComponents) then
+        // no need to override comps afterwards since arrays are mutable
+        comps := Util.getOption(sys.strongComponents);
+        for i in 1:arrayLength(comps) loop
+          comps[i] := StrongComponent.removeAlias(comps[i]);
+        end for;
+      end if;
+    end removeAlias;
 
   protected
     function partitionKindString

@@ -747,20 +747,10 @@ public function firstN<T>
   "Returns the first N elements of a list, or fails if there are not enough
    elements in the list."
   input list<T> inList;
-  input Integer inN;
-  output list<T> outList = {};
-protected
-  T e;
-  list<T> rest;
+  input Integer N;
+  output list<T> outList;
 algorithm
-  true := (inN >= 0);
-  rest := inList;
-
-  for i in 1:inN loop
-    e :: rest := rest;
-    outList := e :: outList;
-  end for;
-
+  outList := firstN_reverse(inList, N);
   outList := listReverseInPlace(outList);
 end firstN;
 
@@ -774,7 +764,7 @@ protected
   T e;
   list<T> rest;
 algorithm
-  true := (N >= 0);
+  true := N >= 0;
   rest := inList;
 
   for i in 1:N loop
@@ -6606,8 +6596,8 @@ protected
   String endStr = inEndStr;
 algorithm
   if maxLength > 0 and listLength(lst) > maxLength then
-    lst := List.firstN(lst, maxLength);
-    endStr := ", ..." + endStr;
+    lst := firstN(lst, maxLength);
+    endStr := stringAppendList({inDelimitStr, "...", endStr});
   end if;
 
   outString := match(lst, inPrintEmpty)
@@ -6981,6 +6971,46 @@ algorithm
 
   outList := append_reverse(outList, rest);
 end findMap3;
+
+public function findAndMap<T>
+  "Applies a function to the first element in the list for which the predicate
+   function returns true, and returns the new list as well as whether the
+   element was found or not."
+  input list<T> inList;
+  input PredFunc pred;
+  input Func func;
+  output list<T> outList = {};
+  output Boolean found = false;
+
+  partial function PredFunc
+    input T e;
+    output Boolean result;
+  end PredFunc;
+
+  partial function Func
+    input output T e;
+  end Func;
+protected
+  T e;
+  list<T> rest = inList;
+algorithm
+  while not listEmpty(rest) and not found loop
+    e :: rest := rest;
+
+    if pred(e) then
+      e := func(e);
+      found := true;
+    end if;
+
+    outList := e :: outList;
+  end while;
+
+  if found then
+    outList := append_reverse(outList, rest);
+  else
+    outList := inList;
+  end if;
+end findAndMap;
 
 public function findSome<T1,T2>
   "Applies the given function over the list and returns first returned value that is not NONE()."

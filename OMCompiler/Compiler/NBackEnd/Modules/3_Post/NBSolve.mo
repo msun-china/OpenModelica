@@ -51,10 +51,11 @@ public
 
   // backend imports
   import BackendDAE = NBackendDAE;
+  import BackendUtil = NBBackendUtil;
   import Causalize = NBCausalize;
   import Differentiate = NBDifferentiate;
   import NBEquation.{Equation, EquationPointer, EquationPointers, EqData, IfEquationBody, SlicingStatus};
-  import NBVariable.{VariablePointers, VarData};
+  import NBVariable.{VariablePointer, VariablePointers, VarData};
   import BVariable = NBVariable;
   import Replacements = NBReplacements;
   import Slice = NBSlice;
@@ -96,19 +97,27 @@ public
         // The order here is important. Whatever comes first is declared the "original", same components afterwards will be alias
         // Has to be the same order as in SimCode!
         bdae.init       := list(solveSystem(sys, funcTree_ptr, implicit_index_ptr, duplicate_map) for sys in bdae.init);
+        if Util.isSome(bdae.init_0) then
+          bdae.init_0   := SOME(list(solveSystem(sys, funcTree_ptr, implicit_index_ptr, duplicate_map) for sys in Util.getOption(bdae.init_0)));
+        end if;
         bdae.ode        := list(solveSystem(sys, funcTree_ptr, implicit_index_ptr, duplicate_map) for sys in bdae.ode);
         bdae.algebraic  := list(solveSystem(sys, funcTree_ptr, implicit_index_ptr, duplicate_map) for sys in bdae.algebraic);
         bdae.ode_event  := list(solveSystem(sys, funcTree_ptr, implicit_index_ptr, duplicate_map) for sys in bdae.ode_event);
         bdae.alg_event  := list(solveSystem(sys, funcTree_ptr, implicit_index_ptr, duplicate_map) for sys in bdae.alg_event);
         bdae.funcTree   := Pointer.access(funcTree_ptr);
 
+        /*
+        // for now slicing just converts to generic, so deactivate
+        // also: referenceEq doesnt work on alias components
         if Flags.isSet(Flags.DUMP_SLICE) then
           for tpl in UnorderedMap.toList(duplicate_map) loop
             (unsolved, solved) := tpl;
-            print("[dumpSlice] The block:\n" + StrongComponent.toString(unsolved) + "\n"
-              + "[dumpSlice] got sliced to:\n" + List.toString(solved, function StrongComponent.toString(index = -1), "", "", "\n", "") + "\n\n");
+            if not referenceEq(List.first(solved), unsolved) then
+              print("[dumpSlice] The block:\n" + StrongComponent.toString(unsolved) + "\n"
+                + "[dumpSlice] got sliced to:\n" + List.toString(solved, function StrongComponent.toString(index = -1), "", "", "\n", "") + "\n\n");
+            end if;
           end for;
-        end if;
+        end if;*/
 
       then bdae;
 
@@ -178,6 +187,7 @@ public
     (solved_comps, solve_status) := match comp
         local
           Equation eqn;
+          Slice<VariablePointer> var_slice;
           Slice<EquationPointer> eqn_slice;
           Pointer<Equation> eqn_ptr;
           ComponentRef var_cref, eqn_cref;
@@ -238,6 +248,19 @@ public
 
         then (solved_comps, solve_status);
 
+        case StrongComponent.SLICED_COMPONENT(var = var_slice, eqn = eqn_slice) guard(Equation.isArrayEquation(Slice.getT(eqn_slice))) algorithm
+          // array equation solved for the a sliced variable.
+          // get all slices of the variable ocurring in the equation and select the slice that fits the indices
+          eqn := Pointer.access(Slice.getT(eqn_slice));
+          (var_cref, solve_status) := getVarSlice(BVariable.getVarName(Slice.getT(var_slice)), eqn);
+
+          if solve_status < Status.UNSOLVABLE then
+            (eqn, funcTree, solve_status, implicit_index, _) := solveEquation(eqn, var_cref, funcTree, systemType, implicit_index, slicing_map);
+            comp.eqn := Slice.SLICE(Pointer.create(eqn), {});
+            comp.status := solve_status;
+          end if;
+        then ({comp}, solve_status);
+
         case StrongComponent.SLICED_COMPONENT() algorithm
           // just a regular equation solved for a sliced variable
           // use cref instead of var because it has subscripts!
@@ -263,7 +286,8 @@ public
             StrongComponent.SLICED_COMPONENT(var_cref = var_cref, eqn = eqn_slice) := slice;
             (eqn_ptr, slicing_status, solve_status, funcTree) := Equation.slice(Slice.getT(eqn_slice), eqn_slice.indices, SOME(var_cref), funcTree);
             if slicing_status == NBEquation.SlicingStatus.FAILURE then break; end if;
-            eqn := Equation.renameIterators(Pointer.access(eqn_ptr), "$k");
+            Equation.renameIterators(eqn_ptr, "$i");
+            eqn := Pointer.access(eqn_ptr);
             entwined_eqns := Equation.splitIterators(eqn) :: entwined_eqns;
           end for;
 
@@ -383,7 +407,11 @@ public
    algorithm
     (eqn, funcTree, status) := match eqn
       local
+        Equation solved_eqn;
         IfEquationBody if_body;
+        Expression lhs, rhs;
+        list<Option<Pointer<Variable>>> record_parents;
+        Pointer<Variable> parent;
 
       case Equation.IF_EQUATION() algorithm
         (if_body, funcTree, status, implicit_index) := solveIfBody(eqn.body, VariablePointers.fromList(vars), funcTree, systemType, implicit_index, slicing_map);
@@ -395,6 +423,31 @@ public
 
       // for now assume they are solved
       case Equation.WHEN_EQUATION() then (eqn, funcTree, Status.EXPLICIT);
+
+      // solve tuple equations
+      case Equation.RECORD_EQUATION() algorithm
+        (solved_eqn, status) := match (eqn.lhs, eqn.rhs)
+          local
+            Expression exp;
+          case (exp as Expression.TUPLE(), _) guard(tupleSolvable(exp.elements, vars)) then (eqn, Status.EXPLICIT);
+          case (_, exp as Expression.TUPLE()) guard(tupleSolvable(exp.elements, vars)) algorithm
+            eqn.rhs := eqn.lhs;
+            eqn.lhs := exp;
+          then (eqn, Status.EXPLICIT);
+          else algorithm
+            // check if all belong to the same record
+            record_parents := list(BVariable.getParent(var) for var in vars);
+            solved_eqn := match UnorderedSet.unique_list(record_parents, function Util.optionHash(inFunc = BVariable.hash), function Util.optionEqual(inFunc = BVariable.equalName))
+              case {SOME(parent)} algorithm
+                (solved_eqn, funcTree, status, _) := solveBody(eqn, BVariable.getVarName(parent), funcTree);
+              then solved_eqn;
+              else algorithm
+                status := Status.IMPLICIT;
+              then eqn;
+            end match;
+          then (solved_eqn, status);
+        end match;
+      then (solved_eqn, funcTree, status);
 
       else algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for equation:\n" + Equation.toString(eqn)});
@@ -447,17 +500,26 @@ public
     output Status status;
     output Boolean invertRelation     "If the equation represents a relation, this tells if the sign should be inverted";
   protected
+    Type ty;
+    ComponentRef fixed_cref;
     Expression residual, derivative;
     Differentiate.DifferentiationArguments diffArgs;
     Operator divOp, uminOp;
-    Type ty;
   algorithm
-    (eqn, status, invertRelation) := solveSimple(eqn, cref);
+    // fix crefs where the array is of size one
+    fixed_cref := ComponentRef.stripSubscriptsAll(cref);
+    ty := ComponentRef.getSubscriptedType(fixed_cref, true);
+    if Type.isArray(ty) and Type.sizeOf(ty) == 1 then
+      fixed_cref := getVarSlice(fixed_cref, eqn);
+    else
+      fixed_cref := cref;
+    end if;
+    (eqn, status, invertRelation) := solveSimple(eqn, fixed_cref);
     // if the equation does not have a simple structure try to solve with other strategies
     if status == Status.UNPROCESSED then
       residual := Equation.getResidualExp(eqn);
       diffArgs := Differentiate.DIFFERENTIATION_ARGUMENTS(
-        diffCref        = cref,
+        diffCref        = fixed_cref,
         new_vars        = {},
         jacobianHT      = NONE(),
         diffType        = NBDifferentiate.DifferentiationType.SIMPLE,
@@ -465,14 +527,14 @@ public
         scalarized      = false
       );
       (derivative, diffArgs) := Differentiate.differentiateExpressionDump(residual, diffArgs, getInstanceName());
-      derivative := SimplifyExp.simplify(derivative, true);
+      derivative := SimplifyExp.simplifyDump(derivative, true, getInstanceName());
 
       if Expression.isZero(derivative) then
         invertRelation := false;
         status := Status.UNSOLVABLE;
-      elseif not Expression.containsCref(derivative, cref) then
+      elseif not Expression.containsCref(derivative, fixed_cref) then
         // If eqn is linear in cref:
-        (eqn, funcTree) := solveLinear(eqn, residual, derivative, diffArgs, cref, funcTree);
+        (eqn, funcTree) := solveLinear(eqn, residual, derivative, diffArgs, fixed_cref, funcTree);
         // If the derivative is negative, invert possible inequality sign
         invertRelation := Expression.isNegative(derivative);
         status := Status.EXPLICIT;
@@ -480,7 +542,7 @@ public
         // If eqn is non-linear in cref
         if Flags.isSet(Flags.FAILTRACE) then
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed to solve Cref: "
-            + ComponentRef.toString(cref) + " in equation:\n" + Equation.toString(eqn)});
+            + ComponentRef.toString(fixed_cref) + " in equation:\n" + Equation.toString(eqn)});
         end if;
         invertRelation := false;
         status := Status.IMPLICIT;
@@ -558,7 +620,7 @@ protected
         ComponentRef checkCref;
         Expression exp;
 
-      // allways checks if exp is independent of cref!
+      // always checks if exp is independent of cref!
 
       // 1. already solved
       // cref = exp
@@ -625,6 +687,56 @@ protected
     eqn := Equation.setLHS(eqn, crefExp);
     eqn := Equation.setRHS(eqn, Expression.UNARY(uminOp, Expression.MULTARY({numerator},{derivative}, mulOp)));
   end solveLinear;
+
+  function tupleSolvable
+    "checks if the tuple expression exactly represents the variables we need to solve for"
+    input list<Expression> tuple_exps;
+    input list<Pointer<Variable>> vars;
+    output Boolean b = false;
+  protected
+    UnorderedMap<ComponentRef, Boolean> map;
+    function boolID
+      input output Boolean b;
+    end boolID;
+  algorithm
+    if listLength(tuple_exps) == listLength(vars) then
+      map := UnorderedMap.new<Boolean>(ComponentRef.hash, ComponentRef.isEqual);
+      // add all variables to solve for
+      for var in vars loop
+        UnorderedMap.add(BVariable.getVarName(var), false, map);
+      end for;
+      // set the map entry for all variables that occur to true
+      for exp in tuple_exps loop
+        _ := match exp
+          case Expression.CREF() guard(UnorderedMap.contains(exp.cref, map)) algorithm
+            UnorderedMap.add(exp.cref, true, map);
+          then ();
+          else algorithm return; then ();
+        end match;
+      end for;
+      // check if all variables occured
+      b := List.all(UnorderedMap.valueList(map), boolID);
+    end if;
+  end tupleSolvable;
+
+  function getVarSlice
+    input output ComponentRef var_cref;
+    input Equation eqn;
+    output Status solve_status;
+  protected
+    list<ComponentRef> slices_lst;
+  algorithm
+    slices_lst := Equation.collectCrefs(eqn, function Slice.getSliceCandidates(name = var_cref));
+
+    if listLength(slices_lst) == 1 then
+      var_cref := List.first(slices_lst);
+      solve_status := Status.UNPROCESSED;
+    else
+      // todo: choose best slice of list if more than one.
+      // only fail for listLength == 0
+      solve_status := Status.UNSOLVABLE;
+    end if;
+  end getVarSlice;
 
   annotation(__OpenModelica_Interface="backend");
 end NBSolve;

@@ -1467,9 +1467,14 @@ General Options
 
 -  Optional Features
 
-  -  *Enable instance API* - Enables/disables the use of json based instance api.
-     The instance API enables the features like conditional connectors, dialog enable,
-     replaceable etc.
+  -  *Disable new instance-based graphical editing of models* - Enables/disables the use of instance-based graphical editing.
+     The instance-based graphical editing enables features like parameter-dependent conditional connectors, conditional dialog enable,
+     replaceable classes and models, etc. It also provides much faster rendering than the previously implemented graphical editing framework.
+     This feature has been thoroughly tested, but it could still have some issues;
+     in case the graphical rendering of models fails (blank screen) or is not correct,
+     you can disable the instance-based editing and fall back to the old editing framework.
+     In that case, please open a ticket on the `OpenModelica issue tracker <https://github.com/OpenModelica/OpenModelica/issues/new/choose>`_
+     so we can fix the issue for the next release.
 
 Libraries Options
 ~~~~~~~~~~~~~~~~~
@@ -1732,7 +1737,7 @@ Messages Options
 
 -  General
 
-  -  *Output Size* - Specifies the maximum number of rows the Messages
+  -  *Output Size* - Specifies the maximum number of rows the Message
      Browser may have. If there are more rows then the rows are removed
      from the beginning.
 
@@ -1740,7 +1745,10 @@ Messages Options
      counter before starting the simulation.
 
   -  *Clear messages browser before checking, instantiation & simulation* - If enabled then the
-     messages browser is cleared before checking, instantiation & simulation of model.
+     message browser is cleared before checking, instantiation & simulation of model.
+
+  -  *Do not automatically enlarge message browser when a new message is available* - If enabled then the
+     message browser will not be enlarged instead the tabbar shown will start blinking indicating that a new message is available.
 
 -  Font and Colors
 
@@ -2301,12 +2309,12 @@ scaling used for OMEdit. This is done by changing the `Compatibility` settings f
    the drop-down menu, :numref:`omedit-dpi-settings`.
 
 
-.. figure :: media/omedit-dpi-settings-01.*
+.. figure :: media/omedit-dpi-settings-01.png
   :name: omedit-file-location
 
   Open file location of OpenModelica Connection Editor
 
-.. figure :: media/omedit-dpi-settings-02.*
+.. figure :: media/omedit-dpi-settings-02.png
   :name: omedit-dpi-settings
 
   Change high DPI settings for OMEdit.exe

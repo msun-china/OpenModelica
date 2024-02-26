@@ -1088,7 +1088,7 @@ void DuplicateClassDialog::duplicateClass()
 {
   if (mpNameTextBox->text().isEmpty()) {
     QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
-                          GUIMessages::getMessage(GUIMessages::ENTER_NAME).arg("class"), Helper::ok);
+                          GUIMessages::getMessage(GUIMessages::ENTER_NAME).arg(tr("class")), Helper::ok);
     return;
   }
   /* if path class doesn't exist. */
@@ -1267,6 +1267,8 @@ SaveTotalFileDialog::SaveTotalFileDialog(LibraryTreeItem *pLibraryTreeItem, QWid
   mpObfuscateOutputCheckBox = new QCheckBox(tr("Obfuscate output"));
   mpStripAnnotationsCheckBox = new QCheckBox(tr("Strip annotations"));
   mpStripCommentsCheckBox = new QCheckBox(tr("Strip comments"));
+  mpUseSimplifiedHeuristic = new QCheckBox(tr("Use simplified heuristic"));
+  mpUseSimplifiedHeuristic->setToolTip(tr("Use a simplified identifier-based heuristic that results in larger models but can succeed when the normal method fails."));
   // buttons
   mpOkButton = new QPushButton(Helper::ok);
   mpOkButton->setAutoDefault(true);
@@ -1281,7 +1283,8 @@ SaveTotalFileDialog::SaveTotalFileDialog(LibraryTreeItem *pLibraryTreeItem, QWid
   pMainGridLayout->addWidget(mpObfuscateOutputCheckBox, 0, 0);
   pMainGridLayout->addWidget(mpStripAnnotationsCheckBox, 1, 0);
   pMainGridLayout->addWidget(mpStripCommentsCheckBox, 2, 0);
-  pMainGridLayout->addWidget(mpButtonBox, 3, 0, 1, 1, Qt::AlignRight);
+  pMainGridLayout->addWidget(mpUseSimplifiedHeuristic, 3, 0);
+  pMainGridLayout->addWidget(mpButtonBox, 4, 0, 1, 1, Qt::AlignRight);
   setLayout(pMainGridLayout);
 }
 
@@ -1298,9 +1301,12 @@ void SaveTotalFileDialog::saveTotalModel()
   if (fileName.isEmpty()) { // if user press ESC
     reject();
   } else {
-  // save the model through OMC
-    MainWindow::instance()->getOMCProxy()->saveTotalModel(fileName, mpLibraryTreeItem->getNameStructure(), mpStripAnnotationsCheckBox->isChecked(),
-                                                          mpStripCommentsCheckBox->isChecked(), mpObfuscateOutputCheckBox->isChecked());
+    // save the model through OMC
+    MainWindow::instance()->getOMCProxy()->saveTotalModel(fileName, mpLibraryTreeItem->getNameStructure(),
+      mpStripAnnotationsCheckBox->isChecked(),
+      mpStripCommentsCheckBox->isChecked(),
+      mpObfuscateOutputCheckBox->isChecked(),
+      mpUseSimplifiedHeuristic->isChecked());
     accept();
   }
 }
@@ -1671,11 +1677,7 @@ GraphicsViewProperties::GraphicsViewProperties(GraphicsView *pGraphicsView)
   mpUsesTableWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
   mpUsesTableWidget->setSelectionMode(QAbstractItemView::SingleSelection);
   mpUsesTableWidget->setColumnCount(2);
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 0, 0))
   mpUsesTableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-#else /* Qt4 */
-  mpUsesTableWidget->horizontalHeader()->setResizeMode(QHeaderView::Stretch);
-#endif
   mpUsesTableWidget->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft);
   QStringList headerLabels;
   headerLabels << Helper::library << Helper::version;
@@ -2345,9 +2347,7 @@ void RenameItemDialog::renameItem()
   } else if (mpLibraryTreeItem->getLibraryType() == LibraryTreeItem::CompositeModel) {
     if (mpLibraryTreeItem->getModelWidget()) {
       CompositeModelEditor *pCompositeModelEditor = dynamic_cast<CompositeModelEditor*>(mpLibraryTreeItem->getModelWidget()->getEditor());
-      RenameCompositeModelCommand *pRenameCompositeModelCommand = new RenameCompositeModelCommand(pCompositeModelEditor,
-                                                                                                  mpLibraryTreeItem->getName(),
-                                                                                                  mpNameTextBox->text());
+      RenameCompositeModelCommand *pRenameCompositeModelCommand = new RenameCompositeModelCommand(pCompositeModelEditor, mpLibraryTreeItem->getName(), mpNameTextBox->text());
       mpLibraryTreeItem->getModelWidget()->getUndoStack()->push(pRenameCompositeModelCommand);
       mpLibraryTreeItem->getModelWidget()->updateModelText();
     }
@@ -2356,9 +2356,10 @@ void RenameItemDialog::renameItem()
       MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->showModelWidget(mpLibraryTreeItem, false);
     }
     if (mpLibraryTreeItem->isTopLevel()) {
-      mpLibraryTreeItem->getModelWidget()->createOMSimulatorRenameModelUndoCommand(QString("Rename %1").arg(mpLibraryTreeItem->getNameStructure()),
-                                                                                   mpLibraryTreeItem->getNameStructure(), mpNameTextBox->text());
-      mpLibraryTreeItem->getModelWidget()->updateModelText();
+      ModelWidget *pModelWidget = mpLibraryTreeItem->getModelWidget();
+      pModelWidget->createOMSimulatorRenameModelUndoCommand(QString("Rename %1").arg(mpLibraryTreeItem->getNameStructure()),
+                                                            mpLibraryTreeItem->getNameStructure(), mpNameTextBox->text());
+      pModelWidget->updateModelText();
     } else {
       if (OMSProxy::instance()->rename(mpLibraryTreeItem->getNameStructure(), mpNameTextBox->text())) {
         QString newEditedCref = QString("%1.%2").arg(mpLibraryTreeItem->parent()->getNameStructure(), mpNameTextBox->text());

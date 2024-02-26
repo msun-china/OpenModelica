@@ -129,6 +129,7 @@ public:
   bool isExpanded() const {return mExpanded;}
   void setNonExisting(bool nonExisting) {mNonExisting = nonExisting;}
   bool isNonExisting() const {return mNonExisting;}
+  bool isEncryptedClass() const {return mFileName.endsWith(".moc");}
   bool isAccessAnnotationsEnabled() const {return mAccessAnnotations;}
   void setAccessAnnotations(bool accessAnnotations) {mAccessAnnotations = accessAnnotations;}
   void setOMSElement(oms_element_t *pOMSComponent) {mpOMSElement = pOMSComponent;}
@@ -332,10 +333,14 @@ public:
   void createLibraryTreeItems(LibraryTreeItem *pLibraryTreeItem);
   void unloadFileChildren(LibraryTreeItem *pLibraryTreeItem);
   void emitModelStateChanged(const QString &name) {emit modelStateChanged(name);}
+  bool isCreatingAutoLoadedLibrary() const {return mCreatingAutoLoadedLibrary;}
+  void setCreatingAutoLoadedLibrary(bool creatingAutoLoadedLibrary) {mCreatingAutoLoadedLibrary = creatingAutoLoadedLibrary;}
 private:
   LibraryWidget *mpLibraryWidget;
   LibraryTreeItem *mpRootLibraryTreeItem;
   QList<LibraryTreeItem*> mNonExistingLibraryTreeItemsList;
+  bool mCreatingAutoLoadedLibrary = false;
+
   QModelIndex libraryTreeItemIndexHelper(const LibraryTreeItem *pLibraryTreeItem, const LibraryTreeItem *pParentLibraryTreeItem, const QModelIndex &parentIndex) const;
   LibraryTreeItem* getLibraryTreeItemFromFileHelper(LibraryTreeItem *pLibraryTreeItem, QString fileName, int lineNumber);
   void readLibraryTreeItemClassTextFromText(LibraryTreeItem *pLibraryTreeItem, QString contents);

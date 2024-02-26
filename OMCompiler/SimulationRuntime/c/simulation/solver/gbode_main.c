@@ -59,6 +59,7 @@
 #include "model_help.h"
 #include "newtonIteration.h"
 #include "nonlinearSystem.h"
+#include "omc_math.h"
 #include "simulation/options.h"
 #include "simulation/results/simulation_result.h"
 #include "simulation/jacobian_util.h"
@@ -67,6 +68,8 @@
 #include "util/simulation_options.h"
 #include "util/varinfo.h"
 #include "epsilon.h"
+
+extern void communicateStatus(const char *phase, double completionPercent, double currentTime, double currentStepSize);
 
 /**
  * @brief Calculate function values of function ODE f(t,y).
@@ -815,7 +818,7 @@ int gbodef_main(DATA *data, threadData_t *threadData, SOLVER_INFO *solverInfo, d
         /* Set NLS user data */
         NLS_USERDATA* nlsUserData = initNlsUserData(data, threadData, -1, gbfData->nlsData, gbfData->jacobian);
         nlsUserData->solverData = (void*) gbfData;
-        solverData->ordinaryData = (void*) nlsKinsolAllocate(gbfData->nlsData->size, nlsUserData, FALSE);
+        solverData->ordinaryData = (void*) nlsKinsolAllocate(gbfData->nlsData->size, nlsUserData, FALSE, gbfData->nlsData->isPatternAvailable);
         break;
       default:
         throwStreamPrint(NULL, "NLS method %s not yet implemented.", GB_NLS_METHOD_NAME[gbfData->nlsSolverMethod]);
@@ -1276,12 +1279,11 @@ int gbode_birate(DATA *data, threadData_t *threadData, SOLVER_INFO *solverInfo)
         }
       }
 
-      // calculate corresponding values for error estimator and step size control (infinity norm)
-      for (i = 0, err=0; i < nStates; i++) {
+      // calculate corresponding values for error estimator and step size control
+      for (i = 0; i < nStates; i++) {
         gbData->errtol[i] = Rtol * fmax(fabs(gbData->y[i]), fabs(gbData->yOld[i])) + Atol;
         gbData->errest[i] = fabs(gbData->y[i] - gbData->yt[i]);
         gbData->err[i] = gbData->tableau->fac * gbData->errest[i] / gbData->errtol[i];
-        err = fmax(err, gbData->err[i]);
       }
 
       if (ACTIVE_STREAM(LOG_GBODE_V))
@@ -1763,12 +1765,11 @@ int gbode_singlerate(DATA *data, threadData_t *threadData, SOLVER_INFO *solverIn
         }
       }
 
-      // calculate corresponding values for error estimator and step size control (infinity norm)
-      for (i = 0, err=0; i < nStates; i++) {
+      // calculate corresponding values for error estimator and step size control
+      for (i = 0; i < nStates; i++) {
         gbData->errtol[i] = Rtol * fmax(fabs(gbData->y[i]), fabs(gbData->yOld[i])) + Atol;
         gbData->errest[i] = fabs(gbData->y[i] - gbData->yt[i]);
         gbData->err[i] = gbData->tableau->fac * gbData->errest[i] / gbData->errtol[i];
-        err = fmax(err, gbData->err[i]);
       }
 
       // Rotate buffer
@@ -1777,7 +1778,7 @@ int gbode_singlerate(DATA *data, threadData_t *threadData, SOLVER_INFO *solverIn
         gbData->stepSizeValues[i] = gbData->stepSizeValues[i - 1];
       }
       // update new values
-      gbData->errValues[0] = err;
+      gbData->errValues[0] = err = _omc_gen_maximumVectorNorm(gbData->err, nStates);
       gbData->stepSizeValues[0] = gbData->stepSize;
 
       // Store performed step size for latter interpolation
@@ -1967,6 +1968,13 @@ int gbode_singlerate(DATA *data, threadData_t *threadData, SOLVER_INFO *solverIn
 
     // reduce step size with respect to the simulation stop time, if necessary
     gbData->stepSize = fmin(gbData->stepSize, stopTime - gbData->time);
+
+    if(omc_flag[FLAG_PORT] && solverInfo->integratorSteps) {
+      if(0 != strcmp("ia", data->simulationInfo->outputFormat)) {
+        communicateStatus("Running", (solverInfo->currentTime - data->simulationInfo->startTime)/(data->simulationInfo->stopTime - data->simulationInfo->startTime), solverInfo->currentTime, solverInfo->currentStepSize);
+      }
+    }
+
   }
   // end of while-loop (gbData->time < targetTime)
 

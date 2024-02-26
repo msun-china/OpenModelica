@@ -44,6 +44,7 @@ protected
   import Expression = NFExpression;
   import NFFlatten.{FunctionTree, FunctionTreeImpl};
   import InstNode = NFInstNode.InstNode;
+  import Prefixes = NFPrefixes;
   import SBGraphUtil = NFSBGraphUtil;
   import Subscript = NFSubscript;
   import Type = NFType;
@@ -93,21 +94,18 @@ public
   algorithm
     bdae := match (systemType, bdae)
       local
-        System.System new_system;
-        list<System.System> systems, new_systems = {};
+        list<System.System> systems;
         VarData varData;
         EqData eqData;
         FunctionTree funcTree;
 
       case (System.SystemType.ODE, BackendDAE.MAIN(ode = systems, varData = varData, eqData = eqData, funcTree = funcTree))
         algorithm
-          for system in systems loop
-            (new_system, varData, eqData, funcTree) := func(system, varData, eqData, funcTree);
-            new_systems := new_system :: new_systems;
-          end for;
-          bdae.ode := listReverse(new_systems);
+          (systems, varData, eqData, funcTree) := applyModule(systems, systemType, varData, eqData, funcTree, func);
+          bdae.ode := systems;
           bdae.varData := varData;
           bdae.eqData := eqData;
+          bdae.funcTree := funcTree;
       then bdae;
 
       case (System.SystemType.INI, BackendDAE.MAIN(init = systems, varData = varData, eqData = eqData, funcTree = funcTree))
@@ -115,24 +113,24 @@ public
           if Flags.isSet(Flags.INITIALIZATION) then
             print(StringUtil.headline_1("Balance Initialization") + "\n");
           end if;
-          for system in systems loop
-            (new_system, varData, eqData, funcTree) := func(system, varData, eqData, funcTree);
-            new_systems := new_system :: new_systems;
-          end for;
-          bdae.init := listReverse(new_systems);
+          (systems, varData, eqData, funcTree) := applyModule(systems, systemType, varData, eqData, funcTree, func);
+          bdae.init := systems;
+          if Util.isSome(bdae.init_0) then
+            (systems, varData, eqData, funcTree) := applyModule(Util.getOption(bdae.init_0), systemType, varData, eqData, funcTree, func);
+            bdae.init_0 := SOME(systems);
+          end if;
           bdae.varData := varData;
           bdae.eqData := eqData;
+          bdae.funcTree := funcTree;
       then bdae;
 
       case (System.SystemType.DAE, BackendDAE.MAIN(dae = SOME(systems), varData = varData, eqData = eqData, funcTree = funcTree))
         algorithm
-          for system in systems loop
-            (new_system, varData, eqData, funcTree) := causalizeDAEMode(system, varData, eqData, funcTree);
-            new_systems := new_system :: new_systems;
-          end for;
-          bdae.dae := SOME(listReverse(new_systems));
+          (systems, varData, eqData, funcTree) := applyModule(systems, systemType, varData, eqData, funcTree, causalizeDAEMode);
+          bdae.dae := SOME(systems);
           bdae.varData := varData;
           bdae.eqData := eqData;
+          bdae.funcTree := funcTree;
       then bdae;
 
       else algorithm
@@ -140,6 +138,61 @@ public
       then fail();
     end match;
   end main;
+
+  function applyModule
+    input list<System.System> systems;
+    input System.SystemType systemType;
+    output list<System.System> new_systems = {};
+    input output VarData varData;
+    input output EqData eqData;
+    input output FunctionTree funcTree;
+    input Module.causalizeInterface func;
+  protected
+    System.System new_system;
+    Boolean violated = false "true if any system violated variability consistency";
+  algorithm
+    for system in systems loop
+      (new_system, varData, eqData, funcTree) := func(system, varData, eqData, funcTree);
+      new_systems := new_system :: new_systems;
+    end for;
+    new_systems := listReverse(new_systems);
+
+    if systemType <> System.SystemType.INI then
+      for system in new_systems loop
+        violated := checkSystemVariabilities(system) or violated;
+      end for;
+      if violated then fail(); end if;
+    end if;
+  end applyModule;
+
+  function checkSystemVariabilities
+    "checks whether variability is valid. Prevents things like `Integer i = time;`"
+    input System.System system;
+    output Boolean violated = false;
+  algorithm
+    if isSome(system.strongComponents) then
+      for scc in Util.getOption(system.strongComponents) loop
+        () := match scc
+          local
+            Type ty1, ty2;
+          case StrongComponent.SINGLE_COMPONENT() algorithm
+            ty1 := Type.removeSizeOneArrays(Variable.typeOf(Pointer.access(scc.var)));
+            ty2 := Type.removeSizeOneArrays(Equation.getType(Pointer.access(scc.eqn)));
+            if not Type.isEqual(ty1, ty2) then
+              // The variability of the equation must be greater or equal to that of the variable it solves.
+              // See MLS section 3.8 Variability of Expressions
+              Error.addMessage(Error.COMPILER_ERROR, {getInstanceName() + " failed. The following strong component has conflicting types: "
+                + Type.toString(ty1) + " != " + Type.toString(ty2)
+                + "\n" + StrongComponent.toString(scc)});
+              violated := true;
+            end if;
+          then ();
+          /* TODO case StrongComponent.MULTI_COMPONENT() */
+          else ();
+        end match;
+      end for;
+    end if;
+  end checkSystemVariabilities;
 
   function simple
     input VariablePointers vars;
@@ -150,7 +203,7 @@ public
     Adjacency.Matrix adj;
     Matching matching;
   algorithm
-     // create scalar adjacency matrix for now
+    // create scalar adjacency matrix for now
     adj := Adjacency.Matrix.create(vars, eqs, matrixType);
     matching := Matching.regular(NBMatching.EMPTY_MATCHING, adj);
     comps := Sorting.tarjan(adj, matching, vars, eqs);

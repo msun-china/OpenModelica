@@ -48,7 +48,7 @@
 #include "Editors/TextEditor.h"
 #include "Editors/MetaModelicaEditor.h"
 #include "LibraryTreeWidget.h"
-#include "OMSimulator.h"
+#include "OMSimulator/OMSimulator.h"
 
 #include <QOpenGLContext>
 #include <QGraphicsView>
@@ -56,7 +56,9 @@
 #include <QStatusBar>
 #include <QListWidget>
 #include <QMdiArea>
+#ifndef OM_OMEDIT_ENABLE_QTWEBENGINE
 #include <QtWebKit>
+#endif
 #include <QtXmlPatterns>
 #include <QSplitter>
 #include <QUndoStack>
@@ -192,9 +194,10 @@ public:
   void drawConnections(ModelInstance::Model *pModelInstance, bool inherited, const ModelInfo &modelInfo);
   void drawTransitions(ModelInstance::Model *pModelInstance, bool inherited, const ModelInfo &modelInfo);
   void drawInitialStates(ModelInstance::Model *pModelInstance, bool inherited, const ModelInfo &modelInfo);
+  void handleCollidingConnections();
 
 
-  void setExtentRectangle(const QRectF rectangle);
+  void setExtentRectangle(const QRectF rectangle, bool moveToCenter);
   void setIsCustomScale(bool enable) {mIsCustomScale = enable;}
   bool isCustomScale() {return mIsCustomScale;}
   void setAddClassAnnotationNeeded(bool needed) {mAddClassAnnotationNeeded = needed;}
@@ -244,8 +247,7 @@ public:
   QAction* getFlipHorizontalAction() {return mpFlipHorizontalAction;}
   QAction* getFlipVerticalAction() {return mpFlipVerticalAction;}
   bool performElementCreationChecks(LibraryTreeItem *pLibraryTreeItem, QString *name, QString *defaultPrefix);
-  static ModelInstance::Component* createModelInstanceComponent(ModelInstance::Model *pModelInstance, const QString &name, const QString &className);
-  static void setModifiers(const QString &modelName, const QString &name, QString modifierNames, const ModelInstance::Modifier modifier);
+  static ModelInstance::Component* createModelInstanceComponent(ModelInstance::Model *pModelInstance, const QString &name, const QString &className, bool isConnector);
   bool addComponent(QString className, QPointF position);
   void addComponentToView(QString name, LibraryTreeItem *pLibraryTreeItem, QString annotation, QPointF position,
                           ElementInfo *pComponentInfo, bool addObject, bool openingClass, bool emitComponentAdded);
@@ -254,6 +256,8 @@ public:
   void addElementToOutOfSceneList(Element *pElement) {mOutOfSceneElementsList.append(pElement);}
   void addInheritedElementToList(Element *pElement) {mInheritedElementsList.append(pElement);}
   void addElementToClass(Element *pElement);
+  void addElementItem(Element *pElement);
+  void removeElementItem(Element *pElement);
   void deleteElement(Element *pElement);
   void deleteElementFromClass(Element *pElement);
   void deleteElementFromList(Element *pElement) {mElementsList.removeOne(pElement);}
@@ -365,7 +369,8 @@ private:
   Element* connectorElementAtPosition(QPoint position);
   Element* stateElementAtPosition(QPoint position);
   static bool updateElementConnectorSizingParameter(GraphicsView *pGraphicsView, QString className, Element *pElement);
-  QString getConnectorName(Element *connector);
+  Element* getConnectorElement(ModelInstance::Connector *pConnector);
+  QString getConnectorName(Element *pConnector);
   bool handleDoubleClickOnComponent(QMouseEvent *event);
   void uncheckAllShapeDrawingActions();
   void setOriginAdjustAndInitialize(ShapeAnnotation* shapeAnnotation);
@@ -533,37 +538,6 @@ public:
   bool mPrimitivesVisible;
 };
 
-class MimeData : public QMimeData
-{
-  Q_OBJECT
-public:
-  MimeData() : QMimeData()
-  {
-    mComponents.clear();
-    mConnections.clear();
-    mShapes.clear();
-  }
-  void addComponent(Element *pComponent) {mComponents.append(pComponent);}
-  QList<Element*> getComponents() const {return mComponents;}
-  void addModifier(ModelInstance::Modifier modifier) {mModifiers.append(modifier);}
-  QList<ModelInstance::Modifier> getModifiers() const {return mModifiers;}
-  void addConnection(LineAnnotation *pConnectionLineAnnotation) {mConnections.append(pConnectionLineAnnotation);}
-  QList<LineAnnotation*> getConnections() const {return mConnections;}
-  void addShape(ShapeAnnotation *pShapeAnnotation) {mShapes.append(pShapeAnnotation);}
-  QList<ShapeAnnotation*> getShapes() const {return mShapes;}
-private:
-  QList<Element*> mComponents;
-  QList<ModelInstance::Modifier> mModifiers;
-  QList<LineAnnotation*> mConnections;
-  QList<ShapeAnnotation*> mShapes;
-  // QMimeData interface
-public:
-  virtual QStringList formats() const override
-  {
-    return QStringList() << "text/plain" << Helper::cutCopyPasteFormat;
-  }
-};
-
 class ModelWidgetContainer;
 class ModelicaHighlighter;
 class CompositeModelHighlighter;
@@ -603,9 +577,10 @@ public:
   QMap<QString, QString> getDerivedClassModifiersMap();
 
   bool isNewApi();
-  QString getModelTextForOMCUndoCommand();
   void addDependsOnModel(const QString &dependsOnModel);
   void clearDependsOnModels() {mDependsOnModelsList.clear();}
+  void setHandleCollidingConnectionsNeeded(bool needed) {mHandleCollidingConnectionsNeeded = needed;}
+  bool isHandleCollidingConnectionsNeeded() {return mHandleCollidingConnectionsNeeded;}
 
   void fetchExtendsModifiers(QString extendsClass);
   void reDrawModelWidgetInheritedClasses();
@@ -641,6 +616,7 @@ public:
   void clearSelection();
   void updateClassAnnotationIfNeeded();
   void updateModelText();
+  void callHandleCollidingConnectionsIfNeeded();
   void updateUndoRedoActions();
   bool writeCoSimulationResultFile(QString fileName);
   bool writeVisualXMLFile(QString fileName, bool canWriteVisualXMLFile = false);
@@ -698,6 +674,7 @@ private:
   QTimer mUpdateModelTimer;
   QStringList mDependsOnModelsList;
   bool mHasMissingType = false;
+  bool mHandleCollidingConnectionsNeeded = false;
 
   void createUndoStack();
   void handleCanUndoRedoChanged();

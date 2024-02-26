@@ -218,12 +218,14 @@ class FixedCheckBox : public QCheckBox
   Q_OBJECT
 private:
   bool mDefaultValue;
-  bool mTickState;
+  bool mInheritedValue;
+  bool mFixedState;
 public:
   FixedCheckBox(QWidget *parent = 0);
-  void setTickState(bool defaultValue, bool tickStateString);
-  bool tickState() {return mTickState;}
-  QString tickStateString();
+  void setTickState(bool defaultValue, bool fixedState);
+  bool isDefaultValue() {return mDefaultValue;}
+  bool getInheritedValue() const {return mInheritedValue;}
+  QString getTickStateString() const;
 protected:
   virtual void paintEvent(QPaintEvent *event) override;
 };
@@ -521,6 +523,7 @@ namespace Utilities {
   QString convertSymbolToUnit(const QString &symbol);
   QRectF adjustSceneRectangle(const QRectF sceneRectangle, const qreal factor);
   void setToolTip(QComboBox *pComboBox, const QString &description, const QStringList &optionsDescriptions);
+  bool isMultiline(const QString &text);
 } // namespace Utilities
 
 #endif // UTILITIES_H

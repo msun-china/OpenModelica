@@ -20,7 +20,6 @@ if true then /* Suppress output */
     "../FrontEnd/ComponentReference.mo",
     "../FrontEnd/ConnectionGraph.mo",
     "../FrontEnd/ConnectUtil.mo",
-    "../FrontEnd/Constants.mo",
     "../FrontEnd/DAEDump.mo",
     "../FrontEnd/DAE.mo",
     "../FrontEnd/DAEUtil.mo",
@@ -191,6 +190,7 @@ if true then /* Suppress output */
     "../Util/System.mo",
     "../Util/Testsuite.mo",
     "../Util/UnorderedMap.mo",
+    "../Util/UnorderedSet.mo",
     "../Util/Util.mo",
     "../Util/VarTransform.mo",
     "../Util/Vector.mo",
@@ -300,6 +300,7 @@ if true then /* Suppress output */
     "../NBackEnd/Modules/2_Pre/NBBindings.mo",
     "../NBackEnd/Modules/2_Pre/NBDetectStates.mo",
     "../NBackEnd/Modules/2_Pre/NBEvents.mo",
+    "../NBackEnd/Modules/2_Pre/NBFunctionAlias.mo",
     "../NBackEnd/Modules/2_Pre/NBInline.mo",
     "../NBackEnd/Modules/3_Post/NBJacobian.mo",
     "../NBackEnd/Modules/3_Post/NBSolve.mo",
@@ -527,7 +528,6 @@ if true then /* Suppress output */
     "../Util/SBSet.mo",
     "../Util/SimulationResults.mo",
     "../Util/TaskGraphResults.mo",
-    "../Util/UnorderedSet.mo",
     "../Util/Unzip.mo",
 
     "../../SimulationRuntime/c/RuntimeSources.mo"

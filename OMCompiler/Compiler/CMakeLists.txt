@@ -1,6 +1,7 @@
 
 omc_add_subdirectory(runtime)
 omc_add_subdirectory(boot)
+omc_add_subdirectory(FrontEndCpp)
 
 
 # set(OMC_EXE ${PROJECT_SOURCE_DIR}/../build/bin/omc)
@@ -207,6 +208,9 @@ set_target_properties(OpenModelicaCompiler
 add_custom_command (
     TARGET OpenModelicaCompiler
     POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/AnnotationsBuiltin_1_x.mo ${CMAKE_CURRENT_BINARY_DIR}/lib/omc/AnnotationsBuiltin_1_x.mo
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/AnnotationsBuiltin_2_x.mo ${CMAKE_CURRENT_BINARY_DIR}/lib/omc/AnnotationsBuiltin_2_x.mo
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/AnnotationsBuiltin_3_x.mo ${CMAKE_CURRENT_BINARY_DIR}/lib/omc/AnnotationsBuiltin_3_x.mo
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/ModelicaBuiltin.mo ${CMAKE_CURRENT_BINARY_DIR}/lib/omc/ModelicaBuiltin.mo
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/FrontEnd/MetaModelicaBuiltin.mo ${CMAKE_CURRENT_BINARY_DIR}/lib/omc/MetaModelicaBuiltin.mo
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFModelicaBuiltin.mo ${CMAKE_CURRENT_BINARY_DIR}/lib/omc/NFModelicaBuiltin.mo
@@ -218,6 +222,11 @@ target_compile_definitions(OpenModelicaCompiler PRIVATE ADD_METARECORD_DEFINITIO
 # Silence warnings about extra parenthesized equality checks. if((a==b))
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   target_compile_options(OpenModelicaCompiler PRIVATE -Wno-parentheses-equality)
+endif()
+
+# Silence GCC warnings about invalid reads of MetaModelica strings.
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  target_compile_options(OpenModelicaCompiler PRIVATE -Wno-stringop-overread)
 endif()
 
 # There is a lonely omc_file.h in Util/. It belongs in runtime/. Remove this when it is moved.
@@ -252,6 +261,7 @@ endif()
 target_link_libraries(OpenModelicaCompiler PUBLIC omc::parser)
 target_link_libraries(OpenModelicaCompiler PUBLIC omc::compiler::backendruntime)
 target_link_libraries(OpenModelicaCompiler PUBLIC omc::compiler::runtime)
+target_link_libraries(OpenModelicaCompiler PUBLIC omc::compiler::frontendcpp)
 target_link_libraries(OpenModelicaCompiler PUBLIC omc::simrt::runtime)
 
 # On Windows we need explicitly tell the dll to export all symbols. It is not so good
@@ -283,11 +293,41 @@ endif()
 # Install omc to the directory for RUNTIME (default=bin)
 # They are part of "compiler" installation component. This means that you can
 # install just the files in this component by specifying its name.
-install(TARGETS omc OpenModelicaCompiler
-            COMPONENT omc)
+if(WIN32)
+  # Escape the environment variable path
+  if(NOT DEFINED ENV{MSYSTEM_PREFIX})
+    message(FATAL_ERROR "Environment variable \"MSYSTEM_PREFIX\" is not set.")
+  endif()
+  string(REPLACE "\\" "/" MSYSTEM_PREFIX_ESCAPED "$ENV{MSYSTEM_PREFIX}")
+
+  set(OMCOMPILER_LIB_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}OMCompiler/Compiler/bin)
+  set(SIMULATION_RUNTIME_LIB_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}OMCompiler/SimulationRuntime/c)
+  set(GC_RUNTIME_LIB_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}OMCompiler/3rdParty/gc)
+  set(RUNTIME_LIB_DIRS ${OMPLOT_LIB_DIR} ${OMSIMULATOR_LIB_DIR} ${OMCOMPILER_LIB_DIR} ${SIMULATION_RUNTIME_LIB_DIR} ${GC_RUNTIME_LIB_DIR})
+
+  install(TARGETS OpenModelicaCompiler
+          RUNTIME_DEPENDENCIES
+            DIRECTORIES ${MSYSTEM_PREFIX_ESCAPED}/bin ${RUNTIME_LIB_DIRS}
+            PRE_EXCLUDE_REGEXES "api-ms-" "ext-ms-"
+            POST_EXCLUDE_REGEXES ".*system32/.*\\.dll")
+  install(TARGETS omc
+          COMPONENT omc)
+else(WIN32)
+  install(TARGETS omc OpenModelicaCompiler
+          COMPONENT omc)
+endif(WIN32)
 
 # Install the *ModelicaBuiltin files to <library_dir>/omc/ that is where omc.exe expects them to be.
 # They are also part of "compiler" installation component.
+install(FILES FrontEnd/AnnotationsBuiltin_1_x.mo
+            DESTINATION lib/omc
+            COMPONENT omc)
+install(FILES FrontEnd/AnnotationsBuiltin_2_x.mo
+            DESTINATION lib/omc
+            COMPONENT omc)
+install(FILES FrontEnd/AnnotationsBuiltin_3_x.mo
+            DESTINATION lib/omc
+            COMPONENT omc)
 install(FILES NFFrontEnd/NFModelicaBuiltin.mo
             DESTINATION lib/omc
             COMPONENT omc)

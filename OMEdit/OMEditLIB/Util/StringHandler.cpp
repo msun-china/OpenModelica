@@ -38,15 +38,14 @@
 #include "Helper.h"
 #include "Utilities.h"
 #include "Util/ResourceCache.h"
+#include "om_format.h"
 
 #include <QtCore/qmath.h>
 #include <QDir>
 #include <QFileDialog>
 #include <QTextCodec>
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 0, 0))
 #define toAscii toLatin1
-#endif
 
 
 QString StringHandler::mLastOpenDir;
@@ -1319,17 +1318,7 @@ QString StringHandler::getSaveFileName(QWidget* parent, const QString &caption, 
   }
 
   if (!fileName.isEmpty()) {
-    /* Qt is not reallllyyyy platform independent :(
-     * In older versions of Qt QFileDialog::getSaveFileName doesn't return file extension on Linux.
-     * But it works fine in Qt 4.8.
-     */
     QFileInfo fileInfo(fileName);
-#if defined(Q_OS_LINUX) && QT_VERSION < 0x040800
-    if (fileInfo.suffix() == QString(""))
-      fileName.append(".").append(defaultSuffix);
-#else
-    Q_UNUSED(defaultSuffix);
-#endif
     StringHandler::setLastOpenDirectory(fileInfo.absolutePath());
   }
   return fileName;
@@ -1595,7 +1584,6 @@ QStringList StringHandler::makeVariableParts(QString variable)
 }
 
 #include <iostream>
-using namespace std;
 
 QStringList StringHandler::makeVariablePartsWithInd(QString variable)
 {
@@ -1928,22 +1916,16 @@ QString StringHandler::insertClassAtPosition(QString parentClassText, QString ch
 
 /*!
  * \brief StringHandler::number
- * Helper for QString::number with default precision of 16 instead of 6.
+ * Uses Ryu to format the value.
  * \param value
- * \param hint - default "" otherwise previous value to get a hint on how to format the new one
- * \param format
- * \param precision
  * \return
  */
-QString StringHandler::number(double value, QString hint, char format, int precision)
+QString StringHandler::number(double value)
 {
-  // we have a hint, see if we can use it to display the number in a similar fashion
-  if (hint.contains("e", Qt::CaseInsensitive)) {
-    // we have an e in the hint, attempt to shorten the number!
-    return QString::number(value, format, QLocale::FloatingPointShortest);
-  } else {
-    return QString::number(value, format, precision);
-  }
+  char* buf = ryu_hr_tdzp(value);
+  QString valueStr(buf);
+  free(buf);
+  return valueStr;
 }
 
 /*!

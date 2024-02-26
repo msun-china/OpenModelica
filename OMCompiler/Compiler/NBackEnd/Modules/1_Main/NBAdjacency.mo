@@ -50,7 +50,7 @@ protected
   // NB imports
   import Differentiate = NBDifferentiate;
   import BEquation = NBEquation;
-  import NBEquation.{Equation, EquationAttributes, EquationPointers};
+  import NBEquation.{Equation, EquationAttributes, EquationPointers, Iterator};
   import BVariable = NBVariable;
   import NBVariable.VariablePointers;
 
@@ -59,6 +59,7 @@ protected
   import BackendUtil = NBBackendUtil;
   import BuiltinSystem = System;
   import Slice = NBSlice;
+  import StringUtil;
 
   // SetBased Graph imports
   import SBGraph.BipartiteIncidenceList;
@@ -100,6 +101,10 @@ public
         str := str + "(" + intString(i) + ")\t" + intString(start) + " | " + intString(size) + "\n";
       end for;
     end toString;
+
+    function empty
+      output Mapping mapping = MAPPING(arrayCreate(0, 0), arrayCreate(0, 0),arrayCreate(0, (0,0)),arrayCreate(0, (0,0)));
+    end empty;
 
     function create
       input EquationPointers eqns;
@@ -372,6 +377,36 @@ public
         end for;
       end for;
     end clean;
+
+    function toString
+      input CausalizeModes modes;
+      output String str;
+    protected
+      array<Integer> mtv;
+      array<ComponentRef> mtc;
+    algorithm
+      str := StringUtil.headline_2("Causalization Modes");
+
+      str := str + StringUtil.headline_3("(scalar) mode index -> variable index");
+      for j in 1:arrayLength(modes.mode_to_var) loop
+        mtv := modes.mode_to_var[j];
+        str := str + "[" + intString(j) + "]\t";
+        for i in 1:arrayLength(mtv) loop
+          str := str + "(" + intString(i) + "->" + intString(mtv[i]) + ")";
+        end for;
+        str := str + "\n";
+      end for;
+
+      str := str + "\n" + StringUtil.headline_3("(array) mode index -> variable cref");
+      for j in 1:arrayLength(modes.mode_to_cref) loop
+        mtc := modes.mode_to_cref[j];
+        str := str + "[" + intString(j) + "]\t";
+        for i in 1:arrayLength(mtc) loop
+          str := str + "(" + intString(i) + "->" + ComponentRef.toString(mtc[i]) + ")";
+        end for;
+        str := str + "\n";
+      end for;
+    end toString;
   end CausalizeModes;
 
   uniontype Matrix
@@ -405,13 +440,20 @@ public
       output Matrix adj;
       input output Option<FunctionTree> funcTree = NONE() "only needed for LINEAR without existing derivatives";
     algorithm
-      (adj, funcTree) := match ty
-        case MatrixType.ARRAY  then createArray(vars, eqns, st, funcTree);
-        case MatrixType.PSEUDO then createPseudo(vars, eqns, st, funcTree);
-        else algorithm
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of unknown adjacency matrix type."});
-        then fail();
-      end match;
+      try
+        (adj, funcTree) := match ty
+          case MatrixType.ARRAY  then createArray(vars, eqns, st, funcTree);
+          case MatrixType.PSEUDO then createPseudo(vars, eqns, st, funcTree);
+          else algorithm
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of unknown adjacency matrix type."});
+          then fail();
+        end match;
+      else
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed to create adjacency matrix for system:\n"
+          + VariablePointers.toString(vars, "System") + "\n"
+          + EquationPointers.toString(eqns, "System")});
+        fail();
+      end try;
     end create;
 
     function update
@@ -703,7 +745,7 @@ public
           try
             updateRow(eqn_ptr, diffArgs_ptr, st, vars.map, m, mapping, modes, eqn_idx_arr, funcTree);
           else
-            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for " + Equation.pointerToString(eqn_ptr)});
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for:\n" + Equation.pointerToString(eqn_ptr)});
             fail();
           end try;
           eqn_idx_arr := eqn_idx_arr + 1;
@@ -774,7 +816,7 @@ public
       input Option<FunctionTree> funcTree = NONE()  "only needed for LINEAR without existing derivatives";
     protected
       Equation eqn;
-      Pointer<list<ComponentRef>> unsolvable_ptr = Pointer.create({});
+      UnorderedSet<ComponentRef> unsolvables = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
       list<ComponentRef> dependencies, nonlinear_dependencies, remove_dependencies = {};
       BEquation.EquationAttributes attr;
       Pointer<Equation> derivative;
@@ -785,13 +827,12 @@ public
         case Equation.ALGORITHM() then list(cref for cref guard(UnorderedMap.contains(cref, map)) in listAppend(eqn.alg.inputs, eqn.alg.outputs));
         else Equation.collectCrefs(eqn, function Slice.getDependentCref(map = map, pseudo = true));
       end match;
-      dependencies := List.flatten(list(ComponentRef.scalarizeAll(dep) for dep in dependencies));
 
       if (st < MatrixStrictness.FULL) then
         // SOLVABLE & LINEAR
         // remove all unsolvables
-        BEquation.Equation.map(eqn, function Slice.getUnsolvableExpCrefs(acc = unsolvable_ptr, map = map, pseudo = true));
-        remove_dependencies := Pointer.access(unsolvable_ptr);
+        BEquation.Equation.map(eqn, function Slice.getUnsolvableExpCrefs(acc = unsolvables, map = map, pseudo = true));
+        remove_dependencies := UnorderedSet.toList(unsolvables);
       end if;
 
       if (st < MatrixStrictness.SOLVABLE) then
@@ -837,66 +878,63 @@ public
       list<ComponentRef> unique_dependencies;
     algorithm
       unique_dependencies := list(ComponentRef.simplifySubscripts(dep) for dep in dependencies);
-      unique_dependencies := UnorderedSet.unique_list(unique_dependencies, ComponentRef.hash, ComponentRef.isEqual);
+      if Flags.isSet(Flags.BLT_MATRIX_DUMP) then
+        print("\nFinding dependencies for:\n" + Equation.toString(eqn) + "\n");
+        print("dependencies: " + List.toString(unique_dependencies, ComponentRef.toString) + "\n");
+      end if;
       () := match eqn
         local
           list<Integer> row;
 
         case Equation.FOR_EQUATION() algorithm
           // get expanded matrix rows
-          fillMatrixArray(unique_dependencies, map, mapping, eqn_arr_idx, m, modes,
-            function Slice.getDependentCrefIndicesPseudoFor(iter = eqn.iter));
+          fillMatrixArray(eqn, unique_dependencies, map, mapping, eqn_arr_idx, m, modes, function Slice.getDependentCrefIndicesPseudoFor(iter = eqn.iter));
         then ();
 
         case Equation.ARRAY_EQUATION() algorithm
-          fillMatrixArray(unique_dependencies, map, mapping, eqn_arr_idx, m, modes, Slice.getDependentCrefIndicesPseudoArray);
+          fillMatrixArray(eqn, unique_dependencies, map, mapping, eqn_arr_idx, m, modes, function Slice.getDependentCrefIndicesPseudoFor(iter = Iterator.EMPTY()));
         then ();
 
         case Equation.RECORD_EQUATION() algorithm
-          fillMatrixArray(unique_dependencies, map, mapping, eqn_arr_idx, m, modes, Slice.getDependentCrefIndicesPseudoArray);
+          fillMatrixArray(eqn, unique_dependencies, map, mapping, eqn_arr_idx, m, modes, Slice.getDependentCrefIndicesPseudoFull);
         then ();
 
         case Equation.ALGORITHM() algorithm
           (eqn_scal_idx, eqn_size) := mapping.eqn_AtS[eqn_arr_idx];
           row := Slice.getDependentCrefIndicesPseudoScalar(unique_dependencies, map, mapping);
-          for i in 0:eqn_size-1 loop
-            arrayUpdate(m, eqn_scal_idx+i, listAppend(row, m[eqn_scal_idx+i]));
+          for i in 1:eqn_size loop
+            updateIntegerRow(m, eqn_scal_idx+(i-1), row);
           end for;
         then ();
 
         case Equation.IF_EQUATION() algorithm
-          fillMatrixArray(unique_dependencies, map, mapping, eqn_arr_idx, m, modes, Slice.getDependentCrefIndicesPseudoArray);
+          fillMatrixArray(eqn, unique_dependencies, map, mapping, eqn_arr_idx, m, modes, Slice.getDependentCrefIndicesPseudoFull);
         then ();
 
         case Equation.WHEN_EQUATION() algorithm
-          fillMatrixArray(unique_dependencies, map, mapping, eqn_arr_idx, m, modes, Slice.getDependentCrefIndicesPseudoArray);
+          fillMatrixArray(eqn, unique_dependencies, map, mapping, eqn_arr_idx, m, modes, Slice.getDependentCrefIndicesPseudoFull);
         then ();
 
         else algorithm
           (eqn_scal_idx, _) := mapping.eqn_AtS[eqn_arr_idx];
           row := Slice.getDependentCrefIndicesPseudoScalar(unique_dependencies, map, mapping);
-          arrayUpdate(m, eqn_scal_idx, listAppend(row, m[eqn_scal_idx]));
+          updateIntegerRow(m, eqn_scal_idx, row);
         then ();
       end match;
     end fillMatrix;
 
     function fillMatrixArray
+      "adds multiple rows to the adjacency matrix at once.
+      used for equations with size > 1"
+      input Equation eqn                              "only for debug purposes";
       input list<ComponentRef> unique_dependencies;
       input UnorderedMap<ComponentRef, Integer> map;
       input Adjacency.Mapping mapping;
       input Integer eqn_arr_idx;
       input array<list<Integer>> m;
       input CausalizeModes modes;
-      input getDependentCrefIndices func;
+      input Slice.getDependentCrefIndices func;
     protected
-      partial function getDependentCrefIndices
-        input list<ComponentRef> dependencies;
-        input UnorderedMap<ComponentRef, Integer> map;
-        input Adjacency.Mapping mapping;
-        input Integer eqn_arr_idx;
-        output array<list<Integer>> m_part;
-        output array<array<Integer>> mode_to_var_part;
-      end getDependentCrefIndices;
       Integer eqn_scal_idx, eqn_size;
       array<list<Integer>> m_part;
       array<array<Integer>> mode_to_var_part;
@@ -904,8 +942,13 @@ public
       (eqn_scal_idx, eqn_size) := mapping.eqn_AtS[eqn_arr_idx];
       (m_part, mode_to_var_part) := func(unique_dependencies, map, mapping, eqn_arr_idx);
       // check for arrayLength(m_part) == eqn_size ?
+      if not arrayLength(m_part) == eqn_size then
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because equation size " + intString(eqn_size) +
+         " differs from adjacency matrix row size " + intString(arrayLength(m_part)) + " for equation:\n" + Equation.toString(eqn)});
+        fail();
+      end if;
       // add matrix rows to correct locations and update causalize modes
-      expandRows(m, eqn_scal_idx, m_part);
+      copyRows(m, eqn_scal_idx, m_part);
       if eqn_size > 1 then
         CausalizeModes.update(modes, eqn_scal_idx, eqn_arr_idx, mode_to_var_part, unique_dependencies);
       end if;
@@ -986,15 +1029,26 @@ public
       end if;
     end maxDimTraverse;
 
-    function expandRows
+    function copyRows
       input array<list<Integer>> m;
       input Integer eqn_scal_idx;
       input array<list<Integer>> m_part;
     algorithm
       for i in 1:arrayLength(m_part) loop
-        arrayUpdate(m, eqn_scal_idx+(i-1), listAppend(m_part[i], m[eqn_scal_idx+(i-1)]));
+        updateIntegerRow(m, eqn_scal_idx+(i-1), m_part[i]);
       end for;
-    end expandRows;
+    end copyRows;
+
+    function updateIntegerRow
+      input array<list<Integer>> m;
+      input Integer idx;
+      input list<Integer> row;
+    algorithm
+      arrayUpdate(m, idx, listAppend(row, m[idx]));
+      if Flags.isSet(Flags.BLT_MATRIX_DUMP) then
+        print("Adding to row " + intString(idx) + " " + List.toString(row, intString) + "\n");
+      end if;
+    end updateIntegerRow;
   end Matrix;
 
   annotation(__OpenModelica_Interface="backend");

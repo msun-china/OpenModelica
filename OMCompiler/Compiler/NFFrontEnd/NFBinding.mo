@@ -150,6 +150,7 @@ public
   algorithm
     isBound := match binding
       case UNBOUND() then false;
+      case INVALID_BINDING() then false;
       else true;
     end match;
   end isBound;
@@ -161,6 +162,7 @@ public
     isBound := match binding
       case UNBOUND() then false;
       case CEVAL_BINDING() then false;
+      case INVALID_BINDING() then false;
       else true;
     end match;
   end isExplicitlyBound;
@@ -174,6 +176,16 @@ public
       else false;
     end match;
   end isUnbound;
+
+  function isInvalid
+    input Binding binding;
+    output Boolean isInvalid;
+  algorithm
+    isInvalid := match binding
+      case INVALID_BINDING() then true;
+      else false;
+    end match;
+  end isInvalid;
 
   function untypedExp
     input Binding binding;
@@ -453,6 +465,21 @@ public
       case INVALID_BINDING() then toFlatString(binding.binding, prefix);
     end match;
   end toFlatString;
+
+  function toDebugString
+    input Binding binding;
+    output String string;
+  algorithm
+    string := match binding
+      case UNBOUND() then "UNBOUND";
+      case RAW_BINDING() then "RAW_BINDING";
+      case UNTYPED_BINDING() then "UNTYPED_BINDING";
+      case TYPED_BINDING() then "TYPED_BINDING";
+      case FLAT_BINDING() then "FLAT_BINDING";
+      case CEVAL_BINDING() then "CEVAL_BINDING";
+      case INVALID_BINDING() then "INVALID_BINDING";
+    end match;
+  end toDebugString;
 
   function isEqual
     input Binding binding1;
