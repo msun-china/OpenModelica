@@ -30,6 +30,13 @@
  */
 
 encapsulated package NFConnectionSets
+"Build connection sets from individual connections.
+ 
+ This module organizes connector elements into disjoint connection sets,
+ where each set contains all elements that are directly or transitively connected.
+ These sets are then passed to NFConnectEquations for equation generation.
+ 
+ See ConnectEquations.md for details on the overall connect equation process."
 import DisjointSets;
 import ComponentRef = NFComponentRef;
 import Connector = NFConnector;
