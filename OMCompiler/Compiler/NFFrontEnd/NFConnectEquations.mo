@@ -30,9 +30,23 @@
  */
 
 encapsulated package NFConnectEquations
-" file:        ConnectEquations.mo
-  package:     ConnectEquations
-  description: Functions that generate connect equations.
+" file:        NFConnectEquations.mo
+  package:     NFConnectEquations
+  description: Functions that generate connect equations from connection sets.
+
+  This module implements the Modelica connection semantics for three types of
+  connector variables:
+  
+  1. Potential variables (no prefix): Generate equality equations
+     For n connected elements, generate n-1 equations: x1=x2, x1=x3, ..., x1=xn
+  
+  2. Flow variables (flow prefix): Generate sum-to-zero equations
+     For n connected elements with inside/outside faces, generate:
+     flow1 - flow2 + flow3 - ... = 0 (signs depend on connector face)
+  
+  3. Stream variables (stream prefix): Generate mixing equations
+     Complex equations based on flow directions and connection topology.
+     See ConnectEquations.md for detailed documentation.
 
 "
 
@@ -80,6 +94,15 @@ constant Expression EQ_ASSERT_STR =
 
 public
 function generateEquations
+  "Generates equations for all connection sets.
+  
+   This is the main entry point for connect equation generation.
+   Each connection set is processed based on its connector type:
+   - Potential sets: Generate equality equations (x1=x2, x1=x3, ...)
+   - Flow sets: Generate sum-to-zero equations (f1+f2+f3=0)
+   - Stream sets: Generate mixing equations based on flow directions
+   
+   See ConnectEquations.md for detailed rules and examples."
   input array<list<Connector>> sets;
   input UnorderedMap<ComponentRef, Variable> variables;
   output list<Equation> equations = {};
@@ -197,10 +220,26 @@ algorithm
 end getSetType;
 
 function generatePotentialEquations
-  "Generating the equations for a set of potential variables means equating all
-   the components. For n components, this will give n-1 equations. For example,
-   if the set contains the components X, Y.A and Z.B, the equations generated
-   will be X = Y.A and X = Z.B."
+  "Generates equations for a set of potential (non-flow, non-stream) connector variables.
+   
+   RULE: For a connection set with n potential variables, generate n-1 equality equations
+   by equating all variables to the first one.
+   
+   Example: For set {X, Y.A, Z.B}, generate:
+     X = Y.A
+     X = Z.B
+   
+   VARIABILITY HANDLING:
+   - If variability > PARAMETER: Generate equality equations (x1 = x2)
+   - If variability ≤ PARAMETER: Generate assertion checks (assert(x1 == x2))
+     to verify that constant/parameter values are equal at compile time
+   
+   ARRAY HANDLING:
+   - For array connectors, wrap equations in for-loops over array dimensions
+   
+   LOCAL I/O EXPOSURE:
+   - If flag --exposeLocalIOs > 0, collect input/output variables that are
+     inside connectors for later processing"
   input list<Connector> elements;
   output list<Equation> equations;
   input output UnorderedSet<ComponentRef> connectedLocalIOs;
@@ -359,6 +398,25 @@ end makeEqualityAssert;
 //end shouldFlipPotentialEquation;
 
 function generateFlowEquations
+  "Generates sum-to-zero equation for a set of flow connector variables.
+   
+   RULE: For a connection set with flow variables, generate a single equation
+   that sums all flows to zero, applying sign conventions based on connector face.
+   
+   SIGN CONVENTION:
+   - INSIDE connectors: Positive contribution (+flow)
+   - OUTSIDE connectors: Negative contribution (-flow)
+   
+   Example: For connection set {f1(inside), f2(outside), f3(inside)}:
+     f1 - f2 + f3 = 0
+   
+   PHYSICAL MEANING:
+   This implements conservation laws (Kirchhoff's current law for electrical,
+   mass conservation for fluid, force/torque balance for mechanical).
+   
+   ARRAY HANDLING:
+   - For array connectors, wrap equation in for-loops over array dimensions
+   - Each array element gets its own sum equation"
   input list<Connector> elements;
   output list<Equation> equations;
 protected
@@ -418,7 +476,45 @@ algorithm
 end makeFlowExp;
 
 function generateStreamEquations
-  "Generates the equations for a stream connection set."
+  "Generates equations for a stream connection set.
+   
+   Stream variables represent intensive properties (like temperature, concentration)
+   that are transported by flows. The equations generated depend on the connection
+   topology and flow directions.
+   
+   CONNECTION CASES:
+   
+   1. Unconnected (single inside, no outside):
+      No equation generated
+   
+   2. Two inside connectors:
+      No equation generated (both inside same component)
+   
+   3. Two outside connectors (c1, c2):
+      c1 = inStream(c2)
+      c2 = inStream(c1)
+   
+   4. One inside, one outside (c_in, c_out):
+      c_in = c_out
+   
+   5. General case (N inside, M outside):
+      For each outside connector, generate mixing equation that computes
+      the mixed stream value based on all incoming flows:
+      
+      stream_i = (sum(max(flow_j, eps)*inStream(stream_j) for j≠i in outside) +
+                  sum(max(-flow_k, eps)*stream_k for k in inside)) /
+                 (sum(max(flow_j, eps) for j≠i in outside) +
+                  sum(max(-flow_k, eps) for k in inside))
+      
+      where eps is the flow threshold to prevent division by zero.
+   
+   FLOW ASSOCIATION:
+   Each stream variable must have an associated flow variable in the same
+   connector that determines the flow direction and magnitude.
+   
+   OPTIMIZATION:
+   Connectors with provably zero flow (based on min/max attributes) are
+   excluded from the equations to simplify the result."
   input list<Connector> elements;
   input Expression flowThreshold;
   input UnorderedMap<ComponentRef, Variable> variables;
@@ -500,16 +596,34 @@ algorithm
 end streamEquationGeneral;
 
 function streamSumEquationExp
-  "Generates the sum expression used by stream connector equations, given M
-  outside connectors and N inside connectors:
-
-    (sum(max(-flow_exp[i], eps) * stream_exp[i] for i in N) +
-     sum(max( flow_exp[i], eps) * inStream(stream_exp[i]) for i in M)) /
-    (sum(max(-flow_exp[i], eps) for i in N) +
-     sum(max( flow_exp[i], eps) for i in M))
-
-  where eps = inFlowThreshold.
-  "
+  "Generates the sum expression used by stream connector equations.
+   
+   This implements the mixing equation for stream variables based on flow-weighted
+   averaging of the incoming streams.
+   
+   FORMULA:
+   Given M outside connectors and N inside connectors, generate:
+   
+     (sum(max(flow_i, eps) * inStream(stream_i) for i in M) +
+      sum(max(-flow_j, eps) * stream_j for j in N)) /
+     (sum(max(flow_i, eps) for i in M) +
+      sum(max(-flow_j, eps) for j in N))
+   
+   where eps = flowThreshold (prevents division by zero)
+   
+   PHYSICAL INTERPRETATION:
+   This computes the mixed stream property value based on the mass-flow-weighted
+   average of all incoming streams. For example, if two streams with different
+   temperatures mix, the result is the flow-weighted average temperature.
+   
+   FLOW THRESHOLD (eps):
+   - Default value from --flowThreshold flag
+   - Multiplied by flow's nominal value if available
+   - Ensures numerical stability when all flows are near zero
+   
+   OPTIMIZATION:
+   Connectors with provably zero flow (from min/max attributes) are filtered
+   out before equation generation to simplify the result."
   input list<Connector> outsideElements;
   input list<Connector> insideElements;
   input Expression flowThreshold;
@@ -662,7 +776,23 @@ algorithm
 end makeInStreamCall;
 
 function makePositiveMaxCall
-  "Generates a max(flow_exp, eps) call."
+  "Generates a max(flow_exp, eps) call for stream equations.
+   
+   PURPOSE:
+   Ensures that the flow term is always positive (or at least eps) to prevent
+   division by zero in stream mixing equations and to handle flow reversal.
+   
+   NOMINAL VALUE ADJUSTMENT:
+   If the associated flow variable has a 'nominal' attribute, multiply the
+   threshold by it:
+     max(flow_exp, eps * nominal)
+   
+   This scaling ensures that the threshold is appropriate for the magnitude
+   of the flow variable.
+   
+   GLOBAL FLAG:
+   Sets global flag indicating we're inside a stream equation, which affects
+   how certain expressions are processed."
   input Expression flowExp;
   input Connector element;
   input Expression flowThreshold;
@@ -774,7 +904,30 @@ algorithm
 end evaluateOperatorArrayConstructorExp;
 
 function evaluateInStream
-  "Evaluates the inStream operator with the given cref as argument."
+  "Evaluates the inStream operator with the given cref as argument.
+   
+   The inStream(c) operator returns the value that the stream variable c
+   would have if the flow were reversed (flowing into the component).
+   
+   EVALUATION RULES:
+   
+   1. Unconnected connector (single inside, no connections):
+      inStream(c) = c
+   
+   2. Two inside connectors (c1, c2):
+      inStream(c1) = c2
+      inStream(c2) = c1
+   
+   3. One inside, one outside (different faces):
+      inStream(c_inside) = inStream(c_outside)
+      (recursively evaluate the outside connector)
+   
+   4. General case (multiple connectors):
+      Compute mixing equation considering all connected streams
+      weighted by their flow rates (see generateInStreamExp)
+   
+   This function is called during expression evaluation when inStream()
+   appears in the model equations."
   input ComponentRef cref;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
@@ -938,8 +1091,25 @@ algorithm
 end isNoFlow;
 
 protected function evaluateActualStream
-  "This function evaluates the actualStream operator for a component reference,
-   given the connection sets."
+  "Evaluates the actualStream operator for a component reference.
+   
+   The actualStream(c) operator returns the actual value of the stream variable
+   considering the flow direction:
+   
+   DEFINITION:
+     actualStream(c) = if flow(c) > 0 then inStream(c) else c
+   
+   COMPILE-TIME OPTIMIZATION:
+   If the flow direction can be determined at compile time from min/max attributes:
+   - If flow always positive (min >= 0): actualStream(c) = inStream(c)
+   - If flow always negative (max <= 0): actualStream(c) = c
+   - Otherwise: Generate the full if-expression
+   
+   ASSOCIATED FLOW:
+   The function identifies the associated flow variable in the same connector
+   to determine the flow direction.
+   
+   Returns both the evaluated expression and the flow cref for further processing."
   input ComponentRef streamCref;
   input ConnectionSets.Sets sets;
   input array<list<Connector>> setsArray;
